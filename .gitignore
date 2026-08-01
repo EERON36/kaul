@@ -1,7 +1,6 @@
 # Environment variables
-.env
-.env.local
-.env.production
+.env*
+!.env.example
 
 # Dependencies
 node_modules/
@@ -9,10 +8,16 @@ node_modules/
 # Next.js
 .next/
 out/
+*.tsbuildinfo
 
 # Logs
 *.log
 logs/
+
+# Test output
+coverage/
+playwright-report/
+test-results/
 
 # Database and backups
 *.db
@@ -21,6 +26,9 @@ backups/
 
 # Uploaded files
 uploads/
+
+# Generated code
+src/generated/prisma/
 
 # Editors and operating systems
 .vscode/
