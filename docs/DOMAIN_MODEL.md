@@ -97,8 +97,7 @@ Users do not directly own clients. Access to clients is established through assi
 
 A user has:
 
-- First name
-- Last name
+- Name
 - Email address
 - Secure authentication credentials
 - Role
@@ -132,6 +131,11 @@ A user may have:
 
 ### User Rules
 
+- `name` is the staff member's complete display and professional name in Version
+  1 and is compatible with Better Auth's canonical `name` field.
+- Milestone 1 must not introduce redundant first-name and last-name fields.
+- A future requirement for structured personal-name components requires a
+  separate domain decision and migration.
 - Every person must use an individual account.
 - Accounts must not be shared.
 - Inactive users cannot authenticate.

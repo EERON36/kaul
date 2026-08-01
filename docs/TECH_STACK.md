@@ -207,7 +207,14 @@ Prisma will provide:
 
 ## Authentication
 
-Version 1 will use application-managed email and password authentication.
+Version 1 will use application-managed email and password authentication through
+Better Auth, as approved in
+`docs/decisions/0001-authentication-strategy.md`. The initially validated stable
+version is Better Auth `1.6.25`.
+
+Better Auth handles authentication mechanics. Kaul's server-side application
+layer remains responsible for business authorisation, organisation boundaries,
+roles, assignments, lifecycle rules, and audit requirements.
 
 There will be no public registration page.
 
@@ -242,7 +249,9 @@ The authentication implementation must support:
 - Public self-registration is outside Version 1.
 - Microsoft Entra ID may be added later without replacing the domain user model.
 
-The specific authentication library should be selected during project bootstrapping after reviewing its current maintenance status, security model, and compatibility with the chosen Next.js version.
+Better Auth versions must remain exactly pinned during implementation. Every
+upgrade requires compatibility, generated-schema, Prisma migration, and security
+review; a future version must not be adopted automatically.
 
 The application must not implement password hashing, session cryptography, or token generation from scratch.
 
@@ -792,7 +801,7 @@ ORM and migrations: Prisma
 Runtime validation: Zod
 Complex forms when required: React Hook Form
 Styling: Tailwind CSS with custom design tokens
-Authentication: Maintained authentication library with local credentials
+Authentication: Better Auth with local credentials, according to ADR 0001
 File storage: Replaceable local and S3-compatible storage abstraction
 Unit and integration testing: Vitest
 Component testing: React Testing Library where appropriate
@@ -808,8 +817,10 @@ Primary deployment target: Standard Linux host
 
 ## Current Status
 
-The technical stack is approved for initial project bootstrapping.
+The technical stack is approved for Version 1 implementation planning.
 
-Exact supported versions and the authentication library will be selected and pinned during bootstrapping.
+Better Auth `1.6.25` is the initially validated authentication version. Runtime
+packages must be pinned during implementation, and later upgrades require the
+review described above.
 
 Any material departure from this document should be documented as an architectural decision.

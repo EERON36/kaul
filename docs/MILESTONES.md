@@ -790,21 +790,23 @@ Git reference:
 
 ## Current Phase
 
-### Milestone 1 — Authentication and User Administration: Decision Phase
+### Milestone 1 — Authentication and User Administration: Implementation Planning
 
 Implementation has not started.
 
-Before implementation, the project must decide:
+ADR 0001 is Accepted, and the Better Auth compatibility proof passed. No
+Milestone 1 application functionality has been implemented yet.
 
-- Authentication library
-- Password requirements
-- Session duration and revocation
-- Initial administrator creation
-- Staff account setup
-- Temporary-password or invitation workflow
-- Password change and reset workflow
-- Login rate-limiting approach
-- Production MFA expectations
+Remaining implementation-planning gates are:
+
+- Final `Organisation` relation
+- Validated Admin endpoint wrappers and hooks
+- Initial-administrator workflow
+- Temporary-credential workflow
+- Forced-password-change guard
+- Authentication audit consistency and recovery
+- Final Prisma schema and migration review
+- Authentication implementation task breakdown
 
 ---
 
