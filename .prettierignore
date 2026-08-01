@@ -1,0 +1,11 @@
+.next/
+coverage/
+node_modules/
+out/
+playwright-report/
+src/generated/prisma/
+test-results/
+
+# Preserve established project documentation verbatim.
+AGENTS.md
+docs/

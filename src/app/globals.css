@@ -1,0 +1,188 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4f1eb;
+  --surface: #ffffff;
+  --surface-muted: #eceff1;
+  --navigation: #23445b;
+  --navigation-active: #dce8ef;
+  --text: #18242c;
+  --text-muted: #52616b;
+  --border: #bcc5ca;
+  --focus: #f0b429;
+  --notice-background: #fff4cf;
+  --notice-border: #9a6b00;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font-family: var(--font-plex-sans), Arial, sans-serif;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+a {
+  color: inherit;
+}
+
+a:focus-visible,
+main:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 10;
+  padding: 0.65rem 0.9rem;
+  transform: translateY(-200%);
+  background: var(--surface);
+  border: 2px solid var(--navigation);
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.sidebar {
+  padding: 1.5rem;
+  background: var(--navigation);
+  color: #ffffff;
+}
+
+.wordmark {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 2rem;
+}
+
+.wordmark-name {
+  font-family: var(--font-plex-serif), Georgia, serif;
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.wordmark-description {
+  margin-top: 0.25rem;
+  color: #dbe6ec;
+  font-size: 0.9rem;
+}
+
+.navigation-link {
+  display: block;
+  padding: 0.7rem 0.8rem;
+  border-left: 4px solid transparent;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.navigation-link[aria-current="page"] {
+  background: var(--navigation-active);
+  border-left-color: #ffffff;
+  color: var(--text);
+}
+
+.main-content {
+  min-width: 0;
+}
+
+.environment-notice {
+  padding: 0.75rem clamp(1rem, 4vw, 2.5rem);
+  background: var(--notice-background);
+  border-bottom: 1px solid var(--notice-border);
+  color: #543a00;
+  font-weight: 600;
+}
+
+.page-content {
+  width: min(100% - 2rem, 52rem);
+  margin: 0 auto;
+  padding: clamp(2rem, 6vw, 4rem) 0;
+}
+
+.eyebrow {
+  margin: 0 0 0.4rem;
+  color: var(--text-muted);
+  font-family: var(--font-plex-mono), Consolas, monospace;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1,
+h2 {
+  font-family: var(--font-plex-serif), Georgia, serif;
+}
+
+h1 {
+  margin-bottom: 1rem;
+  font-size: clamp(2rem, 7vw, 3.25rem);
+  line-height: 1.15;
+}
+
+h2 {
+  margin-bottom: 0.65rem;
+  font-size: 1.35rem;
+  line-height: 1.3;
+}
+
+.introductory-text {
+  max-width: 44rem;
+  margin-bottom: 2rem;
+  font-size: 1.15rem;
+}
+
+.status-panel {
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.status-panel p {
+  margin-bottom: 0;
+}
+
+@media (min-width: 48rem) {
+  .app-shell {
+    display: grid;
+    grid-template-columns: 16rem minmax(0, 1fr);
+  }
+
+  .sidebar {
+    min-height: 100vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
