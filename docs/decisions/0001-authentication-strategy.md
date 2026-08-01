@@ -1,6 +1,6 @@
 # ADR 0001: Authentication Strategy
 
-Status: Proposed
+Status: Accepted
 Date: 2026-08-01
 
 ## Context
@@ -18,22 +18,54 @@ and [MILESTONES.md](../MILESTONES.md).
 
 ## Decision
 
-Kaul proposes Better Auth for Version 1 authentication.
+Kaul will use Better Auth for Version 1 authentication.
 
-The currently reviewed stable candidate is Better Auth `1.6.25`. Before
-implementation, `better-auth`, `@better-auth/prisma-adapter`, and the Better Auth
-CLI package must be pinned to exact, mutually compatible stable versions and
-verified against the repository's pinned Next.js, React, Prisma, Node.js, and
-TypeScript versions. Beta, RC, canary, and other prerelease versions are not
-permitted.
+The initially validated stable version is Better Auth `1.6.25`. During
+implementation, `better-auth` and `@better-auth/prisma-adapter` must be pinned to
+exact, mutually compatible stable versions. Beta, RC, canary, and other
+prerelease versions are not permitted.
 
+Future upgrades require compatibility, schema, migration, and security review.
 If the implementation checks below cannot be satisfied by the selected stable
 version, this ADR must return for review rather than being weakened silently.
+
+## Compatibility Evidence
+
+A completed compatibility proof verified Better Auth `1.6.25` with:
+
+- Next.js `16.2.12`
+- React `19.2.8`
+- Prisma `7.9.1`
+- Node.js `24.18.1`
+- npm `11.16.0`
+- TypeScript 6
+- PostgreSQL 18
+
+The proof verified:
+
+- Normal installation without force flags or dependency overrides
+- A clean required dependency tree
+- Prisma 7 custom generated-client compatibility
+- Exact pinned CLI schema generation to a temporary review path
+- Next.js App Router route-handler integration
+- Database-backed sessions and rate limiting
+- Public signup denial with no `User` or `Account` creation
+- Custom Admin permission compatibility
+- Strict TypeScript checking and a production build
+- PostgreSQL integration
+- The existing runtime security-audit policy
+
+This evidence accepts the technology decision. It does not mean that Milestone 1
+authentication or user-administration functionality has been implemented.
 
 ## Responsibility and User Ownership
 
 Kaul will use one shared Better Auth `User` record. Milestone 1 will not add a
 second Kaul user-profile table.
+
+Version 1 uses Better Auth's `name` field as the staff member's one canonical
+complete display and professional name. Separate first-name and last-name fields
+are not added in Milestone 1.
 
 Better Auth owns:
 
@@ -42,18 +74,28 @@ Better Auth owns:
 - Authentication cookies and authentication endpoints
 - Authentication-specific database records
 
-The shared `User` is extended with these Kaul-owned fields:
+The shared `User` is extended with these Kaul-owned additional fields:
 
 - `organisationId`
 - `professionalTitle`
-- `role`
 - `mustChangePassword`
 - `temporaryCredentialExpiresAt`
 
-Kaul owns the fields' meaning, mutation rules, validation, auditing, and use in
-business authorisation. All five fields are server-owned and must reject browser
-input. Better Auth additional fields must use `input: false`; plugin-owned fields
-must receive equivalent endpoint and server-side protection.
+Better Auth's Admin plugin supplies the existing `role` field. That field is the
+single canonical Kaul role field; Kaul must not add another `role` through
+`additionalFields`.
+
+Kaul owns these fields' meaning, mutation rules, validation, auditing, and use in
+business authorisation. The four additional fields use `input: false`. The Admin
+plugin's role field is also server-owned and requires equivalent endpoint and
+server-side protection.
+
+The compatibility proof confirmed that `input: false` excludes the fields from
+ordinary public signup input. It also confirmed that the Admin create-user
+endpoint accepts an unrestricted `data` object through which values such as
+`organisationId`, `professionalTitle`, and `mustChangePassword` can be persisted.
+Therefore, `input: false` is not sufficient protection for Admin-plugin
+endpoints.
 
 There is one canonical role field with exactly two allowed values:
 
@@ -64,11 +106,23 @@ The Admin plugin's role column is this canonical field, not a second role system
 Its custom access-control roles use the two Kaul values. Better Auth's default
 `admin` and `user` meanings, multiple comma-separated roles, and `adminUserIds`
 bypass are not used. Kaul enforces exactly one role and the database schema must
-prevent other stored values. The exact Prisma enum or database constraint must be
-confirmed with the pinned adapter during schema review.
+prevent other stored values.
+
+Better Auth configuration treats the role as a string. The reviewed Prisma
+schema deliberately converts that same required database field to a `UserRole`
+enum containing only `ADMINISTRATOR` and `STAFF_MEMBER`. The Better Auth CLI
+cannot generate this enum directly. The proof confirmed that the reviewed enum
+works through the tested Better Auth and PostgreSQL paths, but Better Auth does
+not officially guarantee this Kaul modification. It must be reviewed and
+retested whenever Better Auth is upgraded.
 
 Organisation membership is evaluated before role checks. A session or a Better
 Auth permission never proves access to Kaul business data by itself.
+
+The proof established only scalar compatibility for `organisationId`. It did not
+establish the final `Organisation` relation, foreign key, required population
+workflow, or consistency of account creation. Those are implementation gates
+before the real authentication migration can be accepted.
 
 ## Prisma Schema and Migration Workflow
 
@@ -80,7 +134,8 @@ The required workflow is:
 1. Configure Better Auth and the selected plugins.
 2. Run the exact pinned CLI schema generator. For the reviewed candidate, the
    command is `npx auth@1.6.25 generate`—never `@latest`.
-3. Inspect and merge the generated models into Kaul's Prisma schema.
+3. Inspect and merge the generated models into Kaul's Prisma schema, including
+   the deliberate conversion of the shared role field to the `UserRole` enum.
 4. Preserve the Prisma 7 generator's custom client output at
    `../src/generated/prisma`.
 5. Create a descriptive, named Prisma migration.
@@ -92,6 +147,11 @@ The required workflow is:
 Better Auth's `migrate` command must not be used with Prisma. Experimental joins
 remain disabled. Every Better Auth upgrade requires a newly generated schema diff
 and normal Prisma migration review.
+
+The `auth` CLI may be installed or invoked only for controlled schema-generation
+work and must use an exact version. It is not a permanent production dependency.
+Its development-only dependency advisories must be reviewed whenever it is used.
+Prisma remains Kaul's only migration system.
 
 ## Authentication Methods and Public Signup
 
@@ -121,10 +181,10 @@ permissions for `ADMINISTRATOR` are:
 - `session`: `list`, `revoke`
 
 `STAFF_MEMBER` receives none of these permissions. The exact permission names and
-the endpoints each permission gates must be verified against the pinned stable
-release before implementation. In particular, verification must prove that
-`ban` covers both deactivation and reactivation, and that `session: revoke`
-covers the required single-session and all-session operations.
+the endpoints each permission gates were verified against Better Auth `1.6.25`.
+The proof confirmed that `ban` covers both deactivation and reactivation and that
+`session: revoke` covers the required single-session and all-session operations.
+Implementation tests must preserve these mappings and denied-access behaviour.
 
 The following permissions and capabilities are forbidden:
 
@@ -138,6 +198,12 @@ The following permissions and capabilities are forbidden:
 Kaul-owned server operations wrap account administration and enforce the current
 database-backed session, active state, organisation, `ADMINISTRATOR` role, target
 rules, final-administrator invariant, input validation, and audit protocol.
+
+Ordinary Kaul application code must never expose or call the raw Admin
+create-user endpoint directly. Validated server-side wrappers and appropriate
+Better Auth hooks must allowlist accepted input, set every server-owned value,
+verify the acting Administrator, enforce organisation and final-administrator
+rules, and create the required audit events.
 
 The mounted Better Auth endpoints remain an attack surface. Common Better Auth
 before/after hooks or an equally strong server-side mechanism must enforce those
@@ -327,17 +393,17 @@ Fault-injection tests cover failures before and after each durable boundary.
 
 Kaul defines these stable action identifiers:
 
-- `authentication.login.succeeded`
-- `authentication.login.failed`
-- `authentication.logout`
-- `authentication.initial-administrator.created`
-- `authentication.staff.created`
-- `authentication.password.changed`
-- `authentication.password.administrator-reset`
-- `authentication.account.deactivated`
-- `authentication.account.reactivated`
-- `authentication.role.changed`
-- `authentication.session.revoked`
+- `LOGIN_SUCCEEDED`
+- `LOGIN_FAILED`
+- `LOGOUT_SUCCEEDED`
+- `INITIAL_ADMIN_CREATED`
+- `STAFF_ACCOUNT_CREATED`
+- `PASSWORD_CHANGED`
+- `PASSWORD_RESET_BY_ADMIN`
+- `ACCOUNT_DEACTIVATED`
+- `ACCOUNT_REACTIVATED`
+- `USER_ROLE_CHANGED`
+- `USER_SESSIONS_REVOKED`
 
 Events record the actor when known, target, organisation, timestamp, result, and a
 safe correlation or operation identifier. They never record passwords, password
@@ -367,22 +433,24 @@ Milestone 1 acceptance requires tests for:
 Security-sensitive tests use the real PostgreSQL adapter where adapter behaviour
 matters. Time boundaries use controlled time rather than slow waits.
 
-## Deferred and Unresolved Decisions
+## Deferred Decisions and Implementation Gates
 
 The Have I Been Pwned plugin is deferred to Milestone 7 — Pilot Readiness. It is a
 required security review item, not a rejected feature. Its network, privacy,
 availability, failure-mode, and user-message implications must be assessed then.
 
-Before this ADR can become Accepted, implementation planning must resolve:
+Acceptance of this design does not resolve the remaining implementation and
+operational gates. Before the real authentication migration and Milestone 1
+implementation can be accepted, planning must resolve:
 
-- Exact stable package pins and a clean compatibility installation
-- Exact Admin permission-to-endpoint mapping in the pinned release
-- Whether the Prisma role field can be constrained to the two Kaul values without
-  adapter incompatibility
-- Direct-endpoint hook coverage for invariants and audit outcomes
+- The final `Organisation` relation, foreign key, and required population flow
+- Direct Admin-endpoint wrapper and hook coverage for invariants and audit
+  outcomes
 - The organisation-approved temporary-credential delivery channel
 - The single-administrator credential-loss recovery procedure
 - Whether any Better Auth and audit writes can safely share a Prisma transaction
+- The final Prisma schema and migration review
+- The authentication implementation task breakdown
 
 ## Consequences
 
