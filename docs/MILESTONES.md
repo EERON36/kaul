@@ -761,36 +761,50 @@ They must not influence Version 1 implementation beyond maintaining clean, reaso
 
 # Current Milestone
 
-The current milestone is:
+# Current Status
 
-## Milestone 0 — Project Foundation
+## Completed
 
-No business feature from later milestones should be implemented during project bootstrapping.
+### Milestone 0 — Project Foundation
 
----
+Completed on 1 August 2026.
 
-# Milestone Completion Process
+Milestone 0 established:
 
-Before marking a milestone complete:
+- Next.js with App Router and strict TypeScript
+- PostgreSQL through Docker Compose
+- Prisma with an empty initial migration
+- Tailwind CSS and IBM Plex fonts
+- Zod environment validation
+- Vitest and Playwright
+- GitHub Actions validation
+- Security audit policy
+- Minimal accessible Swedish application shell
+- Database-aware health endpoint
 
-1. Review its stated goal.
-2. Confirm all completion criteria.
-3. Run type checking.
-4. Run linting.
-5. Run relevant automated tests.
-6. Run the production build.
-7. Review security boundaries.
-8. Review Swedish user-facing text.
-9. Review accessibility of critical workflows.
-10. Review the generated diff.
-11. Remove unrelated work.
-12. Update documentation.
-13. Record unresolved risks.
-14. Commit the completed milestone clearly.
+Completion was verified locally and through GitHub Actions.
 
-A milestone should not be marked complete because most of it works.
+Git reference:
 
-Any intentionally deferred completion criterion must be documented and approved.
+`4bfabda Bootstrap Milestone 0 application foundation (#1)`
+
+## Current Phase
+
+### Milestone 1 — Authentication and User Administration: Decision Phase
+
+Implementation has not started.
+
+Before implementation, the project must decide:
+
+- Authentication library
+- Password requirements
+- Session duration and revocation
+- Initial administrator creation
+- Staff account setup
+- Temporary-password or invitation workflow
+- Password change and reset workflow
+- Login rate-limiting approach
+- Production MFA expectations
 
 ---
 
