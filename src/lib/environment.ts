@@ -9,12 +9,37 @@ const databaseUrlSchema = z
     "DATABASE_URL must use the PostgreSQL protocol.",
   );
 
-export const environmentSchema = z.object({
-  DATABASE_URL: databaseUrlSchema,
-  DEPLOYMENT_ENV: z
-    .enum(["development", "test", "pilot", "production"])
-    .default("development"),
-});
+const betterAuthUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  }, "BETTER_AUTH_URL must use the HTTP or HTTPS protocol.");
+
+export const environmentSchema = z
+  .object({
+    DATABASE_URL: databaseUrlSchema,
+    DEPLOYMENT_ENV: z
+      .enum(["development", "test", "pilot", "production"])
+      .default("development"),
+    BETTER_AUTH_SECRET: z.string().min(32),
+    BETTER_AUTH_URL: betterAuthUrlSchema,
+  })
+  .superRefine((environment, context) => {
+    if (
+      environment.DEPLOYMENT_ENV !== "development" &&
+      environment.DEPLOYMENT_ENV !== "test" &&
+      new URL(environment.BETTER_AUTH_URL).protocol !== "https:"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "BETTER_AUTH_URL must use HTTPS outside development and tests.",
+        path: ["BETTER_AUTH_URL"],
+      });
+    }
+  });
 
 export type Environment = z.infer<typeof environmentSchema>;
 
