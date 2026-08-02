@@ -15,7 +15,10 @@ jobs:
     timeout-minutes: 30
     env:
       DATABASE_URL: postgresql://kaul:ci-development-only@127.0.0.1:5432/kaul
+      INTEGRATION_DATABASE_URL: postgresql://kaul:ci-development-only@127.0.0.1:5432/kaul
       DEPLOYMENT_ENV: test
+      BETTER_AUTH_SECRET: fictional-ci-better-auth-secret-at-least-32-characters
+      BETTER_AUTH_URL: http://localhost:3000
 
     services:
       database:
@@ -62,6 +65,9 @@ jobs:
 
       - name: Run unit tests
         run: npm run test
+
+      - name: Run database integration tests
+        run: npm run test:integration
 
       - name: Build application
         run: npm run build
