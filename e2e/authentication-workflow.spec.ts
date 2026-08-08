@@ -19,9 +19,12 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: integrationDatabaseUrl }),
 });
 const fixtureAuthentication = createAuthentication(prisma);
+const workflowBrowserIp = "192.0.2.121";
 const fixtureIds = new Set<string>();
 const fixtureUserIds = new Set<string>();
-const fixtureRateLimitKeys = new Set<string>();
+const fixtureRateLimitKeys = new Set<string>([
+  `${workflowBrowserIp}|/sign-in/email`,
+]);
 
 const administratorEmail = "slice4.administrator@example.test";
 const temporaryPassword = "Fictional temporary password 2030";
@@ -123,6 +126,8 @@ test.afterAll(async () => {
 test("completes login, forced password change, shell access, logout, and new login", async ({
   page,
 }) => {
+  fixtureRateLimitKeys.add(`${workflowBrowserIp}|/sign-in/email`);
+  await page.setExtraHTTPHeaders({ "x-real-ip": workflowBrowserIp });
   const userId = await createFixtureUser({
     email: administratorEmail,
     password: temporaryPassword,
@@ -197,9 +202,10 @@ test("completes login, forced password change, shell access, logout, and new log
   await expect(page.getByText("Fiktiva Omsorgen")).toBeVisible();
   await expect(page.getByText("Administratör", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Hem" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Personal" })).toBeVisible();
   await expect(
     page.getByRole("link", {
-      name: /Klienter|Personal|Dokument|Sök|Inställningar/,
+      name: /Klienter|Dokument|Sök|Inställningar/,
     }),
   ).toHaveCount(0);
   await expect(page.getByText(userId)).toHaveCount(0);
@@ -208,7 +214,7 @@ test("completes login, forced password change, shell access, logout, and new log
   await page.setExtraHTTPHeaders({
     "x-kaul-role": "STAFF_MEMBER",
     "x-kaul-organisation-id": "browser-controlled",
-    "x-real-ip": "192.0.2.121",
+    "x-real-ip": workflowBrowserIp,
   });
   await page.reload();
   await expect(page.getByText("Administratör", { exact: true })).toBeVisible();

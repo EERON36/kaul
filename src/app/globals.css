@@ -165,12 +165,14 @@ main:focus-visible {
 
 h1,
 h2,
+h3,
 p {
   margin-top: 0;
 }
 
 h1,
-h2 {
+h2,
+h3 {
   font-family: var(--font-plex-serif), Georgia, serif;
 }
 
@@ -278,6 +280,68 @@ h2 {
   color: #ffffff;
   cursor: pointer;
   font: inherit;
+  font-weight: 600;
+}
+
+.secondary-button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.85rem;
+  background: var(--surface);
+  border: 2px solid var(--navigation);
+  color: var(--navigation);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.danger-button {
+  border-color: #8a1c1c;
+  color: #8a1c1c;
+}
+
+.secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.staff-section {
+  margin-top: 2rem;
+  padding: clamp(1rem, 4vw, 1.5rem);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.staff-list {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.staff-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+}
+
+.staff-card h3,
+.staff-card p,
+.staff-card form p {
+  margin-bottom: 0.25rem;
+}
+
+.credential-result {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--notice-background);
+  border: 1px solid var(--notice-border);
+}
+
+.credential-result code {
+  overflow-wrap: anywhere;
+  font-family: var(--font-plex-mono), Consolas, monospace;
   font-weight: 600;
 }
 

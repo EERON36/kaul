@@ -163,7 +163,7 @@ The intended workflow is:
 
 Email invitations may be deferred if they add unnecessary dependency or complexity. A controlled temporary-password workflow is acceptable for the pilot.
 
-Slice 3 creates the initial Administrator only for fictional-data development and pilot verification. `INITIAL_ADMIN_CREATED` remains a required persistent security audit event, but persistent audit infrastructure is deferred. Console output is not an audit event, and the workflow is not production-security complete until that event is stored. An organisation-approved credential-delivery channel and a sole-Administrator recovery procedure also remain required before production operational acceptance.
+Slice 3 creates the initial Administrator only for fictional-data development and pilot verification. The persistent audit foundation now exists, but the bootstrap workflow does not yet store its required `INITIAL_ADMIN_CREATED` event. Console output is not an audit event, and the workflow is not production-security complete until that event is stored. An organisation-approved credential-delivery channel and a sole-Administrator recovery procedure also remain required before production operational acceptance.
 
 ## Explicitly Excluded
 
@@ -822,10 +822,17 @@ operation intents, append-only outcome and recovery events, idempotency keys,
 and database-level immutability. No existing authentication workflow has been
 retrofitted in this foundation slice.
 
+Slice 5 — Staff Management — is implemented and verified. Administrators can
+list, create, deactivate, and reactivate Staff Members within their own
+Organisation. Each protected mutation uses a server-generated operation ID, a
+durable audit intent, and a transactionally coupled successful outcome. Account
+deactivation revokes the target user's sessions as part of the single
+`ACCOUNT_DEACTIVATED` operation; `USER_SESSIONS_REVOKED` remains reserved for a
+future standalone session-revocation operation.
+
 Later Milestone 1 work remains outstanding, including:
 
-- Staff administration, which is the next implementation slice
-- Password-reset and account-deactivation workflows
+- Administrator password-reset workflows
 - Authentication audit persistence, including `LOGIN_SUCCEEDED`,
   `LOGIN_FAILED`, `LOGOUT_SUCCEEDED`, `INITIAL_ADMIN_CREATED`, and
   `PASSWORD_CHANGED`
