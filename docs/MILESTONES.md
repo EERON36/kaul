@@ -814,14 +814,21 @@ verified for fictional development and pilot verification. Persistent
 and sole-Administrator recovery remain outstanding production blockers.
 
 Slice 4 — login, forced first password change, authenticated application shell,
-and logout — is in implementation.
+and logout — is implemented and verified.
+
+The Milestone 1 Audit Foundation is implemented and verified as the prerequisite
+for later protected Administrator mutations. It provides immutable durable
+operation intents, append-only outcome and recovery events, idempotency keys,
+and database-level immutability. No existing authentication workflow has been
+retrofitted in this foundation slice.
 
 Later Milestone 1 work remains outstanding, including:
 
-- Staff administration
+- Staff administration, which is the next implementation slice
 - Password-reset and account-deactivation workflows
 - Authentication audit persistence, including `LOGIN_SUCCEEDED`,
-  `LOGIN_FAILED`, `LOGOUT_SUCCEEDED`, and `PASSWORD_CHANGED`
+  `LOGIN_FAILED`, `LOGOUT_SUCCEEDED`, `INITIAL_ADMIN_CREATED`, and
+  `PASSWORD_CHANGED`
 
 ---
 

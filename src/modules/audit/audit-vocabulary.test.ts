@@ -1,0 +1,169 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  AUDIT_ACTIONS,
+  AUDIT_TARGET_TYPES,
+  auditIntentContextSchema,
+  auditOperationIdSchema,
+} from "./audit-vocabulary";
+
+const operationId = "123e4567-e89b-42d3-a456-426614174000";
+
+function userContext(overrides: Record<string, unknown> = {}) {
+  return {
+    operationId,
+    organisationId: "organisation-1",
+    actorKind: "USER",
+    actorUserId: "user-1",
+    action: "ACCOUNT_DEACTIVATED",
+    targetType: "USER",
+    targetId: "user-2",
+    ...overrides,
+  };
+}
+
+describe("audit vocabulary", () => {
+  it("contains only the accepted UPPER_SNAKE_CASE actions", () => {
+    expect(AUDIT_ACTIONS).toEqual([
+      "LOGIN_SUCCEEDED",
+      "LOGIN_FAILED",
+      "LOGOUT_SUCCEEDED",
+      "INITIAL_ADMIN_CREATED",
+      "STAFF_ACCOUNT_CREATED",
+      "PASSWORD_CHANGED",
+      "PASSWORD_RESET_BY_ADMIN",
+      "ACCOUNT_DEACTIVATED",
+      "ACCOUNT_REACTIVATED",
+      "USER_ROLE_CHANGED",
+      "USER_SESSIONS_REVOKED",
+    ]);
+    expect(
+      AUDIT_ACTIONS.every((action) => /^[A-Z][A-Z0-9_]*$/.test(action)),
+    ).toBe(true);
+  });
+
+  it("uses only the reviewed target vocabulary", () => {
+    expect(AUDIT_TARGET_TYPES).toEqual([
+      "AUTHENTICATION",
+      "ORGANISATION",
+      "USER",
+    ]);
+    expect(
+      auditIntentContextSchema.safeParse(
+        userContext({ targetType: "ARBITRARY_RECORD" }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it("requires user actors to have both user and organisation identifiers", () => {
+    expect(auditIntentContextSchema.safeParse(userContext()).success).toBe(
+      true,
+    );
+    expect(
+      auditIntentContextSchema.safeParse(userContext({ actorUserId: null }))
+        .success,
+    ).toBe(false);
+    expect(
+      auditIntentContextSchema.safeParse(userContext({ organisationId: null }))
+        .success,
+    ).toBe(false);
+  });
+
+  it("rejects user identifiers for system and unauthenticated actors", () => {
+    expect(
+      auditIntentContextSchema.safeParse({
+        ...userContext({
+          actorKind: "SYSTEM",
+          actorUserId: "fake-user",
+          action: "INITIAL_ADMIN_CREATED",
+          targetType: "ORGANISATION",
+          targetId: "organisation-1",
+        }),
+      }).success,
+    ).toBe(false);
+    expect(
+      auditIntentContextSchema.safeParse({
+        ...userContext({
+          actorKind: "UNAUTHENTICATED",
+          actorUserId: "fake-user",
+          action: "LOGIN_FAILED",
+          targetType: "AUTHENTICATION",
+          targetId: null,
+        }),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("allows an unauthenticated event with no known organisation", () => {
+    expect(
+      auditIntentContextSchema.safeParse({
+        operationId,
+        organisationId: null,
+        actorKind: "UNAUTHENTICATED",
+        actorUserId: null,
+        action: "LOGIN_FAILED",
+        targetType: "AUTHENTICATION",
+        targetId: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects invalid action, actor, target and target-id combinations", () => {
+    expect(
+      auditIntentContextSchema.safeParse(
+        userContext({ action: "LOGIN_FAILED" }),
+      ).success,
+    ).toBe(false);
+    expect(
+      auditIntentContextSchema.safeParse(
+        userContext({ targetType: "ORGANISATION" }),
+      ).success,
+    ).toBe(false);
+    expect(
+      auditIntentContextSchema.safeParse(userContext({ targetId: null }))
+        .success,
+    ).toBe(false);
+    expect(
+      auditIntentContextSchema.safeParse(
+        userContext({
+          action: "PASSWORD_CHANGED",
+          targetId: "different-user",
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      auditIntentContextSchema.safeParse({
+        operationId,
+        organisationId: "organisation-1",
+        actorKind: "SYSTEM",
+        actorUserId: null,
+        action: "INITIAL_ADMIN_CREATED",
+        targetType: "ORGANISATION",
+        targetId: "different-organisation",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("strictly rejects arbitrary metadata and sensitive-looking fields", () => {
+    for (const field of [
+      "metadata",
+      "password",
+      "cookie",
+      "databaseUrl",
+      "requestBody",
+      "exception",
+    ]) {
+      expect(
+        auditIntentContextSchema.safeParse(
+          userContext({ [field]: "fictional-sensitive-value" }),
+        ).success,
+      ).toBe(false);
+    }
+  });
+
+  it("accepts only strict UUID operation identifiers", () => {
+    expect(auditOperationIdSchema.safeParse(operationId).success).toBe(true);
+    expect(auditOperationIdSchema.safeParse("not-a-uuid").success).toBe(false);
+    expect(auditOperationIdSchema.safeParse("123").success).toBe(false);
+  });
+});

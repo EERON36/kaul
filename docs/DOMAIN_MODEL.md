@@ -477,9 +477,11 @@ Possible statuses include:
 
 ---
 
-## Audit Event
+## Audit Operation and Event
 
-An audit event records an important action performed in Kaul.
+An audit operation is the immutable durable intent and context for an important
+action performed in Kaul. An audit event records the append-only outcome of that
+operation or a later reviewed recovery.
 
 It exists for traceability, security, and accountability.
 
@@ -501,24 +503,41 @@ Examples include:
 - Data export
 - Administrative access to sensitive operations
 
-An audit event has:
+An audit operation has:
 
-- Organisation
-- Acting user where known
+- A unique operation identifier
+- Organisation where it can be established safely
+- Actor kind and acting User identifier where known
 - Action type
 - Target entity type
-- Target entity identifier
-- Timestamp
-- Result
-- Relevant non-sensitive metadata
+- Optional target entity identifier
+- Creation timestamp
+
+An audit event has:
+
+- The related audit operation
+- Outcome or recovery type
+- Successful, failed, or, for an initial outcome only, ambiguous result
+- Optional resolved target identifier
+- Event timestamp
 
 ### Audit Event Rules
 
-- Audit events are append-only.
-- Ordinary users cannot edit or delete audit events.
+- Audit operations are immutable and audit events are append-only.
+- An operation intent is committed before a protected Administrator mutation
+  starts.
+- Outcomes and recoveries are added as separate records; an intent is never
+  updated into a result.
+- Ordinary users cannot edit or delete audit operations or events.
 - Audit records must not contain full journal text, passwords, authentication secrets, or unnecessary sensitive personal information.
+- Generic audit metadata is not stored. New audit context requires explicit,
+  reviewed fields.
 - Audit events must remain understandable after users or clients are archived.
 - Failed security-relevant actions may be audited even when no authenticated user exists.
+- Actor, Organisation, and target identifiers are immutable historical scalar
+  references rather than lifecycle foreign keys. This permits a bootstrap intent
+  before Organisation creation and prevents lifecycle cascades from removing
+  audit history.
 - Audit retention and access policies will be defined separately.
 - The audit log is not a substitute for the journal.
 

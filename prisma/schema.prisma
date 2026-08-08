@@ -12,6 +12,23 @@ enum UserRole {
   STAFF_MEMBER
 }
 
+enum AuditActorKind {
+  USER
+  SYSTEM
+  UNAUTHENTICATED
+}
+
+enum AuditEventType {
+  OUTCOME
+  RECOVERY
+}
+
+enum AuditResult {
+  SUCCEEDED
+  FAILED
+  AMBIGUOUS
+}
+
 model Organisation {
   id        String   @id
   name      String
@@ -104,4 +121,36 @@ model RateLimit {
 
   @@unique([key])
   @@map("rateLimit")
+}
+
+model AuditOperation {
+  id             String         @id @db.Uuid
+  organisationId String?
+  actorKind      AuditActorKind
+  actorUserId    String?
+  action         String
+  targetType     String
+  targetId       String?
+  createdAt      DateTime       @default(now())
+  events         AuditEvent[]
+
+  @@index([organisationId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+  @@index([targetType, targetId])
+  @@map("auditOperation")
+}
+
+model AuditEvent {
+  id               String         @id @default(uuid()) @db.Uuid
+  operationId      String         @db.Uuid
+  operation        AuditOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  type             AuditEventType
+  result           AuditResult
+  resolvedTargetId String?
+  occurredAt       DateTime       @default(now())
+
+  @@unique([operationId, type])
+  @@index([operationId, occurredAt])
+  @@map("auditEvent")
 }
