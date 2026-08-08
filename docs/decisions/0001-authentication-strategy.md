@@ -337,12 +337,13 @@ It must use the pinned stable Better Auth server API and:
 The command is disabled or refuses execution once initial setup is complete. It
 must use fictional data in automated tests.
 
-`INITIAL_ADMIN_CREATED` remains a required persistent security audit event, but
-persistent audit infrastructure is not implemented in Slice 3. Console output is
-not an audit event. The initial-administrator workflow is therefore not
-production-security complete until that event is persisted. This narrow deferral
-is acceptable only for the current fictional-data development and pilot stage;
-audit persistence is required before sensitive production use.
+`INITIAL_ADMIN_CREATED` remains a required persistent security audit event. The
+later Audit Foundation provides persistent audit infrastructure, but the Slice 3
+initial-administrator workflow has not yet been integrated with it. Console
+output is not an audit event. The workflow is therefore not production-security
+complete until that event is persisted. This narrow deferral is acceptable only
+for the current fictional-data development and pilot stage; audit persistence is
+required before sensitive production use.
 
 ## Rate Limiting and Reverse Proxy Contract
 
@@ -427,9 +428,10 @@ hashes, session tokens, cookies, reset material, or full request bodies. Failed
 login auditing must not change the generic client response or leak account
 existence.
 
-Persistent audit infrastructure is not yet implemented. In particular, Slice 3
-does not persist `INITIAL_ADMIN_CREATED`, so that workflow does not yet satisfy
-this audit requirement and is not production-security complete.
+Persistent audit infrastructure is implemented by the Audit Foundation. Slice 3
+has not yet been retrofitted to persist `INITIAL_ADMIN_CREATED`, so that workflow
+does not yet satisfy this audit requirement and is not production-security
+complete.
 
 ## Required Verification
 
