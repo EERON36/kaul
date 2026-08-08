@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 import { defineConfig } from "vitest/config";
 
 const integrationDatabaseUrl = process.env.INTEGRATION_DATABASE_URL;
@@ -29,6 +31,13 @@ if (
 }
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "server-only": fileURLToPath(
+        new URL("./src/test/server-only.ts", import.meta.url),
+      ),
+    },
+  },
   test: {
     env: {
       DATABASE_URL: integrationDatabaseUrl,

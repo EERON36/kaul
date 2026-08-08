@@ -251,6 +251,6 @@ No production deployment should depend on homelab-specific infrastructure.
 
 # Current Status
 
-Planning.
-
-No production code has been written.
+Milestone 0 is complete, and Milestone 1 implementation is underway. The
+authentication and database foundation exists; later business functionality
+remains unimplemented.
