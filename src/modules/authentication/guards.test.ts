@@ -34,10 +34,14 @@ const databaseUser = {
   role: "STAFF_MEMBER" as const,
   banned: false,
   organisationId: "organisation_database",
+  organisationName: "Fiktiv databasorganisation",
   professionalTitle: "Fiktiv behandlare",
   mustChangePassword: false,
   temporaryCredentialExpiresAt: null,
-  organisation: { id: "organisation_database" },
+  organisation: {
+    id: "organisation_database",
+    name: "Fiktiv databasorganisation",
+  },
 };
 
 function expectGuardError(
@@ -96,7 +100,7 @@ describe("requireAuthenticatedUser", () => {
         professionalTitle: true,
         mustChangePassword: true,
         temporaryCredentialExpiresAt: true,
-        organisation: { select: { id: true } },
+        organisation: { select: { id: true, name: true } },
       },
     });
     expect(user).toEqual({
@@ -105,6 +109,7 @@ describe("requireAuthenticatedUser", () => {
       email: databaseUser.email,
       role: "STAFF_MEMBER",
       organisationId: databaseUser.organisationId,
+      organisationName: databaseUser.organisation.name,
       professionalTitle: databaseUser.professionalTitle,
       mustChangePassword: false,
       credentialState: "APPLICATION_ALLOWED",
@@ -116,6 +121,7 @@ describe("requireAuthenticatedUser", () => {
         "mustChangePassword",
         "name",
         "organisationId",
+        "organisationName",
         "professionalTitle",
         "role",
         "userId",

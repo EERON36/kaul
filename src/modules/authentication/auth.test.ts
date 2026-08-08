@@ -21,6 +21,12 @@ describe("Better Auth configuration", () => {
     });
   });
 
+  it("checks trusted database state before creating a session", () => {
+    expect(
+      authenticationOptions.databaseHooks?.session?.create?.before,
+    ).toEqual(expect.any(Function));
+  });
+
   it("uses database rate limiting and only the Caddy-owned IP header", () => {
     expect(authenticationOptions.rateLimit).toEqual({
       enabled: true,

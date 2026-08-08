@@ -100,6 +100,7 @@ describe("authentication guards with PostgreSQL sessions", () => {
     expect(staffContext).toMatchObject({
       role: "STAFF_MEMBER",
       organisationId: firstOrganisation.id,
+      organisationName: firstOrganisation.name,
       professionalTitle: "Fiktiv behandlare",
     });
 
@@ -146,6 +147,7 @@ describe("authentication guards with PostgreSQL sessions", () => {
         "mustChangePassword",
         "name",
         "organisationId",
+        "organisationName",
         "professionalTitle",
         "role",
         "userId",

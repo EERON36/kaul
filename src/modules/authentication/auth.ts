@@ -1,18 +1,21 @@
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { admin } from "better-auth/plugins";
+import type { Prisma } from "../../generated/prisma/client";
 
 import { getEnvironment } from "../../lib/environment";
 import { prisma } from "../../lib/prisma";
 
 import { adminAccessControl, adminRoles } from "./permissions";
+import { canCreateSession } from "./session-policy";
 
 const environment = getEnvironment();
 
 export const MIN_PASSWORD_LENGTH = 15;
 export const MAX_PASSWORD_LENGTH = 128;
 
-type AuthenticationDatabaseClient = Parameters<typeof prismaAdapter>[0];
+type AuthenticationDatabaseClient = Parameters<typeof prismaAdapter>[0] &
+  Pick<Prisma.TransactionClient, "user">;
 
 export function createAuthenticationOptions(
   databaseClient: AuthenticationDatabaseClient,
@@ -62,6 +65,14 @@ export function createAuthenticationOptions(
       disableSessionRefresh: true,
       cookieCache: {
         enabled: false,
+      },
+    },
+    databaseHooks: {
+      session: {
+        create: {
+          before: async (session) =>
+            canCreateSession(databaseClient, session.userId),
+        },
       },
     },
     rateLimit: {

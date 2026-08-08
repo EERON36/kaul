@@ -1,23 +1,36 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
-import { getEnvironment } from "@/lib/environment";
+import { LogoutButton } from "@/components/authentication/logout-button";
+import { EnvironmentNotice } from "@/components/environment-notice";
+import { KaulWordmark } from "@/components/kaul-wordmark";
+import {
+  AuthenticationGuardError,
+  requireApplicationUser,
+} from "@/modules/authentication/guards";
+import { getApplicationErrorRedirect } from "@/modules/authentication/page-access";
+import { createApplicationShellContext } from "@/modules/users/application-shell";
 
 export const dynamic = "force-dynamic";
 
-const environmentNotices = {
-  development:
-    "Utvecklingsmiljö – använd inte verkliga personuppgifter eller känslig information.",
-  test: "Testmiljö – använd endast fiktiva uppgifter.",
-  pilot:
-    "Pilotmiljö – använd inte verkliga personuppgifter eller känslig information.",
-} as const;
+export default async function Home() {
+  let user;
 
-export default function Home() {
-  const { DEPLOYMENT_ENV } = getEnvironment();
-  const notice =
-    DEPLOYMENT_ENV === "production"
-      ? undefined
-      : environmentNotices[DEPLOYMENT_ENV];
+  try {
+    user = await requireApplicationUser();
+  } catch (error) {
+    if (error instanceof AuthenticationGuardError) {
+      const destination = getApplicationErrorRedirect(error.code);
+
+      if (destination) {
+        redirect(destination);
+      }
+    }
+
+    throw error;
+  }
+
+  const context = createApplicationShellContext(user);
 
   return (
     <div className="app-shell">
@@ -26,36 +39,26 @@ export default function Home() {
       </a>
 
       <aside className="sidebar">
-        <div className="wordmark">
-          <span className="wordmark-name">Kaul</span>
-          <span className="wordmark-description">Social dokumentation</span>
-        </div>
-
+        <KaulWordmark />
         <nav aria-label="Huvudnavigering">
           <Link aria-current="page" className="navigation-link" href="/">
             Hem
           </Link>
         </nav>
+        <div className="signed-in-user">
+          <p className="signed-in-name">{context.name}</p>
+          <p>{context.professionalTitle}</p>
+          <p>{context.roleLabel}</p>
+          <LogoutButton />
+        </div>
       </aside>
 
       <main className="main-content" id="huvudinnehall" tabIndex={-1}>
-        {notice ? <div className="environment-notice">{notice}</div> : null}
-
+        <EnvironmentNotice />
         <div className="page-content">
-          <p className="eyebrow">Milestone 0</p>
-          <h1>Projektgrund</h1>
-          <p className="introductory-text">
-            Kauls tekniska grund förbereds för säker och tillgänglig social
-            dokumentation.
-          </p>
-
-          <section aria-labelledby="current-status" className="status-panel">
-            <h2 id="current-status">Nuvarande status</h2>
-            <p>
-              Inga klientuppgifter eller andra verksamhetsfunktioner har
-              aktiverats.
-            </p>
-          </section>
+          <p className="eyebrow">{context.organisationName}</p>
+          <h1>Översikt</h1>
+          <p className="introductory-text">Du är inloggad i Kaul.</p>
         </div>
       </main>
     </div>
