@@ -1,23 +1,22 @@
 import { expect, test } from "@playwright/test";
 
-test("shows the minimal Swedish application shell", async ({ page }) => {
+test("redirects unauthenticated users to the Swedish login page", async ({
+  page,
+}) => {
   await page.goto("/");
 
+  await expect(page).toHaveURL(/\/login$/);
   await expect(page.locator("html")).toHaveAttribute("lang", "sv");
   await expect(
-    page.getByRole("heading", { level: 1, name: "Projektgrund" }),
+    page.getByRole("heading", { level: 1, name: "Logga in" }),
   ).toBeVisible();
   await expect(
     page.getByText("Testmiljö – använd endast fiktiva uppgifter."),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Hem" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
 });
 
 test("makes the skip link available from the keyboard", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/login");
   await page.keyboard.press("Tab");
 
   const skipLink = page.getByRole("link", { name: "Hoppa till huvudinnehåll" });

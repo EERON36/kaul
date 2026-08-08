@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 
 import { prisma } from "../../lib/prisma";
 import { auth } from "./auth";
+import { getCredentialState } from "./credential-state";
 import type { UserRole } from "./permissions";
 
 export const AUTHENTICATION_GUARD_ERROR_MESSAGE =
@@ -30,10 +31,7 @@ export class AuthenticationGuardError extends Error {
   }
 }
 
-export type CredentialState =
-  | "APPLICATION_ALLOWED"
-  | "PASSWORD_CHANGE_REQUIRED"
-  | "TEMPORARY_CREDENTIAL_EXPIRED";
+export type { CredentialState } from "./credential-state";
 
 type AuthenticatedUserBase = Readonly<{
   userId: string;
@@ -41,6 +39,7 @@ type AuthenticatedUserBase = Readonly<{
   email: string;
   role: UserRole;
   organisationId: string;
+  organisationName: string;
   professionalTitle: string;
 }>;
 
@@ -64,25 +63,6 @@ type TemporaryCredentialExpiredUser = AuthenticatedUserBase &
 
 export type AuthenticatedUser =
   ApplicationUser | PasswordChangeRequiredUser | TemporaryCredentialExpiredUser;
-
-function getCredentialState(
-  mustChangePassword: boolean,
-  temporaryCredentialExpiresAt: Date | null,
-  currentTime: Date,
-): CredentialState {
-  if (!mustChangePassword) {
-    return "APPLICATION_ALLOWED";
-  }
-
-  if (
-    temporaryCredentialExpiresAt !== null &&
-    temporaryCredentialExpiresAt.getTime() <= currentTime.getTime()
-  ) {
-    return "TEMPORARY_CREDENTIAL_EXPIRED";
-  }
-
-  return "PASSWORD_CHANGE_REQUIRED";
-}
 
 /**
  * Low-level identity primitive for authentication-specific workflows that must
@@ -114,7 +94,7 @@ export async function requireAuthenticatedUser(): Promise<AuthenticatedUser> {
       mustChangePassword: true,
       temporaryCredentialExpiresAt: true,
       organisation: {
-        select: { id: true },
+        select: { id: true, name: true },
       },
     },
   });
@@ -145,6 +125,7 @@ export async function requireAuthenticatedUser(): Promise<AuthenticatedUser> {
     email: user.email,
     role: user.role,
     organisationId: user.organisationId,
+    organisationName: user.organisation.name,
     professionalTitle: user.professionalTitle,
   };
 
@@ -171,8 +152,6 @@ export async function requireApplicationUser(): Promise<ApplicationUser> {
   }
 
   if (user.credentialState === "TEMPORARY_CREDENTIAL_EXPIRED") {
-    // This slice denies application access but does not yet prevent Better Auth
-    // from creating a session for an already expired temporary credential.
     throw new AuthenticationGuardError("TEMPORARY_CREDENTIAL_EXPIRED");
   }
 

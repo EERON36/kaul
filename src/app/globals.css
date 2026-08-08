@@ -36,6 +36,8 @@ a {
 }
 
 a:focus-visible,
+button:focus-visible,
+input:focus-visible,
 main:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
@@ -98,6 +100,39 @@ main:focus-visible {
   background: var(--navigation-active);
   border-left-color: #ffffff;
   color: var(--text);
+}
+
+.signed-in-user {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #6f8796;
+  font-size: 0.9rem;
+}
+
+.signed-in-user p {
+  margin-bottom: 0.25rem;
+}
+
+.signed-in-name {
+  font-weight: 600;
+}
+
+.logout-button {
+  min-height: 2.75rem;
+  margin-top: 1rem;
+  padding: 0.55rem 0.85rem;
+  background: transparent;
+  border: 1px solid currentColor;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.logout-button:disabled,
+.primary-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .main-content {
@@ -165,6 +200,95 @@ h2 {
 
 .status-panel p {
   margin-bottom: 0;
+}
+
+.authentication-page {
+  min-height: 100vh;
+}
+
+.authentication-main {
+  display: grid;
+  min-height: calc(100vh - 3rem);
+  padding: clamp(1rem, 5vw, 4rem);
+  place-items: center;
+}
+
+.authentication-panel {
+  width: min(100%, 32rem);
+  padding: clamp(1.5rem, 5vw, 2.75rem);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.authentication-panel .wordmark {
+  margin-bottom: 2.5rem;
+}
+
+.authentication-panel .wordmark-description {
+  color: var(--text-muted);
+}
+
+.authentication-panel h1 {
+  font-size: clamp(2rem, 8vw, 2.75rem);
+}
+
+.form-field {
+  margin-bottom: 1.25rem;
+}
+
+.form-field label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+}
+
+.form-field input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.65rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid #667680;
+  color: var(--text);
+  font: inherit;
+}
+
+.form-help,
+.form-error,
+.form-status {
+  min-height: 1.6rem;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+
+.form-help,
+.form-status {
+  color: var(--text-muted);
+}
+
+.form-error {
+  color: #8a1c1c;
+  font-weight: 600;
+}
+
+.primary-button {
+  min-height: 3rem;
+  padding: 0.65rem 1rem;
+  background: var(--navigation);
+  border: 2px solid var(--navigation);
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.blocked-state {
+  padding: 1.25rem;
+  background: var(--notice-background);
+  border: 1px solid var(--notice-border);
+}
+
+.blocked-state p {
+  margin-bottom: 1rem;
 }
 
 @media (min-width: 48rem) {

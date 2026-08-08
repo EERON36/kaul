@@ -35,10 +35,10 @@ if (
   );
 }
 
+const playwrightBaseUrl = "http://127.0.0.1:3100";
 const betterAuthSecret =
   process.env.BETTER_AUTH_SECRET ??
   "fictional-playwright-secret-at-least-32-characters";
-const betterAuthUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -48,7 +48,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: "list",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: playwrightBaseUrl,
     extraHTTPHeaders: {
       "x-real-ip": "203.0.113.10",
     },
@@ -61,8 +61,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
+    command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
+    url: playwrightBaseUrl,
     reuseExistingServer: false,
     timeout: 120_000,
     env: {
@@ -70,7 +70,7 @@ export default defineConfig({
       INTEGRATION_DATABASE_URL: integrationDatabaseUrl,
       DEPLOYMENT_ENV: "test",
       BETTER_AUTH_SECRET: betterAuthSecret,
-      BETTER_AUTH_URL: betterAuthUrl,
+      BETTER_AUTH_URL: playwrightBaseUrl,
     },
   },
 });

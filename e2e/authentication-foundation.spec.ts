@@ -4,6 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
 
 const integrationDatabaseUrl = process.env.INTEGRATION_DATABASE_URL;
+const playwrightBaseUrl = "http://127.0.0.1:3100";
 
 if (!integrationDatabaseUrl) {
   throw new Error(
@@ -39,7 +40,7 @@ test.use({ trace: "off" });
 
 function fictionalHeaders(ipAddress: string) {
   return {
-    origin: "http://localhost:3000",
+    origin: playwrightBaseUrl,
     "x-real-ip": ipAddress,
   };
 }
@@ -55,16 +56,16 @@ test("public email signup is denied without creating records", async ({
     where: { key: "192.0.2.10|/sign-up/email" },
   });
 
-  const before = {
-    users: await prisma.user.count(),
-    accounts: await prisma.account.count(),
-  };
+  const attemptedEmail = "fictional-public-signup@example.test";
+  const before = await prisma.user.count({
+    where: { email: attemptedEmail },
+  });
 
   const response = await request.post("/api/auth/sign-up/email", {
     headers: fictionalHeaders("192.0.2.10"),
     data: {
       name: "Fiktiv Registrering",
-      email: "fictional-public-signup@example.test",
+      email: attemptedEmail,
       password: "Fictional-Public-Signup-Password-2026!",
       role: "ADMINISTRATOR",
       organisationId: "org_injected_fictional",
@@ -78,8 +79,12 @@ test("public email signup is denied without creating records", async ({
   await expect(response.json()).resolves.toMatchObject({
     code: "EMAIL_PASSWORD_SIGN_UP_DISABLED",
   });
-  await expect(prisma.user.count()).resolves.toBe(before.users);
-  await expect(prisma.account.count()).resolves.toBe(before.accounts);
+  await expect(
+    prisma.user.count({ where: { email: attemptedEmail } }),
+  ).resolves.toBe(before);
+  await expect(
+    prisma.account.count({ where: { user: { email: attemptedEmail } } }),
+  ).resolves.toBe(0);
 });
 
 test("raw Admin HTTP routes return generic 404 responses", async ({
@@ -92,6 +97,8 @@ test("raw Admin HTTP routes return generic 404 responses", async ({
     "/api/auth/admin/impersonate-user",
     "/api/auth/admin/delete-user",
     "/api/auth/admin/set-user-password",
+    "/api/auth/change-password",
+    "/api/auth/change-password/",
   ];
 
   for (const path of paths) {

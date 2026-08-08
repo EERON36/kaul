@@ -805,16 +805,23 @@ Public signup denial, raw Admin HTTP route isolation, database-backed sessions,
 database-backed rate limiting, and Better Auth/Prisma compatibility are
 implemented and tested.
 
-Slice 2 — central authentication and session guards — is the current work.
+Slice 2 — central authentication and session guards — is implemented and
+verified.
+
+Slice 3 — initial Organisation and Administrator bootstrap — is implemented and
+verified for fictional development and pilot verification. Persistent
+`INITIAL_ADMIN_CREATED` audit storage, an approved credential-delivery channel,
+and sole-Administrator recovery remain outstanding production blockers.
+
+Slice 4 — login, forced first password change, authenticated application shell,
+and logout — is in implementation.
 
 Later Milestone 1 work remains outstanding, including:
 
-- Initial-administrator workflow
-- Login and logout interface
-- Forced-password-change workflow
 - Staff administration
 - Password-reset and account-deactivation workflows
-- Authentication audit persistence
+- Authentication audit persistence, including `LOGIN_SUCCEEDED`,
+  `LOGIN_FAILED`, `LOGOUT_SUCCEEDED`, and `PASSWORD_CHANGED`
 
 ---
 
