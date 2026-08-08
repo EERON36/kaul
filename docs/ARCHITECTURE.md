@@ -262,4 +262,6 @@ These features should be additive rather than requiring major redesign.
 
 Architecture approved.
 
-Implementation has not yet started.
+Milestone 0 is complete, and Milestone 1 implementation is underway. The
+authentication and database foundation exists; later business functionality
+remains unimplemented.

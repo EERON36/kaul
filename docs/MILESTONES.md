@@ -790,23 +790,29 @@ Git reference:
 
 ## Current Phase
 
-### Milestone 1 — Authentication and User Administration: Implementation Planning
+### Milestone 1 — Authentication and User Administration: Implementation in Progress
 
-Implementation has not started.
+ADR 0001 remains Accepted.
 
-ADR 0001 is Accepted, and the Better Auth compatibility proof passed. No
-Milestone 1 application functionality has been implemented yet.
+Slice 1 — authentication schema and Better Auth foundation — is implemented and
+verified. The authentication migration has been created, reviewed, tested from
+clean PostgreSQL, and applied to the fictional local development database. The
+required `Organisation` relation and canonical `UserRole` schema are implemented.
 
-Remaining implementation-planning gates are:
+Public signup denial, raw Admin HTTP route isolation, database-backed sessions,
+database-backed rate limiting, and Better Auth/Prisma compatibility are
+implemented and tested.
 
-- Final `Organisation` relation
-- Validated Admin endpoint wrappers and hooks
+Slice 2 — central authentication and session guards — is the current work.
+
+Later Milestone 1 work remains outstanding, including:
+
 - Initial-administrator workflow
-- Temporary-credential workflow
-- Forced-password-change guard
-- Authentication audit consistency and recovery
-- Final Prisma schema and migration review
-- Authentication implementation task breakdown
+- Login and logout interface
+- Forced-password-change workflow
+- Staff administration
+- Password-reset and account-deactivation workflows
+- Authentication audit persistence
 
 ---
 
