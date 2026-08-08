@@ -393,10 +393,24 @@ Examples include:
 
 ### Audit Rules
 
-- Audit events are append-only through ordinary application behaviour.
+- Protected Administrator mutations must first commit an immutable durable audit
+  intent. If the intent cannot be persisted, the mutation must not begin.
+- Mutation outcomes and reviewed recoveries are separate append-only records. An
+  intent is never updated to represent success or failure.
+- Where possible, a transaction-compatible mutation and its successful outcome
+  are committed together after the separate intent transaction.
+- Audit operations are immutable and audit events are append-only through
+  ordinary application behaviour.
+- PostgreSQL rejects ordinary update, delete, and truncate operations against
+  audit records. This protects against accidental application or maintenance
+  mutation, not a database owner deliberately removing the protection.
 - Audit events must use stable action names.
-- Audit metadata must remain minimal.
+- Generic audit metadata is not stored. Context must use explicit reviewed
+  fields and remain minimal.
 - Full journal or document content must not be copied into audit records.
+- Passwords, credentials, hashes, session tokens, cookies, secrets, database
+  URLs, request bodies, exception text, and stack traces must not be stored in
+  audit records.
 - Audit access should be restricted.
 - Important administrative and security-relevant actions must remain attributable where possible.
 - Audit retention will be defined before production use.
