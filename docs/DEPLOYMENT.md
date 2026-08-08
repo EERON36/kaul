@@ -118,6 +118,21 @@ npm run dev
 
 The project should not require multiple undocumented manual setup steps.
 
+## Initial Administrator Bootstrap
+
+The repository-owned bootstrap command generates the initial Administrator's
+temporary credential; the operator does not choose or supply it. The credential
+is shown exactly once after a successful database commit, expires after 24 hours,
+and must be changed before normal application access.
+
+The command is only for a completely empty installation. It refuses when either
+an Organisation or User already exists and is not a repair or recovery tool.
+
+The credential-delivery channel and sole-Administrator recovery procedure still
+require organisational approval. Persistent `INITIAL_ADMIN_CREATED` audit storage
+is also not implemented in the current slice. These unresolved controls block
+sensitive production use; terminal output is not an audit event.
+
 ---
 
 # Pilot Environment

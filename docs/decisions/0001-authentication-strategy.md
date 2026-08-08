@@ -316,17 +316,33 @@ pilot deployment; it must not become a public setup or reset endpoint.
 Initial setup uses a repository-owned operator command, never an HTTP setup page.
 It must use the pinned stable Better Auth server API and:
 
-- Securely prompt for a non-default password without echoing or logging it
-- Validate the same 15-to-128-character policy
-- Create or verify the single organisation idempotently
+- Generate the temporary credential with
+  `randomBytes(32).toString("base64url")`
+- Validate the generated credential against the same 15-to-128-character policy
+- Never accept the credential through arguments, environment variables, standard
+  input, configuration, or operator input
+- Display the plaintext credential exactly once, only after a successful commit,
+  and never persist it separately
+- Set its expiry to 24 hours after creation and require password change before
+  normal application access
+- Run only when both the `User` and `Organisation` counts are zero
+- Refuse with no writes when either count is non-zero; this is not a repair,
+  import, organisation-join, or recovery command
+- Serialize concurrent attempts with a PostgreSQL transaction-scoped advisory
+  lock and repeat the empty-installation checks after acquiring it
 - Create exactly one initial `ADMINISTRATOR`
-- Write a safe audit event
-- Refuse default credentials and accidental repeated setup
-- Detect an existing account after an ambiguous failure before any retry
-- Give an operator a specific recovery result without exposing credentials
+- Create and verify the Organisation, User, and credential Account in one proven
+  Prisma transaction before displaying the credential
 
 The command is disabled or refuses execution once initial setup is complete. It
 must use fictional data in automated tests.
+
+`INITIAL_ADMIN_CREATED` remains a required persistent security audit event, but
+persistent audit infrastructure is not implemented in Slice 3. Console output is
+not an audit event. The initial-administrator workflow is therefore not
+production-security complete until that event is persisted. This narrow deferral
+is acceptable only for the current fictional-data development and pilot stage;
+audit persistence is required before sensitive production use.
 
 ## Rate Limiting and Reverse Proxy Contract
 
@@ -411,6 +427,10 @@ hashes, session tokens, cookies, reset material, or full request bodies. Failed
 login auditing must not change the generic client response or leak account
 existence.
 
+Persistent audit infrastructure is not yet implemented. In particular, Slice 3
+does not persist `INITIAL_ADMIN_CREATED`, so that workflow does not yet satisfy
+this audit requirement and is not production-security complete.
+
 ## Required Verification
 
 Milestone 1 acceptance requires tests for:
@@ -448,7 +468,8 @@ implementation can be accepted, planning must resolve:
   outcomes
 - The organisation-approved temporary-credential delivery channel
 - The single-administrator credential-loss recovery procedure
-- Whether any Better Auth and audit writes can safely share a Prisma transaction
+- Persistent audit storage, including `INITIAL_ADMIN_CREATED`, before sensitive
+  production use
 - The final Prisma schema and migration review
 - The authentication implementation task breakdown
 

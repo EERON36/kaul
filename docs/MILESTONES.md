@@ -163,6 +163,8 @@ The intended workflow is:
 
 Email invitations may be deferred if they add unnecessary dependency or complexity. A controlled temporary-password workflow is acceptable for the pilot.
 
+Slice 3 creates the initial Administrator only for fictional-data development and pilot verification. `INITIAL_ADMIN_CREATED` remains a required persistent security audit event, but persistent audit infrastructure is deferred. Console output is not an audit event, and the workflow is not production-security complete until that event is stored. An organisation-approved credential-delivery channel and a sole-Administrator recovery procedure also remain required before production operational acceptance.
+
 ## Explicitly Excluded
 
 This milestone does not include:
