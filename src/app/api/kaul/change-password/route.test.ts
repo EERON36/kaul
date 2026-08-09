@@ -8,6 +8,7 @@ vi.mock("../../../../modules/authentication/password-change", () => ({
 
 import { AuthenticationGuardError } from "../../../../modules/authentication/guards";
 import { ForcedPasswordChangeError } from "../../../../modules/authentication/password-change-internal";
+import { AuditError } from "../../../../modules/audit/audit";
 
 import { POST } from "./route";
 
@@ -71,7 +72,6 @@ describe("controlled password-change route", () => {
   });
 
   it.each([
-    new ForcedPasswordChangeError("INCONSISTENT_RESULT"),
     new AuthenticationGuardError("INCONSISTENT_ORGANISATION"),
     new Error("fictional internal database detail"),
   ])(
@@ -80,6 +80,27 @@ describe("controlled password-change route", () => {
       passwordChangeMock.mockRejectedValue(error);
 
       await expect(POST(createRequest())).rejects.toBe(error);
+    },
+  );
+
+  it.each([
+    new ForcedPasswordChangeError("INCONSISTENT_RESULT"),
+    new AuditError("OPERATION_REQUIRES_REVIEW"),
+    new AuditError("INCONSISTENT_OPERATION"),
+    new AuditError("INTENT_PERSISTENCE_FAILED"),
+    new AuditError("OUTCOME_PERSISTENCE_FAILED"),
+  ])(
+    "returns a generic cookie-free response for fail-closed audit state",
+    async (error) => {
+      passwordChangeMock.mockRejectedValue(error);
+
+      const response = await POST(createRequest());
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({
+        code: "PASSWORD_CHANGE_FAILED",
+      });
+      expect(response.headers.getSetCookie()).toEqual([]);
     },
   );
 });

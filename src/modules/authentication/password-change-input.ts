@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./auth";
+import { auditOperationIdSchema } from "../audit/audit-vocabulary";
 
 export const forcedPasswordChangeInputSchema = z
   .object({
+    operationId: auditOperationIdSchema.optional(),
     currentPassword: z.string().min(1).max(MAX_PASSWORD_LENGTH),
     newPassword: z.string().min(MIN_PASSWORD_LENGTH).max(MAX_PASSWORD_LENGTH),
     confirmPassword: z.string().max(MAX_PASSWORD_LENGTH),
@@ -18,6 +20,13 @@ export const forcedPasswordChangeInputSchema = z
       });
     }
   });
+
+export const auditedForcedPasswordChangeInputSchema =
+  forcedPasswordChangeInputSchema.refine(
+    (input): input is typeof input & { operationId: string } =>
+      input.operationId !== undefined,
+    { path: ["operationId"], message: "Operation identifier is required." },
+  );
 
 export type ForcedPasswordChangeInput = z.infer<
   typeof forcedPasswordChangeInputSchema

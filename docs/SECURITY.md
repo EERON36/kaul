@@ -1,5 +1,26 @@
 # Kaul Security
 
+## Authentication audit guarantees
+
+Initial Administrator bootstrap persists a `SYSTEM` audit intent before any
+Organisation, User, or Account is created. The planned Organisation UUID is
+both the audit organisation and target. Creation and the successful outcome
+commit in the same locked transaction; definitive rollback is followed by a
+durable failed outcome. An unresolved bootstrap operation blocks new bootstrap
+attempts until reviewed recovery proves the installation empty.
+
+Forced password change persists a server-owned `PASSWORD_CHANGED` intent before
+mutation. Password, forced-change state, sessions, replacement cookies, and the
+successful audit outcome share one transaction boundary. Replacement cookies
+are released only after commit. Definitive rollback records failure; uncertain
+commit state is ambiguous and cannot use a replacement operation identifier.
+The current authenticated browser remains signed in through Better Auth's
+transactionally committed replacement-session rotation; every pre-change
+Session is revoked.
+
+Audit target resolution rejects every non-null `resolvedTargetId` when the
+action policy forbids a target, including the login and logout vocabulary.
+
 Version: 0.1
 
 ---

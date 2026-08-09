@@ -6,7 +6,10 @@ import { z } from "zod";
 
 import type { Prisma } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
-import type { ApplicationUser } from "../authentication/guards";
+import type {
+  ApplicationUser,
+  AuthenticatedUser,
+} from "../authentication/guards";
 import {
   auditActionSchema,
   auditIntentContextSchema,
@@ -16,6 +19,7 @@ import {
   type AuditAction,
   type AuditIntentContext,
 } from "./audit-vocabulary";
+import { throwIfPasswordChangedIntentPersistenceMustFail } from "./audit-test-state";
 
 const AUDIT_ERROR_MESSAGE = "Audit requirement not satisfied.";
 const auditIntentHandleBrand: unique symbol = Symbol("AuditIntentHandle");
@@ -78,6 +82,11 @@ type SystemAuditIntentInput = Readonly<{
 type UnauthenticatedAuditIntentInput = Readonly<{
   operationId: string;
   action: AuditAction;
+}>;
+
+type PasswordChangedAuditIntentInput = Readonly<{
+  operationId: string;
+  actor: Pick<AuthenticatedUser, "userId" | "organisationId">;
 }>;
 
 const unauthenticatedAuditIntentInputSchema = z
@@ -252,6 +261,10 @@ async function persistAuditIntent(
         targetId: context.targetId,
       },
     });
+    throwIfPasswordChangedIntentPersistenceMustFail(
+      context.action,
+      context.operationId,
+    );
     return createIntentHandle(context.operationId);
   } catch (error) {
     if (isUniqueConstraintError(error)) {
@@ -338,6 +351,9 @@ function resolveOutcomeTarget(
   }
 
   const policy = getAuditActionPolicy(operation.action as AuditAction);
+  if (policy.targetId === "FORBIDDEN" && resolvedTargetId != null) {
+    throw new AuditError("INVALID_INPUT");
+  }
   if (
     result === "SUCCEEDED" &&
     "resolvedTargetIdRequiredOnSuccess" in policy &&
@@ -348,6 +364,71 @@ function resolveOutcomeTarget(
   }
 
   return candidate;
+}
+
+export async function requireOldestUnresolvedInitialAdminOperation(
+  transaction: AuditOutcomeDatabaseClient,
+  operationId: string,
+): Promise<void> {
+  const parsedOperationId = auditOperationIdSchema.safeParse(operationId);
+  if (!parsedOperationId.success) throw new AuditError("INVALID_INPUT");
+
+  const oldest = await transaction.auditOperation.findFirst({
+    where: {
+      actorKind: "SYSTEM",
+      action: "INITIAL_ADMIN_CREATED",
+      targetType: "ORGANISATION",
+      events: { none: {} },
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true },
+  });
+
+  if (!oldest || oldest.id !== parsedOperationId.data) {
+    throw new AuditError(
+      "OPERATION_REQUIRES_REVIEW",
+      oldest?.id ?? operationId,
+    );
+  }
+}
+
+export async function recordReviewedInitialAdminFailureInTransaction(
+  transaction: AuditOutcomeDatabaseClient,
+  operationId: string,
+): Promise<void> {
+  const parsedOperationId = auditOperationIdSchema.safeParse(operationId);
+  if (!parsedOperationId.success) throw new AuditError("INVALID_INPUT");
+
+  const operation = await transaction.auditOperation.findUnique({
+    where: { id: parsedOperationId.data },
+    select: {
+      id: true,
+      organisationId: true,
+      actorKind: true,
+      action: true,
+      targetType: true,
+      targetId: true,
+      events: { select: { id: true }, take: 1 },
+    },
+  });
+  if (
+    !operation ||
+    operation.actorKind !== "SYSTEM" ||
+    operation.action !== "INITIAL_ADMIN_CREATED" ||
+    operation.targetType !== "ORGANISATION" ||
+    operation.organisationId === null ||
+    operation.organisationId !== operation.targetId ||
+    operation.events.length !== 0
+  ) {
+    throw new AuditError("INCONSISTENT_OPERATION", parsedOperationId.data);
+  }
+
+  await appendAuditEvent(
+    transaction,
+    createIntentHandle(operation.id),
+    "OUTCOME",
+    "FAILED",
+  );
 }
 
 async function appendAuditEvent(
@@ -492,6 +573,37 @@ export async function createUserAuditIntent(
     actorUserId: input.actor.userId,
     action: input.action,
     targetId: input.target?.targetId,
+  });
+
+  return persistCommittedAuditIntent(context, () =>
+    prisma.$transaction(async (transaction) => {
+      const actor = await transaction.user.findFirst({
+        where: {
+          id: context.actorUserId ?? undefined,
+          organisationId: context.organisationId ?? undefined,
+        },
+        select: { id: true },
+      });
+
+      if (!actor) {
+        throw new AuditError("INCONSISTENT_OPERATION", context.operationId);
+      }
+
+      return persistAuditIntent(transaction, context);
+    }),
+  );
+}
+
+export async function createPasswordChangedAuditIntent(
+  input: PasswordChangedAuditIntentInput,
+): Promise<AuditIntentHandle> {
+  const context = buildIntentContext({
+    operationId: input.operationId,
+    organisationId: input.actor.organisationId,
+    actorKind: "USER",
+    actorUserId: input.actor.userId,
+    action: "PASSWORD_CHANGED",
+    targetId: input.actor.userId,
   });
 
   return persistCommittedAuditIntent(context, () =>

@@ -11,6 +11,7 @@ import {
 import { getPasswordChangeErrorRedirect } from "@/modules/authentication/page-access";
 
 import { PasswordChangeForm } from "./password-change-form";
+import { generateAuditOperationId } from "@/modules/audit/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +63,7 @@ export default async function PasswordChangePage() {
               <p className="introductory-text">
                 Du behöver välja ett nytt lösenord innan du kan använda Kaul.
               </p>
-              <PasswordChangeForm />
+              <PasswordChangeForm operationId={generateAuditOperationId()} />
             </>
           )}
         </div>

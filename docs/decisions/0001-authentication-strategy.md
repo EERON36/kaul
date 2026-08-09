@@ -275,8 +275,14 @@ denied server-side.
 
 The flag and temporary-credential expiry are cleared only after Better Auth
 confirms a successful password change, which must request
-`revokeOtherSessions: true`. Direct URL and direct server-operation bypasses are
-tested.
+`revokeOtherSessions: true`. A durable `PASSWORD_CHANGED` intent precedes the
+mutation. Password, state, session revocation, and successful audit outcome
+commit together, and replacement `Set-Cookie` headers are returned only after
+commit. Audit failure rolls the mutation back; ambiguity returns no replacement
+cookies and requires review. Direct URL and direct server-operation bypasses are
+tested. Better Auth's supported rotation revokes every pre-change Session and
+creates a replacement Session so the current authenticated browser remains
+signed in after the committed response.
 
 ## Temporary Credentials and Reset
 
@@ -346,13 +352,14 @@ It must use the pinned stable Better Auth server API and:
 The command is disabled or refuses execution once initial setup is complete. It
 must use fictional data in automated tests.
 
-`INITIAL_ADMIN_CREATED` remains a required persistent security audit event. The
-later Audit Foundation provides persistent audit infrastructure, but the Slice 3
-initial-administrator workflow has not yet been integrated with it. Console
-output is not an audit event. The workflow is therefore not production-security
-complete until that event is persisted. This narrow deferral is acceptable only
-for the current fictional-data development and pilot stage; audit persistence is
-required before sensitive production use.
+`INITIAL_ADMIN_CREATED` is persistently audited. Bootstrap first writes a
+durable `SYSTEM` intent for its planned Organisation UUID. Organisation, User,
+credential Account, and the successful outcome commit together under the
+bootstrap advisory lock. Definitive rollback records failure outside the rolled
+back transaction; uncertain state remains unresolved or ambiguous and blocks a
+fresh operation. The operator-only recovery command records reviewed failure
+only after proving the installation empty under the same lock. Recovery never
+bootstraps automatically.
 
 ## Rate Limiting and Reverse Proxy Contract
 
@@ -437,10 +444,9 @@ hashes, session tokens, cookies, reset material, or full request bodies. Failed
 login auditing must not change the generic client response or leak account
 existence.
 
-Persistent audit infrastructure is implemented by the Audit Foundation. Slice 3
-has not yet been retrofitted to persist `INITIAL_ADMIN_CREATED`, so that workflow
-does not yet satisfy this audit requirement and is not production-security
-complete.
+Persistent audit infrastructure is implemented by the Audit Foundation.
+`INITIAL_ADMIN_CREATED` and forced-flow `PASSWORD_CHANGED` are integrated.
+Login and logout audit actions remain outstanding.
 
 ## Required Verification
 

@@ -8,7 +8,14 @@ import { auth } from "../authentication/auth";
 import {
   bootstrapInitialAdministrator,
   InitialAdministratorBootstrapError,
+  recoverInitialAdministratorBootstrap,
 } from "./initial-administrator";
+import {
+  createSystemAuditIntent,
+  createUnauthenticatedAuditIntent,
+  generateAuditOperationId,
+  recordFailedAuditOutcome,
+} from "../audit/audit";
 import { bootstrapInitialAdministratorForTest } from "./initial-administrator.test-support";
 
 const fictionalMetadata = {
@@ -90,6 +97,25 @@ describe("initial Administrator bootstrap with PostgreSQL", () => {
       new Date("2030-01-03T03:04:05.000Z"),
     );
     expect(credentialAccountCount).toBe(1);
+    await expect(
+      prisma.auditOperation.findFirstOrThrow({
+        where: {
+          action: "INITIAL_ADMIN_CREATED",
+          targetId: user.organisationId,
+        },
+        select: {
+          actorKind: true,
+          organisationId: true,
+          targetId: true,
+          events: { select: { result: true } },
+        },
+      }),
+    ).resolves.toEqual({
+      actorKind: "SYSTEM",
+      organisationId: user.organisationId,
+      targetId: user.organisationId,
+      events: [{ result: "SUCCEEDED" }],
+    });
 
     const signIn = await auth.api.signInEmail({
       body: {
@@ -120,6 +146,9 @@ describe("initial Administrator bootstrap with PostgreSQL", () => {
   });
 
   it("refuses an existing Organisation with no writes", async () => {
+    const auditCountBefore = await prisma.auditOperation.count({
+      where: { action: "INITIAL_ADMIN_CREATED" },
+    });
     await prisma.organisation.create({
       data: { id: randomUUID(), name: "Befintlig fiktiv organisation" },
     });
@@ -133,6 +162,122 @@ describe("initial Administrator bootstrap with PostgreSQL", () => {
       accounts: 0,
       administrators: 0,
     });
+    await expect(
+      prisma.auditOperation.count({
+        where: { action: "INITIAL_ADMIN_CREATED" },
+      }),
+    ).resolves.toBe(auditCountBefore);
+  });
+
+  it("recovers only an exact unresolved operation after proving emptiness", async () => {
+    const operationId = generateAuditOperationId();
+    const organisationId = randomUUID();
+    await createSystemAuditIntent({
+      operationId,
+      organisationId,
+      action: "INITIAL_ADMIN_CREATED",
+      target: { targetId: organisationId },
+    });
+
+    await recoverInitialAdministratorBootstrap(operationId);
+    await expect(
+      prisma.auditEvent.findMany({
+        where: { operationId },
+        select: { result: true },
+      }),
+    ).resolves.toEqual([{ result: "FAILED" }]);
+
+    const result = await bootstrapInitialAdministrator(fictionalMetadata);
+    const succeeded = await prisma.auditOperation.findFirstOrThrow({
+      where: {
+        action: "INITIAL_ADMIN_CREATED",
+        targetId: { not: organisationId },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, events: { select: { result: true } } },
+    });
+    expect(succeeded.id).not.toBe(operationId);
+    expect(succeeded.events).toEqual([{ result: "SUCCEEDED" }]);
+    expect(result.temporaryCredential).not.toBe("");
+  });
+
+  it("refuses recovery when the installation is not empty without appending an event", async () => {
+    const operationId = generateAuditOperationId();
+    const organisationId = randomUUID();
+    await createSystemAuditIntent({
+      operationId,
+      organisationId,
+      action: "INITIAL_ADMIN_CREATED",
+      target: { targetId: organisationId },
+    });
+    await prisma.organisation.create({
+      data: { id: randomUUID(), name: "Befintlig fiktiv organisation" },
+    });
+
+    await expect(
+      recoverInitialAdministratorBootstrap(operationId),
+    ).rejects.toThrow();
+    await expect(
+      prisma.auditEvent.count({ where: { operationId } }),
+    ).resolves.toBe(0);
+    await prisma.organisation.deleteMany();
+    await recoverInitialAdministratorBootstrap(operationId);
+  });
+
+  it("refuses recovery for an already terminal operation", async () => {
+    const operationId = generateAuditOperationId();
+    const organisationId = randomUUID();
+    const intent = await createSystemAuditIntent({
+      operationId,
+      organisationId,
+      action: "INITIAL_ADMIN_CREATED",
+      target: { targetId: organisationId },
+    });
+    await recordFailedAuditOutcome(intent);
+
+    await expect(
+      recoverInitialAdministratorBootstrap(operationId),
+    ).rejects.toThrow();
+    await expect(
+      prisma.auditEvent.count({ where: { operationId } }),
+    ).resolves.toBe(1);
+  });
+
+  it("refuses recovery for incompatible audit context", async () => {
+    const operationId = generateAuditOperationId();
+    await createUnauthenticatedAuditIntent({
+      operationId,
+      action: "LOGIN_FAILED",
+    });
+
+    await expect(
+      recoverInitialAdministratorBootstrap(operationId),
+    ).rejects.toThrow();
+    await expect(
+      prisma.auditEvent.count({ where: { operationId } }),
+    ).resolves.toBe(0);
+  });
+
+  it("recovers only the specified unresolved operation", async () => {
+    const ids = [generateAuditOperationId(), generateAuditOperationId()];
+    for (const operationId of ids) {
+      const organisationId = randomUUID();
+      await createSystemAuditIntent({
+        operationId,
+        organisationId,
+        action: "INITIAL_ADMIN_CREATED",
+        target: { targetId: organisationId },
+      });
+    }
+
+    await recoverInitialAdministratorBootstrap(ids[0]!);
+    await expect(
+      prisma.auditEvent.count({ where: { operationId: ids[0] } }),
+    ).resolves.toBe(1);
+    await expect(
+      prisma.auditEvent.count({ where: { operationId: ids[1] } }),
+    ).resolves.toBe(0);
+    await recoverInitialAdministratorBootstrap(ids[1]!);
   });
 
   it("refuses existing User and Organisation state with no writes", async () => {
@@ -197,6 +342,7 @@ describe("initial Administrator bootstrap with PostgreSQL", () => {
   });
 
   it("serializes concurrent attempts so exactly one succeeds", async () => {
+    const operationIds: string[] = [];
     let waitingOperations = 0;
     let releaseOperations: (() => void) | undefined;
     const bothReady = new Promise<void>((resolve) => {
@@ -214,6 +360,9 @@ describe("initial Administrator bootstrap with PostgreSQL", () => {
 
     const attempts = await Promise.allSettled([
       bootstrapInitialAdministratorForTest(fictionalMetadata, {
+        afterAuditIntent: (operationId) => {
+          operationIds.push(operationId);
+        },
         beforeTransaction: waitForBothPreflights,
       }),
       bootstrapInitialAdministratorForTest(
@@ -221,7 +370,12 @@ describe("initial Administrator bootstrap with PostgreSQL", () => {
           ...fictionalMetadata,
           administratorEmail: "concurrent.admin@example.test",
         },
-        { beforeTransaction: waitForBothPreflights },
+        {
+          afterAuditIntent: (operationId) => {
+            operationIds.push(operationId);
+          },
+          beforeTransaction: waitForBothPreflights,
+        },
       ),
     ]);
 
@@ -237,5 +391,15 @@ describe("initial Administrator bootstrap with PostgreSQL", () => {
       accounts: 1,
       administrators: 1,
     });
+    expect(operationIds).toHaveLength(2);
+    const operations = await prisma.auditOperation.findMany({
+      where: { id: { in: operationIds } },
+      select: { id: true, events: { select: { result: true } } },
+    });
+    expect(operations).toHaveLength(2);
+    expect(
+      operations.flatMap(({ events }) => events.map(({ result }) => result)),
+    ).toEqual(expect.arrayContaining(["SUCCEEDED", "FAILED"]));
+    expect(operations.every(({ events }) => events.length === 1)).toBe(true);
   });
 });

@@ -17,6 +17,16 @@ import {
   requireAuthenticatedUser,
 } from "./guards";
 import { changeForcedPasswordForTest } from "./password-change.test-support";
+import {
+  AuditError,
+  createPasswordChangedAuditIntent,
+  createUnauthenticatedAuditIntent,
+  generateAuditOperationId,
+} from "../audit/audit";
+import {
+  failPasswordChangedIntentPersistenceForOperationForTest,
+  resetAuditTestStateForTest,
+} from "../audit/audit.test-support";
 
 const temporaryPassword = "Fictional temporary password 2030";
 const replacementPassword = "Fictional replacement passphrase 2030";
@@ -112,6 +122,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  resetAuditTestStateForTest();
   await clearAuthenticationFoundation();
   requestContext.headers = new Headers();
 });
@@ -136,6 +147,318 @@ describe("expired temporary credential session policy", () => {
 });
 
 describe("forced password change transaction", () => {
+  it.each(["OPERATION_REQUIRES_REVIEW", "INCONSISTENT_OPERATION"] as const)(
+    "fails closed without mutation for %s",
+    async (expectedCode) => {
+      const { email, userId } = await createForcedChangeUser();
+      const first = await signIn(email, temporaryPassword, "192.0.2.120");
+      await signIn(email, temporaryPassword, "192.0.2.121");
+      const currentCookie = cookiesFromResponse(first);
+      expect(currentCookie).toBeDefined();
+      requestContext.headers = authenticationHeaders(
+        "192.0.2.120",
+        currentCookie,
+      );
+      const actor = await requireAuthenticatedUser();
+      const operationId = generateAuditOperationId();
+      if (expectedCode === "OPERATION_REQUIRES_REVIEW") {
+        await createPasswordChangedAuditIntent({ operationId, actor });
+      } else {
+        await createUnauthenticatedAuditIntent({
+          operationId,
+          action: "LOGIN_FAILED",
+        });
+      }
+      const sessionsBefore = await prisma.session.findMany({
+        where: { userId },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      });
+      const operationCountBefore = await prisma.auditOperation.count();
+
+      await expect(
+        changeForcedPasswordForTest(
+          {
+            operationId,
+            currentPassword: temporaryPassword,
+            newPassword: replacementPassword,
+            confirmPassword: replacementPassword,
+          },
+          { currentTime: () => currentTime },
+        ),
+      ).rejects.toMatchObject({ code: expectedCode });
+
+      await expect(prisma.auditOperation.count()).resolves.toBe(
+        operationCountBefore,
+      );
+      await expect(
+        prisma.session.findMany({
+          where: { userId },
+          select: { id: true },
+          orderBy: { id: "asc" },
+        }),
+      ).resolves.toEqual(sessionsBefore);
+      await expect(
+        prisma.user.findUniqueOrThrow({
+          where: { id: userId },
+          select: {
+            mustChangePassword: true,
+            temporaryCredentialExpiresAt: true,
+          },
+        }),
+      ).resolves.toEqual({
+        mustChangePassword: true,
+        temporaryCredentialExpiresAt: futureExpiry,
+      });
+      await expect(
+        signIn(email, replacementPassword, "192.0.2.122"),
+      ).resolves.toMatchObject({ status: 401 });
+    },
+  );
+
+  it("classifies a failure inside the transaction callback as FAILED", async () => {
+    const { email, userId } = await createForcedChangeUser();
+    const signInResponse = await signIn(
+      email,
+      temporaryPassword,
+      "192.0.2.123",
+    );
+    requestContext.headers = authenticationHeaders(
+      "192.0.2.123",
+      cookiesFromResponse(signInResponse),
+    );
+    const operationId = generateAuditOperationId();
+    const sessionsBefore = await prisma.session.findMany({
+      where: { userId },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    });
+
+    await expect(
+      changeForcedPasswordForTest(
+        {
+          operationId,
+          currentPassword: temporaryPassword,
+          newPassword: replacementPassword,
+          confirmPassword: replacementPassword,
+        },
+        {
+          currentTime: () => currentTime,
+          afterAuditOutcomeBeforeCommit: () => {
+            throw new Error("Deliberate failure before transaction commit");
+          },
+        },
+      ),
+    ).rejects.toThrow("Deliberate failure before transaction commit");
+
+    await expect(
+      prisma.auditOperation.count({ where: { id: operationId } }),
+    ).resolves.toBe(1);
+    await expect(
+      prisma.auditEvent.findMany({
+        where: { operationId },
+        select: { result: true },
+      }),
+    ).resolves.toEqual([{ result: "FAILED" }]);
+    await expect(
+      prisma.session.findMany({
+        where: { userId },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      }),
+    ).resolves.toEqual(sessionsBefore);
+    await expect(
+      prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: {
+          mustChangePassword: true,
+          temporaryCredentialExpiresAt: true,
+        },
+      }),
+    ).resolves.toEqual({
+      mustChangePassword: true,
+      temporaryCredentialExpiresAt: futureExpiry,
+    });
+    await expect(
+      signIn(email, temporaryPassword, "192.0.2.130"),
+    ).resolves.toMatchObject({ status: 200 });
+    await expect(
+      signIn(email, replacementPassword, "192.0.2.131"),
+    ).resolves.toMatchObject({ status: 401 });
+  });
+
+  it("rolls back and records FAILED when successful audit outcome persistence fails", async () => {
+    const { email, userId } = await createForcedChangeUser();
+    const first = await signIn(email, temporaryPassword, "192.0.2.124");
+    await signIn(email, temporaryPassword, "192.0.2.125");
+    requestContext.headers = authenticationHeaders(
+      "192.0.2.124",
+      cookiesFromResponse(first),
+    );
+    const sessionsBefore = await prisma.session.findMany({
+      where: { userId },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    });
+    const operationId = generateAuditOperationId();
+
+    await expect(
+      changeForcedPasswordForTest(
+        {
+          operationId,
+          currentPassword: temporaryPassword,
+          newPassword: replacementPassword,
+          confirmPassword: replacementPassword,
+        },
+        {
+          currentTime: () => currentTime,
+          beforeAuditOutcome: () => {
+            throw new AuditError("OUTCOME_PERSISTENCE_FAILED", operationId);
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: "OUTCOME_PERSISTENCE_FAILED" });
+
+    await expect(
+      prisma.auditEvent.findMany({
+        where: { operationId },
+        select: { result: true },
+      }),
+    ).resolves.toEqual([{ result: "FAILED" }]);
+    await expect(
+      prisma.session.findMany({
+        where: { userId },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      }),
+    ).resolves.toEqual(sessionsBefore);
+    await expect(
+      signIn(email, temporaryPassword, "192.0.2.126"),
+    ).resolves.toMatchObject({ status: 200 });
+    await expect(
+      signIn(email, replacementPassword, "192.0.2.127"),
+    ).resolves.toMatchObject({ status: 401 });
+  });
+
+  it("does not begin password mutation when audit intent persistence fails", async () => {
+    const { email, userId } = await createForcedChangeUser();
+    const first = await signIn(email, temporaryPassword, "192.0.2.128");
+    await signIn(email, temporaryPassword, "192.0.2.129");
+    requestContext.headers = authenticationHeaders(
+      "192.0.2.128",
+      cookiesFromResponse(first),
+    );
+    const sessionsBefore = await prisma.session.findMany({
+      where: { userId },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    });
+    const operationId = generateAuditOperationId();
+    let protectedWorkStarted = false;
+    failPasswordChangedIntentPersistenceForOperationForTest(operationId);
+
+    await expect(
+      changeForcedPasswordForTest(
+        {
+          operationId,
+          currentPassword: temporaryPassword,
+          newPassword: replacementPassword,
+          confirmPassword: replacementPassword,
+        },
+        {
+          currentTime: () => currentTime,
+          afterAuditIntent: () => {
+            protectedWorkStarted = true;
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: "INTENT_PERSISTENCE_FAILED" });
+
+    expect(protectedWorkStarted).toBe(false);
+
+    await expect(
+      prisma.auditOperation.count({ where: { id: operationId } }),
+    ).resolves.toBe(0);
+    await expect(
+      prisma.auditEvent.count({ where: { operationId } }),
+    ).resolves.toBe(0);
+    await expect(
+      prisma.session.findMany({
+        where: { userId },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      }),
+    ).resolves.toEqual(sessionsBefore);
+    await expect(
+      prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: {
+          mustChangePassword: true,
+          temporaryCredentialExpiresAt: true,
+        },
+      }),
+    ).resolves.toEqual({
+      mustChangePassword: true,
+      temporaryCredentialExpiresAt: futureExpiry,
+    });
+    await expect(
+      signIn(email, temporaryPassword, "192.0.2.132"),
+    ).resolves.toMatchObject({ status: 200 });
+    await expect(
+      signIn(email, replacementPassword, "192.0.2.133"),
+    ).resolves.toMatchObject({ status: 401 });
+  });
+
+  it("does not leak an early-failing operation fault into another request", async () => {
+    const { email } = await createForcedChangeUser();
+    const signInResponse = await signIn(
+      email,
+      temporaryPassword,
+      "192.0.2.134",
+    );
+    requestContext.headers = authenticationHeaders(
+      "192.0.2.134",
+      cookiesFromResponse(signInResponse),
+    );
+    const earlyFailureOperationId = generateAuditOperationId();
+    const successfulOperationId = generateAuditOperationId();
+    failPasswordChangedIntentPersistenceForOperationForTest(
+      earlyFailureOperationId,
+    );
+
+    await expect(
+      changeForcedPasswordForTest(
+        {
+          operationId: earlyFailureOperationId,
+          currentPassword: temporaryPassword,
+          newPassword: replacementPassword,
+          confirmPassword: alternativePassword,
+        },
+        {},
+      ),
+    ).rejects.toThrow("PASSWORDS_DO_NOT_MATCH");
+
+    await expect(
+      changeForcedPasswordForTest(
+        {
+          operationId: successfulOperationId,
+          currentPassword: temporaryPassword,
+          newPassword: replacementPassword,
+          confirmPassword: replacementPassword,
+        },
+        { currentTime: () => currentTime },
+      ),
+    ).resolves.toMatchObject({ setCookieHeaders: expect.any(Array) });
+    await expect(
+      prisma.auditOperation.count({ where: { id: earlyFailureOperationId } }),
+    ).resolves.toBe(0);
+    await expect(
+      prisma.auditOperation.count({ where: { id: successfulOperationId } }),
+    ).resolves.toBe(1);
+
+    resetAuditTestStateForTest();
+  });
+
   it("rolls password, flags, and sessions back after a post-authentication failure", async () => {
     const { email, userId } = await createForcedChangeUser();
     const firstSignIn = await signIn(email, temporaryPassword, "192.0.2.102");
@@ -149,6 +472,11 @@ describe("forced password change transaction", () => {
       currentCookie,
     );
     await expect(prisma.session.count({ where: { userId } })).resolves.toBe(2);
+    const sessionsBeforeFailure = await prisma.session.findMany({
+      where: { userId },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    });
 
     await expect(
       changeForcedPasswordForTest(
@@ -179,6 +507,13 @@ describe("forced password change transaction", () => {
       temporaryCredentialExpiresAt: futureExpiry,
     });
     await expect(prisma.session.count({ where: { userId } })).resolves.toBe(2);
+    await expect(
+      prisma.session.findMany({
+        where: { userId },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      }),
+    ).resolves.toEqual(sessionsBeforeFailure);
     await expect(requireAuthenticatedUser()).resolves.toMatchObject({
       credentialState: "PASSWORD_CHANGE_REQUIRED",
     });
@@ -188,6 +523,13 @@ describe("forced password change transaction", () => {
     await expect(
       signIn(email, replacementPassword, "192.0.2.105"),
     ).resolves.toMatchObject({ status: 401 });
+    await expect(
+      prisma.auditOperation.findFirstOrThrow({
+        where: { action: "PASSWORD_CHANGED", actorUserId: userId },
+        orderBy: { createdAt: "desc" },
+        select: { targetId: true, events: { select: { result: true } } },
+      }),
+    ).resolves.toEqual({ targetId: userId, events: [{ result: "FAILED" }] });
   });
 
   it("commits one coherent password, state, and replacement session", async () => {
@@ -201,6 +543,17 @@ describe("forced password change transaction", () => {
       currentCookie,
     );
     await expect(prisma.session.count({ where: { userId } })).resolves.toBe(2);
+    const trustedSessionBefore = await auth.api.getSession({
+      headers: requestContext.headers,
+      query: { disableCookieCache: true },
+    });
+    expect(trustedSessionBefore).not.toBeNull();
+    const currentSessionId = trustedSessionBefore!.session.id;
+    const otherSession = await prisma.session.findFirstOrThrow({
+      where: { userId, id: { not: currentSessionId } },
+      select: { id: true },
+    });
+    const preChangeSessionIds = [currentSessionId, otherSession.id];
 
     const result = await changeForcedPasswordForTest(
       {
@@ -232,16 +585,36 @@ describe("forced password change transaction", () => {
       temporaryCredentialExpiresAt: null,
     });
     await expect(prisma.session.count({ where: { userId } })).resolves.toBe(1);
+    await expect(
+      prisma.session.findUnique({ where: { id: currentSessionId } }),
+    ).resolves.toBeNull();
+    await expect(
+      prisma.session.findUnique({ where: { id: otherSession.id } }),
+    ).resolves.toBeNull();
     await expect(requireApplicationUser()).resolves.toMatchObject({
       userId,
       credentialState: "APPLICATION_ALLOWED",
     });
+    const replacementSession = await auth.api.getSession({
+      headers: requestContext.headers,
+      query: { disableCookieCache: true },
+    });
+    expect(replacementSession).not.toBeNull();
+    expect(replacementSession!.session.userId).toBe(userId);
+    expect(preChangeSessionIds).not.toContain(replacementSession!.session.id);
     await expect(
       signIn(email, temporaryPassword, "192.0.2.108"),
     ).resolves.toMatchObject({ status: 401 });
     await expect(
       signIn(email, replacementPassword, "192.0.2.109"),
     ).resolves.toMatchObject({ status: 200 });
+    await expect(
+      prisma.auditOperation.findFirstOrThrow({
+        where: { action: "PASSWORD_CHANGED", actorUserId: userId },
+        orderBy: { createdAt: "desc" },
+        select: { targetId: true, events: { select: { result: true } } },
+      }),
+    ).resolves.toEqual({ targetId: userId, events: [{ result: "SUCCEEDED" }] });
   });
 
   it("serializes concurrent attempts into exactly one coherent outcome", async () => {

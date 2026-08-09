@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 
 import { getPasswordChangeFeedback } from "@/modules/authentication/password-change-feedback";
 
-export function PasswordChangeForm() {
+export function PasswordChangeForm({ operationId }: { operationId: string }) {
   const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>();
 
@@ -18,6 +18,7 @@ export function PasswordChangeForm() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        operationId,
         currentPassword: String(formData.get("currentPassword") ?? ""),
         newPassword: String(formData.get("newPassword") ?? ""),
         confirmPassword: String(formData.get("confirmPassword") ?? ""),

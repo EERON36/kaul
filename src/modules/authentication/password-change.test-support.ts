@@ -1,4 +1,5 @@
 import type { ForcedPasswordChangeInput } from "./password-change-input";
+import { randomUUID } from "node:crypto";
 import {
   changeForcedPasswordInternal,
   type ForcedPasswordChangeResult,
@@ -6,12 +7,15 @@ import {
 } from "./password-change-internal";
 
 export function changeForcedPasswordForTest(
-  input: ForcedPasswordChangeInput,
+  input: ForcedPasswordChangeInput & { operationId?: string },
   dependencies: PasswordChangeTestDependencies,
 ): Promise<ForcedPasswordChangeResult> {
   if (process.env.NODE_ENV !== "test") {
     throw new Error("Password-change test support requires NODE_ENV=test.");
   }
 
-  return changeForcedPasswordInternal(input, dependencies);
+  return changeForcedPasswordInternal(
+    { operationId: input.operationId ?? randomUUID(), ...input },
+    dependencies,
+  );
 }

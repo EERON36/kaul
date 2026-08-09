@@ -81,6 +81,37 @@ afterEach(async () => {
 });
 
 describe("audit intent durability with PostgreSQL", () => {
+  it.each(["LOGIN_SUCCEEDED", "LOGIN_FAILED", "LOGOUT_SUCCEEDED"] as const)(
+    "rejects a resolved target forbidden by %s without persisting an event",
+    async (action) => {
+      const intent =
+        action === "LOGIN_FAILED"
+          ? await createUnauthenticatedAuditIntent({
+              operationId: generateAuditOperationId(),
+              action,
+            })
+          : await createUserAuditIntent({
+              operationId: generateAuditOperationId(),
+              actor: await createActor(),
+              action,
+            });
+
+      await expect(
+        prisma.$transaction((transaction) =>
+          appendAuditOutcomeInTransaction(
+            transaction,
+            intent,
+            "SUCCEEDED",
+            randomUUID(),
+          ),
+        ),
+      ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      await expect(
+        prisma.auditEvent.count({ where: { operationId: intent.operationId } }),
+      ).resolves.toBe(0);
+    },
+  );
+
   it("commits the intent before a simulated protected mutation begins", async () => {
     const actor = await createActor();
     const operationId = generateAuditOperationId();
@@ -332,6 +363,14 @@ describe("audit idempotency and append-only enforcement", () => {
         target: { targetId: differentOrganisationId },
       }),
     ).rejects.toMatchObject({ code: "INCONSISTENT_OPERATION" });
+    await prisma.auditEvent.create({
+      data: {
+        operationId,
+        type: "OUTCOME",
+        result: "FAILED",
+        resolvedTargetId: organisationId,
+      },
+    });
   });
 
   it("fails closed for a duplicate authenticated-user operation", async () => {
@@ -401,6 +440,14 @@ describe("audit idempotency and append-only enforcement", () => {
     await expect(
       prisma.auditOperation.count({ where: { id: operationId } }),
     ).resolves.toBe(1);
+    await prisma.auditEvent.create({
+      data: {
+        operationId,
+        type: "OUTCOME",
+        result: "FAILED",
+        resolvedTargetId: organisationId,
+      },
+    });
   });
 
   it("classifies concurrent incompatible AuditOperation context from the committed winner", async () => {
@@ -438,6 +485,14 @@ describe("audit idempotency and append-only enforcement", () => {
     ).resolves.toEqual({
       organisationId: inputs[winnerIndex]!.organisationId,
       targetId: inputs[winnerIndex]!.target.targetId,
+    });
+    await prisma.auditEvent.create({
+      data: {
+        operationId,
+        type: "OUTCOME",
+        result: "FAILED",
+        resolvedTargetId: inputs[winnerIndex]!.organisationId,
+      },
     });
   });
 
