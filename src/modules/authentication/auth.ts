@@ -7,7 +7,11 @@ import { getEnvironment } from "../../lib/environment";
 import { prisma } from "../../lib/prisma";
 
 import { adminAccessControl, adminRoles } from "./permissions";
-import { canCreateSession } from "./session-policy";
+import {
+  canCreateSession,
+  limitSessionExpiry,
+  SESSION_LIFETIME_SECONDS,
+} from "./session-policy";
 
 const environment = getEnvironment();
 
@@ -61,7 +65,7 @@ export function createAuthenticationOptions(
       },
     },
     session: {
-      expiresIn: 43_200,
+      expiresIn: SESSION_LIFETIME_SECONDS,
       disableSessionRefresh: true,
       cookieCache: {
         enabled: false,
@@ -70,8 +74,17 @@ export function createAuthenticationOptions(
     databaseHooks: {
       session: {
         create: {
-          before: async (session) =>
-            canCreateSession(databaseClient, session.userId),
+          before: async (session) => {
+            if (!(await canCreateSession(databaseClient, session.userId))) {
+              return false;
+            }
+
+            return {
+              data: {
+                expiresAt: limitSessionExpiry(session),
+              },
+            };
+          },
         },
       },
     },

@@ -147,6 +147,7 @@ test("completes login, forced password change, shell access, logout, and new log
   );
   await expect(page.getByRole("link", { name: /registr/i })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /glömt/i })).toHaveCount(0);
+  await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
 
   await page.getByLabel("E-post").fill(administratorEmail);
   await page.getByLabel("Lösenord").fill("Fictional wrong password 2030");
@@ -156,7 +157,17 @@ test("completes login, forced password change, shell access, logout, and new log
   ).toBeVisible();
 
   await page.getByLabel("Lösenord").fill(temporaryPassword);
+  const loginRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.url().endsWith("/api/auth/sign-in/email"),
+  );
   await page.getByRole("button", { name: "Logga in" }).click();
+  const loginRequest = await loginRequestPromise;
+  expect(loginRequest.postDataJSON()).toEqual({
+    email: administratorEmail,
+    password: temporaryPassword,
+  });
   await expect(page).toHaveURL(/\/byt-losenord$/);
   await expect(
     page.getByRole("heading", { name: "Byt lösenord" }),

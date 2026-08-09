@@ -20,7 +20,6 @@ export function LoginForm() {
     const result = await authClient.signIn.email({
       email,
       password,
-      rememberMe: false,
     });
 
     if (result.error) {

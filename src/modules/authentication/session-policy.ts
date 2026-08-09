@@ -4,6 +4,18 @@ import { getCredentialState } from "./credential-state";
 
 type SessionPolicyDatabase = Pick<Prisma.TransactionClient, "user">;
 
+export const SESSION_LIFETIME_SECONDS = 12 * 60 * 60;
+
+export function limitSessionExpiry(
+  session: Readonly<{ createdAt: Date; expiresAt: Date }>,
+): Date {
+  const maximumExpiry = new Date(
+    session.createdAt.getTime() + SESSION_LIFETIME_SECONDS * 1_000,
+  );
+
+  return session.expiresAt <= maximumExpiry ? session.expiresAt : maximumExpiry;
+}
+
 export async function canCreateSession(
   database: SessionPolicyDatabase,
   userId: string,
