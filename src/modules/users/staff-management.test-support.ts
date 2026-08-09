@@ -2,6 +2,7 @@ import type { AdministratorUser } from "./authorization";
 import {
   createStaffMemberInternal,
   deactivateStaffMemberInternal,
+  isStaffPasswordResetEligible,
   reactivateStaffMemberInternal,
   selectStaffMutationFailureOutcome,
   type StaffManagementTestDependencies,
@@ -54,4 +55,12 @@ export function selectStaffMutationFailureOutcomeForTest(
 ) {
   assertTestEnvironment();
   return selectStaffMutationFailureOutcome(transactionCallbackCompleted);
+}
+
+export function isStaffPasswordResetEligibleForTest(
+  staff: Parameters<typeof isStaffPasswordResetEligible>[0],
+  currentTime: Date,
+) {
+  assertTestEnvironment();
+  return isStaffPasswordResetEligible(staff, currentTime);
 }

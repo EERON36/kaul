@@ -36,7 +36,31 @@ export type StaffMemberListItem = Readonly<{
   email: string;
   professionalTitle: string;
   active: boolean;
+  canResetPassword: boolean;
 }>;
+
+type StaffPasswordResetEligibility = Readonly<{
+  role: UserRole;
+  banned: boolean | null;
+  mustChangePassword: boolean;
+  temporaryCredentialExpiresAt: Date | null;
+}>;
+
+export function isStaffPasswordResetEligible(
+  staff: StaffPasswordResetEligibility,
+  currentTime: Date,
+): boolean {
+  const hasOutstandingReset =
+    staff.mustChangePassword === true &&
+    staff.temporaryCredentialExpiresAt !== null &&
+    staff.temporaryCredentialExpiresAt.getTime() > currentTime.getTime();
+
+  return (
+    staff.role === UserRole.STAFF_MEMBER &&
+    staff.banned !== true &&
+    !hasOutstandingReset
+  );
+}
 
 export type CreatedStaffMember = Readonly<{
   id: string;
@@ -49,6 +73,7 @@ export type CreatedStaffMember = Readonly<{
 export type StaffManagementErrorCode =
   | "DUPLICATE_EMAIL"
   | "TARGET_UNAVAILABLE"
+  | "RESET_ALREADY_PENDING"
   | "INCONSISTENT_RESULT"
   | "OPERATION_AMBIGUOUS";
 
@@ -218,9 +243,13 @@ export async function listOrganisationStaffInternal(
       name: true,
       email: true,
       professionalTitle: true,
+      role: true,
       banned: true,
+      mustChangePassword: true,
+      temporaryCredentialExpiresAt: true,
     },
   });
+  const currentTime = new Date();
 
   return users.map((user) => ({
     id: user.id,
@@ -228,6 +257,7 @@ export async function listOrganisationStaffInternal(
     email: user.email,
     professionalTitle: user.professionalTitle,
     active: user.banned !== true,
+    canResetPassword: isStaffPasswordResetEligible(user, currentTime),
   }));
 }
 

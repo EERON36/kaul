@@ -307,6 +307,15 @@ The pilot reset flow must:
 6. Record the audit outcome.
 7. Return the password exactly once.
 
+The Administrator-assisted Staff reset flow is implemented for active Staff
+Members in the acting Administrator's Organisation. A target-specific
+PostgreSQL advisory lock serialises reset attempts, and a still-valid temporary
+credential prevents replacement by a competing reset. Better Auth password
+mutation, forced-change state, session revocation, and the successful
+`PASSWORD_RESET_BY_ADMIN` outcome commit in one Prisma transaction. The
+authenticated one-time display is approved for development and pilot
+verification only; it does not approve a production delivery channel.
+
 Public reset email is not implemented in Milestone 1. Recovery when the only
 active administrator has lost access is an operational decision required before
 pilot deployment; it must not become a public setup or reset endpoint.

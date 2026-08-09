@@ -9,6 +9,7 @@ import {
   reactivateStaffMember,
 } from "@/modules/users/staff-management";
 import { getStaffManagementFeedback } from "@/modules/users/staff-management-feedback";
+import { resetStaffPassword } from "@/modules/users/staff-password-reset";
 
 export type CreateStaffActionState = Readonly<{
   status: "IDLE" | "ERROR" | "SUCCESS";
@@ -21,6 +22,14 @@ export type CreateStaffActionState = Readonly<{
 export type StaffStatusActionState = Readonly<{
   status: "IDLE" | "ERROR" | "SUCCESS";
   message?: string;
+}>;
+
+export type StaffPasswordResetActionState = Readonly<{
+  status: "IDLE" | "ERROR" | "SUCCESS";
+  operationId: string;
+  message?: string;
+  temporaryCredential?: string;
+  temporaryCredentialExpiresAt?: string;
 }>;
 
 export async function createStaffAction(
@@ -101,4 +110,36 @@ export async function reactivateStaffAction(
     "Medarbetaren har återaktiverats.",
     formData,
   );
+}
+
+export async function resetStaffPasswordAction(
+  _previousState: StaffPasswordResetActionState,
+  formData: FormData,
+): Promise<StaffPasswordResetActionState> {
+  try {
+    const result = await resetStaffPassword({
+      operationId: String(formData.get("operationId") ?? ""),
+      targetUserId: String(formData.get("targetUserId") ?? ""),
+    });
+
+    return {
+      status: "SUCCESS",
+      operationId: generateAuditOperationId(),
+      message: "Lösenordet har återställts.",
+      temporaryCredential: result.temporaryCredential,
+      temporaryCredentialExpiresAt:
+        result.temporaryCredentialExpiresAt.toISOString(),
+    };
+  } catch (error) {
+    const message = getStaffManagementFeedback(error);
+    if (!message) {
+      throw error;
+    }
+
+    return {
+      status: "ERROR",
+      operationId: generateAuditOperationId(),
+      message,
+    };
+  }
 }

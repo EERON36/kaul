@@ -15,6 +15,10 @@ export function getStaffManagementFeedback(error: unknown): string | undefined {
     if (error.code === "TARGET_UNAVAILABLE") {
       return "Medarbetaren kan inte ändras. Ladda om sidan och försök igen.";
     }
+
+    if (error.code === "RESET_ALREADY_PENDING") {
+      return "Lösenordet kan inte återställas eftersom en giltig tillfällig inloggningsuppgift redan finns.";
+    }
   }
 
   return undefined;

@@ -18,9 +18,19 @@ export const staffMemberStatusInputSchema = z
   })
   .strict();
 
+export const staffPasswordResetInputSchema = z
+  .object({
+    operationId: auditOperationIdSchema,
+    targetUserId: z.string().trim().min(1).max(200),
+  })
+  .strict();
+
 export type CreateStaffMemberInput = z.infer<
   typeof createStaffMemberInputSchema
 >;
 export type StaffMemberStatusInput = z.infer<
   typeof staffMemberStatusInputSchema
+>;
+export type StaffPasswordResetInput = z.infer<
+  typeof staffPasswordResetInputSchema
 >;

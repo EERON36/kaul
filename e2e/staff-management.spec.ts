@@ -23,6 +23,7 @@ const administratorEmail = "slice5.e2e.administrator@example.test";
 const staffEmail = "slice5.e2e.staff@example.test";
 const administratorPassword = "Fictional administrator password 2031";
 const staffReplacementPassword = "Fictional staff replacement password 2031";
+const staffFinalPassword = "Fictional staff final password after reset 2031";
 const fixtureEmails = [administratorEmail, staffEmail];
 const rateLimitKeys = new Set<string>();
 
@@ -174,6 +175,44 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
   await expect(page.getByText(/Status:\s*Aktiv/)).toBeVisible();
   await logIn(staffPage, staffEmail, staffReplacementPassword);
   await expect(staffPage).toHaveURL(`${baseUrl}/`);
+
+  await page.getByRole("button", { name: "Återställ lösenord" }).click();
+  await expect(page.getByText("Lösenordet har återställts.")).toBeVisible();
+  await expect(
+    page.getByText(
+      /Godkänd leveranskanal för produktion är ännu inte beslutad/,
+    ),
+  ).toBeVisible();
+  const resetCredentialText = await page
+    .locator(".staff-card .credential-result code")
+    .textContent();
+  expect(resetCredentialText).toBeTruthy();
+  const resetCredential = resetCredentialText ?? "";
+
+  await page.reload();
+  await expect(page.locator(".staff-card .credential-result code")).toHaveCount(
+    0,
+  );
+  await expect(page.getByText(/Status:\s*Aktiv/)).toBeVisible();
+
+  await staffPage.goto("/");
+  await expect(staffPage).toHaveURL(/\/login$/);
+  await logIn(staffPage, staffEmail, staffReplacementPassword);
+  await expect(staffPage).toHaveURL(/\/login$/);
+  await logIn(staffPage, staffEmail, resetCredential);
+  await expect(staffPage).toHaveURL(/\/byt-losenord$/);
+  await staffPage.getByLabel("Nuvarande lösenord").fill(resetCredential);
+  await staffPage
+    .getByLabel("Nytt lösenord", { exact: true })
+    .fill(staffFinalPassword);
+  await staffPage.getByLabel("Bekräfta nytt lösenord").fill(staffFinalPassword);
+  await staffPage.getByRole("button", { name: "Spara nytt lösenord" }).click();
+  await expect(staffPage).toHaveURL(`${baseUrl}/`);
+  await expect(staffPage.getByRole("link", { name: "Hem" })).toBeVisible();
+  await expect(staffPage.getByRole("link", { name: "Klienter" })).toBeVisible();
+  await expect(staffPage.getByRole("link", { name: "Personal" })).toHaveCount(
+    0,
+  );
   await staffContext.close();
 
   const staff = await prisma.user.findUniqueOrThrow({
