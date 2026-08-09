@@ -121,7 +121,6 @@ export async function resetStaffPasswordAction(
       operationId: String(formData.get("operationId") ?? ""),
       targetUserId: String(formData.get("targetUserId") ?? ""),
     });
-    revalidatePath("/personal");
 
     return {
       status: "SUCCESS",

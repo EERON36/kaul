@@ -89,6 +89,6 @@ describe("Staff password reset Server Action", () => {
       temporaryCredential: "Fictional temporary credential 2032",
       temporaryCredentialExpiresAt: "2032-02-03T04:05:06.000Z",
     });
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/personal");
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });

@@ -93,13 +93,19 @@ function StaffPasswordResetControl({
 
   return (
     <div>
-      <form action={formAction} onSubmit={confirmReset}>
-        <input name="operationId" type="hidden" value={state.operationId} />
-        <input name="targetUserId" type="hidden" value={member.id} />
-        <button className="secondary-button" disabled={isPending} type="submit">
-          {isPending ? "Återställer…" : "Återställ lösenord"}
-        </button>
-      </form>
+      {state.status === "SUCCESS" ? null : (
+        <form action={formAction} onSubmit={confirmReset}>
+          <input name="operationId" type="hidden" value={state.operationId} />
+          <input name="targetUserId" type="hidden" value={member.id} />
+          <button
+            className="secondary-button"
+            disabled={isPending}
+            type="submit"
+          >
+            {isPending ? "Återställer…" : "Återställ lösenord"}
+          </button>
+        </form>
+      )}
       <div
         aria-live="polite"
         className={
