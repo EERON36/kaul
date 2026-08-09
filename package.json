@@ -49,7 +49,7 @@
     "eslint": "9.39.5",
     "eslint-config-next": "16.2.12",
     "jiti": "2.7.0",
-    "postcss": "8.5.22",
+    "postcss": "8.5.23",
     "prettier": "3.9.6",
     "prisma": "7.9.1",
     "tailwindcss": "4.3.3",
