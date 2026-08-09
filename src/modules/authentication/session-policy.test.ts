@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { canCreateSession } from "./session-policy";
+import {
+  canCreateSession,
+  limitSessionExpiry,
+  SESSION_LIFETIME_SECONDS,
+} from "./session-policy";
 
 function databaseWithUser(user: unknown) {
   return {
@@ -13,6 +17,26 @@ function databaseWithUser(user: unknown) {
 const currentTime = new Date("2030-01-02T03:04:05.000Z");
 
 describe("session creation policy", () => {
+  it("limits a longer Better Auth Session to twelve hours", () => {
+    const createdAt = new Date("2030-01-02T03:04:05.000Z");
+
+    expect(
+      limitSessionExpiry({
+        createdAt,
+        expiresAt: new Date(createdAt.getTime() + 24 * 60 * 60 * 1_000),
+      }),
+    ).toEqual(new Date(createdAt.getTime() + SESSION_LIFETIME_SECONDS * 1_000));
+  });
+
+  it("does not extend a shorter Better Auth Session", () => {
+    const createdAt = new Date("2030-01-02T03:04:05.000Z");
+    const shorterExpiry = new Date(createdAt.getTime() + 60 * 60 * 1_000);
+
+    expect(limitSessionExpiry({ createdAt, expiresAt: shorterExpiry })).toBe(
+      shorterExpiry,
+    );
+  });
+
   it.each([false, null])(
     "permits an active user with banned=%s",
     async (banned) => {
