@@ -41,7 +41,13 @@ describe("staff management input", () => {
     ["inactive Staff", false, null, true, false],
   ] as const)(
     "derives password-reset UI eligibility for %s",
-    (_label, mustChangePassword, temporaryCredentialExpiresAt, banned, expected) => {
+    (
+      _label,
+      mustChangePassword,
+      temporaryCredentialExpiresAt,
+      banned,
+      expected,
+    ) => {
       expect(
         isStaffPasswordResetEligibleForTest(
           {
