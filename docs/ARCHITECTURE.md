@@ -77,14 +77,23 @@ Responsible for:
 - Archiving clients
 - Assigning staff members
 
-Every client belongs to exactly one category:
+Every client has one bounded category string. The intended product categories
+remain:
 
 - Ungdom
 - Vuxen
 
-Every client has one primary staff member.
+The database does not enforce a category enum in the Client Foundation slice;
+controlled category selection is deferred to a later reviewed Client slice.
 
-Future versions may support multiple assigned staff members.
+Every client may have one active primary staff assignment and zero or more
+active secondary staff assignments. Ended assignments are preserved as
+historical responsibility records.
+
+Client access is enforced through one central server-side boundary. An
+Administrator may access Clients in their Organisation. A Staff Member may
+access a Client only while the Client is active and the Staff Member has an
+active assignment to it.
 
 ---
 

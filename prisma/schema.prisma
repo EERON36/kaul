@@ -12,6 +12,17 @@ enum UserRole {
   STAFF_MEMBER
 }
 
+enum ClientStatus {
+  INACTIVE
+  ACTIVE
+  ARCHIVED
+}
+
+enum AssignmentResponsibility {
+  PRIMARY
+  SECONDARY
+}
+
 enum AuditActorKind {
   USER
   SYSTEM
@@ -30,11 +41,13 @@ enum AuditResult {
 }
 
 model Organisation {
-  id        String   @id
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  users     User[]
+  id          String       @id
+  name        String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  users       User[]
+  clients     Client[]     @relation("OrganisationClients")
+  assignments Assignment[] @relation("OrganisationAssignments")
 
   @@map("organisation")
 }
@@ -58,10 +71,53 @@ model User {
   temporaryCredentialExpiresAt DateTime?
   sessions                     Session[]
   accounts                     Account[]
+  staffAssignments             Assignment[] @relation("StaffAssignments")
+  createdAssignments           Assignment[] @relation("AssignmentCreators")
 
   @@unique([email])
+  @@unique([organisationId, id])
   @@index([organisationId])
   @@map("user")
+}
+
+model Client {
+  id               String       @id @db.Uuid
+  organisationId   String
+  organisation     Organisation @relation("OrganisationClients", fields: [organisationId], references: [id], onDelete: Restrict)
+  firstName        String
+  lastName         String
+  personIdentifier String
+  category         String
+  status           ClientStatus @default(INACTIVE)
+  archivedAt       DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  assignments      Assignment[] @relation("ClientAssignments")
+
+  @@unique([organisationId, personIdentifier])
+  @@unique([organisationId, id])
+  @@index([organisationId, status, lastName, firstName, personIdentifier])
+  @@map("client")
+}
+
+model Assignment {
+  id              String                   @id @db.Uuid
+  organisationId  String
+  organisation    Organisation             @relation("OrganisationAssignments", fields: [organisationId], references: [id], onDelete: Restrict)
+  clientId        String                   @db.Uuid
+  client          Client                   @relation("ClientAssignments", fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict)
+  staffUserId     String
+  staffUser       User                     @relation("StaffAssignments", fields: [organisationId, staffUserId], references: [organisationId, id], onDelete: Restrict)
+  responsibility  AssignmentResponsibility
+  startedAt       DateTime                 @default(now())
+  endedAt         DateTime?
+  createdAt       DateTime                 @default(now())
+  createdByUserId String
+  createdByUser   User                     @relation("AssignmentCreators", fields: [organisationId, createdByUserId], references: [organisationId, id], onDelete: Restrict)
+
+  @@index([organisationId, clientId, endedAt])
+  @@index([organisationId, staffUserId, endedAt])
+  @@map("assignment")
 }
 
 model Session {

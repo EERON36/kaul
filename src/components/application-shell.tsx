@@ -2,7 +2,10 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import type { ApplicationUser } from "@/modules/authentication/guards";
-import { createApplicationShellContext } from "@/modules/users/application-shell";
+import {
+  createApplicationShellContext,
+  getApplicationNavigation,
+} from "@/modules/users/application-shell";
 
 import { LogoutButton } from "./authentication/logout-button";
 import { EnvironmentNotice } from "./environment-notice";
@@ -10,7 +13,7 @@ import { KaulWordmark } from "./kaul-wordmark";
 
 type ApplicationShellProps = Readonly<{
   user: ApplicationUser;
-  currentPath: "/" | "/personal";
+  currentPath: "/" | "/klienter" | "/personal";
   children: ReactNode;
 }>;
 
@@ -20,6 +23,7 @@ export function ApplicationShell({
   children,
 }: ApplicationShellProps) {
   const context = createApplicationShellContext(user);
+  const navigation = getApplicationNavigation(user);
 
   return (
     <div className="app-shell">
@@ -30,22 +34,16 @@ export function ApplicationShell({
       <aside className="sidebar">
         <KaulWordmark />
         <nav aria-label="Huvudnavigering">
-          <Link
-            aria-current={currentPath === "/" ? "page" : undefined}
-            className="navigation-link"
-            href="/"
-          >
-            Hem
-          </Link>
-          {user.role === "ADMINISTRATOR" ? (
+          {navigation.map((item) => (
             <Link
-              aria-current={currentPath === "/personal" ? "page" : undefined}
+              aria-current={currentPath === item.href ? "page" : undefined}
               className="navigation-link"
-              href="/personal"
+              href={item.href}
+              key={item.href}
             >
-              Personal
+              {item.label}
             </Link>
-          ) : null}
+          ))}
         </nav>
         <div className="signed-in-user">
           <p className="signed-in-name">{context.name}</p>

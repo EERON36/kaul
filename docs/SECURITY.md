@@ -391,6 +391,11 @@ Examples include:
 - Report finalisation
 - Organisation export
 
+The accepted Client and Assignment mutation action identifiers are
+`CLIENT_CREATED`, `ASSIGNMENT_CREATED`, and `ASSIGNMENT_ENDED`. They target the
+server-generated internal Client or Assignment identifier and contain no Client
+personal data.
+
 ### Audit Rules
 
 - Protected Administrator mutations must first commit an immutable durable audit

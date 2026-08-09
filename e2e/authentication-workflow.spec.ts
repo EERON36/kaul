@@ -205,7 +205,7 @@ test("completes login, forced password change, shell access, logout, and new log
   await expect(page.getByRole("link", { name: "Personal" })).toBeVisible();
   await expect(
     page.getByRole("link", {
-      name: /Klienter|Dokument|Sök|Inställningar/,
+      name: /Dokument|Sök|Inställningar/,
     }),
   ).toHaveCount(0);
   await expect(page.getByText(userId)).toHaveCount(0);

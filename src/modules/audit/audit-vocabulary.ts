@@ -70,6 +70,24 @@ export const AUDIT_ACTION_POLICY = {
     targetType: "USER",
     targetId: "REQUIRED",
   },
+  CLIENT_CREATED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "CLIENT",
+    targetId: "REQUIRED",
+  },
+  ASSIGNMENT_CREATED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "ASSIGNMENT",
+    targetId: "REQUIRED",
+  },
+  ASSIGNMENT_ENDED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "ASSIGNMENT",
+    targetId: "REQUIRED",
+  },
 } as const;
 
 export const AUDIT_ACTIONS = [
@@ -84,12 +102,17 @@ export const AUDIT_ACTIONS = [
   "ACCOUNT_REACTIVATED",
   "USER_ROLE_CHANGED",
   "USER_SESSIONS_REVOKED",
+  "CLIENT_CREATED",
+  "ASSIGNMENT_CREATED",
+  "ASSIGNMENT_ENDED",
 ] as const satisfies readonly (keyof typeof AUDIT_ACTION_POLICY)[];
 
 export const AUDIT_TARGET_TYPES = [
   "AUTHENTICATION",
   "ORGANISATION",
   "USER",
+  "CLIENT",
+  "ASSIGNMENT",
 ] as const;
 
 export const auditActionSchema = z.enum(AUDIT_ACTIONS);
