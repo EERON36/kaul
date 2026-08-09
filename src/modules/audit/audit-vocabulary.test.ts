@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AUDIT_ACTION_POLICY,
   AUDIT_ACTIONS,
   AUDIT_TARGET_TYPES,
   auditIntentContextSchema,
@@ -23,6 +24,18 @@ function userContext(overrides: Record<string, unknown> = {}) {
 }
 
 describe("audit vocabulary", () => {
+  it("defines the reviewed Client and Assignment mutation policies", () => {
+    expect(AUDIT_ACTION_POLICY.CLIENT_CREATED).toEqual({
+      actorKinds: ["USER"],
+      organisation: "REQUIRED",
+      targetType: "CLIENT",
+      targetId: "REQUIRED",
+    });
+    expect(AUDIT_ACTION_POLICY.ASSIGNMENT_CREATED.targetType).toBe(
+      "ASSIGNMENT",
+    );
+    expect(AUDIT_ACTION_POLICY.ASSIGNMENT_ENDED.targetType).toBe("ASSIGNMENT");
+  });
   it("contains only the accepted UPPER_SNAKE_CASE actions", () => {
     expect(AUDIT_ACTIONS).toEqual([
       "LOGIN_SUCCEEDED",
@@ -36,6 +49,9 @@ describe("audit vocabulary", () => {
       "ACCOUNT_REACTIVATED",
       "USER_ROLE_CHANGED",
       "USER_SESSIONS_REVOKED",
+      "CLIENT_CREATED",
+      "ASSIGNMENT_CREATED",
+      "ASSIGNMENT_ENDED",
     ]);
     expect(
       AUDIT_ACTIONS.every((action) => /^[A-Z][A-Z0-9_]*$/.test(action)),
@@ -47,6 +63,8 @@ describe("audit vocabulary", () => {
       "AUTHENTICATION",
       "ORGANISATION",
       "USER",
+      "CLIENT",
+      "ASSIGNMENT",
     ]);
     expect(
       auditIntentContextSchema.safeParse(

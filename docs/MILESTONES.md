@@ -837,6 +837,24 @@ Later Milestone 1 work remains outstanding, including:
   `LOGIN_FAILED`, `LOGOUT_SUCCEEDED`, `INITIAL_ADMIN_CREATED`, and
   `PASSWORD_CHANGED`
 
+### Milestone 2 — Clients and Assignments: Implementation in Progress
+
+The Client Foundation slice is implemented and verified. Administrators can
+create organisation-owned Clients and manage historical primary and secondary
+Staff assignments. Staff access requires both an active Client and an active
+assignment, and one central server-side access boundary protects Client lists
+and direct Client routes.
+
+Client creation and Assignment creation/end operations use durable audit
+intents and transactionally coupled successful outcomes. PostgreSQL enforces
+organisation-safe assignment relationships, one active primary assignment, and
+one active assignment per Client and Staff Member.
+
+Later Milestone 2 work remains outstanding, including Client editing,
+archiving, controlled category selection, basic search, and any broader home
+view. Journal, document, goal, follow-up, and report functionality remain in
+their later milestones.
+
 ---
 
 # Scope Decision Rule

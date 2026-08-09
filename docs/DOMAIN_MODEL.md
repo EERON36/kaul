@@ -152,19 +152,23 @@ A client represents a person receiving support from the organisation.
 
 The client is the central entity in Kaul. Journal entries, assignments, goals, follow-ups, documents, and weekly reports are organised around the client.
 
-A client has:
+A Version 1 client is initially created with exactly:
 
 - First name
 - Last name
 - Person identifier
 - Category
-- Contact information where appropriate
+
+Contact information is deferred to a later reviewed slice.
+
+A client also has server-owned lifecycle information:
+
 - Status
 - Created date
 - Updated date
 - Archived date where applicable
 
-Supported client categories are:
+The intended product categories are:
 
 - Youth
 - Adult
@@ -173,6 +177,10 @@ The Swedish interface displays these categories as:
 
 - Ungdom
 - Vuxen
+
+The Client Foundation stores category as a required trimmed string of at most
+100 characters rather than a database enum. A controlled category-selection
+workflow is deferred to a later reviewed Client slice.
 
 A client may have:
 
@@ -187,6 +195,21 @@ A client may have:
 ### Client Rules
 
 - Every client belongs to one organisation.
+- The Version 1 person identifier is an opaque organisation-local reference,
+  not a Swedish personal identity number. It is trimmed, Unicode NFC
+  normalised, uppercased, limited to 64 characters, and unique within the
+  organisation.
+- Client categories are required bounded strings in Version 1. A controlled
+  category vocabulary is deferred.
+- Client status is `INACTIVE`, `ACTIVE`, or `ARCHIVED`.
+- New clients are `INACTIVE` with no archive date.
+- Creating the first active primary assignment activates an inactive client.
+- Ending the active primary assignment makes the client inactive without
+  ending its secondary assignments.
+- While the client is inactive, retained active secondary assignments do not
+  grant access. If a new primary assignment later reactivates the client, those
+  still-active secondary assignments grant access again.
+- An archived client has an archive date. Active and inactive clients do not.
 - Every active client must have at least one active primary assignment before ordinary staff access is granted.
 - Administrators may access all clients in their organisation.
 - Staff members may only access clients through an active assignment.
@@ -209,7 +232,7 @@ An assignment has:
 - Client
 - Assigned user
 - Assignment type
-- Status
+- Active or ended state derived from the end date
 - Start date
 - End date where applicable
 - Created date
@@ -226,10 +249,21 @@ An assignment may later support temporary access, but temporary assignment workf
 
 - A client may have one active primary assignment.
 - A client may have zero or more active secondary assignments.
+- An assignment is active exactly while its end date is absent.
+- A secondary assignment may be created only for an active client that already
+  has an active primary assignment.
+- Archived clients cannot receive new assignments.
 - A user may have assignments to many clients.
 - An assignment belongs to one organisation.
+- Only an active Staff Member in the same organisation may receive a new
+  assignment. Administrators are not assignment targets.
 - Staff access exists only while the assignment is active.
+- Staff access also requires the client itself to be active.
 - Ending an assignment removes future access but does not alter historical records.
+- Assignment responsibility is immutable in Version 1. Changing responsibility
+  means ending one assignment and creating another.
+- Assignment records are ended by setting their end date and are not deleted
+  through ordinary application behaviour.
 - Assignment changes must be recorded in the audit log.
 - An administrator may create, change, or end assignments.
 - A staff member cannot assign themselves to a client.

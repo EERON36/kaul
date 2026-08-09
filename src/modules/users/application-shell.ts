@@ -7,6 +7,24 @@ export type ApplicationShellContext = Readonly<{
   roleLabel: "Administratör" | "Medarbetare";
 }>;
 
+export type ApplicationNavigationItem = Readonly<{
+  href: "/" | "/klienter" | "/personal";
+  label: "Hem" | "Klienter" | "Personal";
+}>;
+
+export function getApplicationNavigation(
+  user: ApplicationUser,
+): readonly ApplicationNavigationItem[] {
+  const shared: ApplicationNavigationItem[] = [
+    { href: "/", label: "Hem" },
+    { href: "/klienter", label: "Klienter" },
+  ];
+
+  return user.role === "ADMINISTRATOR"
+    ? [...shared, { href: "/personal", label: "Personal" }]
+    : shared;
+}
+
 export function createApplicationShellContext(
   user: ApplicationUser,
 ): ApplicationShellContext {

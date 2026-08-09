@@ -38,6 +38,7 @@ a {
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 main:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
@@ -254,6 +255,16 @@ h2 {
   font: inherit;
 }
 
+.form-field select {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.65rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid #667680;
+  color: var(--text);
+  font: inherit;
+}
+
 .form-help,
 .form-error,
 .form-status {
@@ -309,6 +320,79 @@ h2 {
   padding: clamp(1rem, 4vw, 1.5rem);
   background: var(--surface);
   border: 1px solid var(--border);
+}
+
+.client-section {
+  margin-top: 2rem;
+  padding: clamp(1rem, 4vw, 1.5rem);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.client-list,
+.assignment-list {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.client-list-link {
+  display: grid;
+  gap: 0.25rem;
+  min-height: 4rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  text-decoration: none;
+}
+
+.client-list-link:hover {
+  border-color: var(--navigation);
+  background: var(--surface-muted);
+}
+
+.client-list-name {
+  font-family: var(--font-plex-serif), Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.client-identifier {
+  font-family: var(--font-plex-mono), Consolas, monospace;
+}
+
+.client-details {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.client-details div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.client-details dt {
+  font-weight: 600;
+}
+
+.client-details dd {
+  margin: 0;
+}
+
+.assignment-list > li {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+}
+
+.assignment-list h3,
+.assignment-list p {
+  margin-bottom: 0.25rem;
 }
 
 .staff-list {
