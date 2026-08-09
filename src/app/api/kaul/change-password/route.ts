@@ -8,6 +8,7 @@ import {
 import { changeForcedPassword } from "../../../../modules/authentication/password-change";
 import { ForcedPasswordChangeError } from "../../../../modules/authentication/password-change-internal";
 import { getPasswordChangeValidationCode } from "../../../../modules/authentication/password-change-input";
+import { AuditError } from "../../../../modules/audit/audit";
 
 const knownGuardCodes = new Set<AuthenticationGuardErrorCode>([
   "UNAUTHENTICATED",
@@ -83,6 +84,14 @@ export async function POST(request: Request): Promise<Response> {
       error.code === "AUTHENTICATION_FAILED"
     ) {
       return jsonResponse("PASSWORD_CHANGE_FAILED", 400);
+    }
+
+    if (
+      error instanceof AuditError ||
+      (error instanceof ForcedPasswordChangeError &&
+        error.code === "INCONSISTENT_RESULT")
+    ) {
+      return jsonResponse("PASSWORD_CHANGE_FAILED", 409);
     }
 
     if (

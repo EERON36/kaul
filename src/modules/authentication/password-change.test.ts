@@ -7,6 +7,7 @@ import {
   getReplacementSetCookieHeaders,
 } from "./password-change-internal";
 import { changeForcedPasswordForTest } from "./password-change.test-support";
+import { classifyPasswordChangeTransactionResult } from "./password-change-transaction-result";
 
 const validInput = {
   currentPassword: "Fictional temporary password",
@@ -19,6 +20,17 @@ afterEach(() => {
 });
 
 describe("password-change security boundary", () => {
+  it("classifies only an unknown transaction acknowledgement as AMBIGUOUS", () => {
+    expect(classifyPasswordChangeTransactionResult("CALLBACK_FAILED")).toBe(
+      "FAILED",
+    );
+    expect(classifyPasswordChangeTransactionResult("COMPLETED")).toBe(
+      "SUCCEEDED",
+    );
+    expect(classifyPasswordChangeTransactionResult("UNKNOWN")).toBe(
+      "AMBIGUOUS",
+    );
+  });
   it("refuses the test-support entry point outside test mode", () => {
     vi.stubEnv("NODE_ENV", "production");
 

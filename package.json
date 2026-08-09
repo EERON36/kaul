@@ -23,6 +23,7 @@
     "test:e2e": "playwright test",
     "audit:ci": "node scripts/check-security-audit.mjs",
     "bootstrap:admin": "jiti scripts/bootstrap-admin.ts",
+    "bootstrap:admin:recover": "jiti scripts/bootstrap-admin-recover.ts",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",

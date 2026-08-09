@@ -1,5 +1,20 @@
 # Kaul Deployment
 
+## Initial Administrator audit recovery
+
+Recover one unresolved bootstrap operation with:
+
+```text
+npm run bootstrap:admin:recover -- <operation-uuid>
+```
+
+Under the bootstrap advisory lock, recovery requires the exact compatible
+audit operation and proves that Organisation, User, and Account counts are all
+zero and that the planned Organisation does not exist. Any difference fails
+closed. Recovery records only a reviewed failed result; it never creates an
+Administrator. Run `npm run bootstrap:admin` separately afterward to create a
+new operation UUID.
+
 Version: 0.1
 
 ---

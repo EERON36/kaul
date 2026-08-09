@@ -1,5 +1,13 @@
 # Kaul Development Milestones
 
+## Milestone 1 authentication audit status
+
+- `INITIAL_ADMIN_CREATED` is integrated with durable intent, atomic success,
+  failure and ambiguity handling, and reviewed empty-install recovery.
+- `PASSWORD_CHANGED` is integrated with the forced password-change transaction
+  and post-commit replacement-cookie handling.
+- Login and logout audit integration remains outstanding.
+
 Version: 0.1
 
 ---

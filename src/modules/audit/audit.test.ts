@@ -2,13 +2,39 @@ import { describe, expect, it } from "vitest";
 
 import {
   AuditError,
+  createPasswordChangedAuditIntent,
   createUnauthenticatedAuditIntent,
+  createUserAuditIntent,
   generateAuditOperationId,
   recordAuditRecovery,
 } from "./audit";
 import { auditOperationIdSchema } from "./audit-vocabulary";
+import type { AuthenticatedUser } from "../authentication/guards";
 
 describe("audit service boundary", () => {
+  it("keeps forced-password users outside the generic application audit boundary", () => {
+    if (false) {
+      const forcedUser = {} as AuthenticatedUser;
+      createPasswordChangedAuditIntent({
+        operationId: "123e4567-e89b-42d3-a456-426614174000",
+        actor: forcedUser,
+      });
+      createUserAuditIntent({
+        operationId: "123e4567-e89b-42d3-a456-426614174000",
+        // @ts-expect-error Generic user audit requires an ApplicationUser.
+        actor: forcedUser,
+        action: "ACCOUNT_DEACTIVATED",
+        target: { targetId: "user-2" },
+      });
+      createPasswordChangedAuditIntent({
+        operationId: "123e4567-e89b-42d3-a456-426614174000",
+        actor: forcedUser,
+        // @ts-expect-error Password-change callers cannot select an action.
+        action: "ACCOUNT_DEACTIVATED",
+      });
+    }
+    expect(true).toBe(true);
+  });
   it("generates a valid random operation UUID", () => {
     const first = generateAuditOperationId();
     const second = generateAuditOperationId();

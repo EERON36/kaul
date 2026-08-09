@@ -9,6 +9,16 @@ import {
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
 } from "../authentication/auth";
+import {
+  appendAuditOutcomeInTransaction,
+  createSystemAuditIntent,
+  generateAuditOperationId,
+  recordFailedAuditOutcome,
+  recordAmbiguousAuditOutcome,
+  recordReviewedInitialAdminFailureInTransaction,
+  requireOldestUnresolvedInitialAdminOperation,
+} from "../audit/audit";
+import { auditOperationIdSchema } from "../audit/audit-vocabulary";
 
 const TEMPORARY_CREDENTIAL_LIFETIME_MS = 24 * 60 * 60 * 1_000;
 // The two signed 32-bit keys form a Kaul-specific PostgreSQL lock namespace.
@@ -39,14 +49,21 @@ export type InitialAdministratorTestDependencies = Readonly<{
   currentTime?: () => Date;
   generateCredential?: () => string;
   beforeTransaction?: () => void | Promise<void>;
+  afterAuditIntent?: (operationId: string) => void | Promise<void>;
   afterAuthenticationCreate?: () => void | Promise<void>;
 }>;
 
 export class InitialAdministratorBootstrapError extends Error {
-  readonly code: "INSTALLATION_NOT_EMPTY" | "INCONSISTENT_RESULT";
+  readonly code:
+    | "INSTALLATION_NOT_EMPTY"
+    | "INCONSISTENT_RESULT"
+    | "OPERATION_REQUIRES_REVIEW";
 
   constructor(
-    code: "INSTALLATION_NOT_EMPTY" | "INCONSISTENT_RESULT",
+    code:
+      | "INSTALLATION_NOT_EMPTY"
+      | "INCONSISTENT_RESULT"
+      | "OPERATION_REQUIRES_REVIEW",
     message: string,
   ) {
     super(message);
@@ -119,99 +136,140 @@ export async function bootstrapInitialAdministratorInternal(
     creationTime.getTime() + TEMPORARY_CREDENTIAL_LIFETIME_MS,
   );
   const organisationId = randomUUID();
+  const operationId = generateAuditOperationId();
+  const intent = await createSystemAuditIntent({
+    operationId,
+    organisationId,
+    action: "INITIAL_ADMIN_CREATED",
+    target: { targetId: organisationId },
+  });
+  await dependencies.afterAuditIntent?.(operationId);
 
   await dependencies.beforeTransaction?.();
 
-  const storedEmail = await prisma.$transaction(
-    async (transaction) => {
-      await transaction.$queryRaw`
+  let storedEmail: string;
+  let transactionCallbackCompleted = false;
+  try {
+    storedEmail = await prisma.$transaction(
+      async (transaction) => {
+        await transaction.$queryRaw`
         SELECT pg_advisory_xact_lock(
           ${BOOTSTRAP_ADVISORY_LOCK_NAMESPACE},
           ${BOOTSTRAP_ADVISORY_LOCK_KEY}
         )::text AS "lockResult"
       `;
 
-      await assertInstallationIsEmpty(transaction);
+        try {
+          await requireOldestUnresolvedInitialAdminOperation(
+            transaction,
+            operationId,
+          );
+        } catch {
+          throw new InitialAdministratorBootstrapError(
+            "OPERATION_REQUIRES_REVIEW",
+            "An earlier Initial Administrator operation requires review.",
+          );
+        }
 
-      const organisation = await transaction.organisation.create({
-        data: {
-          id: organisationId,
-          name: metadata.organisationName,
-        },
-        select: { id: true },
-      });
-      const transactionAuthentication = createAuthentication(transaction);
-      const created = await transactionAuthentication.api.createUser({
-        body: {
-          name: metadata.administratorName,
-          email: metadata.administratorEmail,
-          password: temporaryCredential,
-          role: UserRole.ADMINISTRATOR,
+        await assertInstallationIsEmpty(transaction);
+
+        const organisation = await transaction.organisation.create({
           data: {
-            organisationId,
-            professionalTitle: metadata.professionalTitle,
-            mustChangePassword: true,
-            temporaryCredentialExpiresAt,
+            id: organisationId,
+            name: metadata.organisationName,
           },
-        },
-      });
+          select: { id: true },
+        });
+        const transactionAuthentication = createAuthentication(transaction);
+        const created = await transactionAuthentication.api.createUser({
+          body: {
+            name: metadata.administratorName,
+            email: metadata.administratorEmail,
+            password: temporaryCredential,
+            role: UserRole.ADMINISTRATOR,
+            data: {
+              organisationId,
+              professionalTitle: metadata.professionalTitle,
+              mustChangePassword: true,
+              temporaryCredentialExpiresAt,
+            },
+          },
+        });
 
-      await dependencies.afterAuthenticationCreate?.();
+        await dependencies.afterAuthenticationCreate?.();
 
-      const verifiedOrganisation = await transaction.organisation.findUnique({
-        where: { id: organisation.id },
-        select: { id: true, name: true },
-      });
-      const verifiedUser = await transaction.user.findUnique({
-        where: { id: created.user.id },
-        select: {
-          name: true,
-          email: true,
-          banned: true,
-          organisationId: true,
-          professionalTitle: true,
-          role: true,
-          mustChangePassword: true,
-          temporaryCredentialExpiresAt: true,
-        },
-      });
-      const credentialAccountCount = await transaction.account.count({
-        where: {
-          userId: created.user.id,
-          providerId: "credential",
-          password: { not: null },
-        },
-      });
-      const organisationCount = await transaction.organisation.count();
-      const userCount = await transaction.user.count();
-      const accountCount = await transaction.account.count();
+        const verifiedOrganisation = await transaction.organisation.findUnique({
+          where: { id: organisation.id },
+          select: { id: true, name: true },
+        });
+        const verifiedUser = await transaction.user.findUnique({
+          where: { id: created.user.id },
+          select: {
+            name: true,
+            email: true,
+            banned: true,
+            organisationId: true,
+            professionalTitle: true,
+            role: true,
+            mustChangePassword: true,
+            temporaryCredentialExpiresAt: true,
+          },
+        });
+        const credentialAccountCount = await transaction.account.count({
+          where: {
+            userId: created.user.id,
+            providerId: "credential",
+            password: { not: null },
+          },
+        });
+        const organisationCount = await transaction.organisation.count();
+        const userCount = await transaction.user.count();
+        const accountCount = await transaction.account.count();
 
-      const isExpectedResult =
-        organisationCount === 1 &&
-        userCount === 1 &&
-        accountCount === 1 &&
-        verifiedOrganisation?.name === metadata.organisationName &&
-        verifiedUser?.name === metadata.administratorName &&
-        verifiedUser.banned !== true &&
-        verifiedUser?.organisationId === organisation.id &&
-        verifiedUser.professionalTitle === metadata.professionalTitle &&
-        verifiedUser.role === UserRole.ADMINISTRATOR &&
-        verifiedUser.mustChangePassword === true &&
-        verifiedUser.temporaryCredentialExpiresAt?.getTime() ===
-          temporaryCredentialExpiresAt.getTime() &&
-        credentialAccountCount === 1;
+        const isExpectedResult =
+          organisationCount === 1 &&
+          userCount === 1 &&
+          accountCount === 1 &&
+          verifiedOrganisation?.name === metadata.organisationName &&
+          verifiedUser?.name === metadata.administratorName &&
+          verifiedUser.banned !== true &&
+          verifiedUser?.organisationId === organisation.id &&
+          verifiedUser.professionalTitle === metadata.professionalTitle &&
+          verifiedUser.role === UserRole.ADMINISTRATOR &&
+          verifiedUser.mustChangePassword === true &&
+          verifiedUser.temporaryCredentialExpiresAt?.getTime() ===
+            temporaryCredentialExpiresAt.getTime() &&
+          credentialAccountCount === 1;
 
-      if (!isExpectedResult) {
-        throw new InitialAdministratorBootstrapError(
-          "INCONSISTENT_RESULT",
-          "Initial Administrator bootstrap verification failed.",
-        );
+        if (!isExpectedResult) {
+          throw new InitialAdministratorBootstrapError(
+            "INCONSISTENT_RESULT",
+            "Initial Administrator bootstrap verification failed.",
+          );
+        }
+
+        await appendAuditOutcomeInTransaction(transaction, intent, "SUCCEEDED");
+        transactionCallbackCompleted = true;
+
+        return verifiedUser.email;
+      },
+      { timeout: 30_000 },
+    );
+  } catch (error) {
+    try {
+      if (transactionCallbackCompleted) {
+        await recordAmbiguousAuditOutcome(intent);
+      } else {
+        await recordFailedAuditOutcome(intent);
       }
-
-      return verifiedUser.email;
-    },
-    { timeout: 30_000 },
-  );
+    } catch {
+      throw new InitialAdministratorBootstrapError(
+        "OPERATION_REQUIRES_REVIEW",
+        "Initial Administrator audit outcome requires review.",
+      );
+    }
+    throw error;
+  }
 
   return {
     organisationName: metadata.organisationName,
@@ -219,4 +277,58 @@ export async function bootstrapInitialAdministratorInternal(
     temporaryCredential,
     temporaryCredentialExpiresAt,
   };
+}
+
+export async function recoverInitialAdministratorBootstrapInternal(
+  operationId: string,
+): Promise<void> {
+  const parsedOperationId = auditOperationIdSchema.safeParse(operationId);
+  if (!parsedOperationId.success) {
+    throw new InitialAdministratorBootstrapError(
+      "OPERATION_REQUIRES_REVIEW",
+      "The bootstrap operation identifier is invalid.",
+    );
+  }
+
+  await prisma.$transaction(async (transaction) => {
+    await transaction.$queryRaw`
+      SELECT pg_advisory_xact_lock(
+        ${BOOTSTRAP_ADVISORY_LOCK_NAMESPACE},
+        ${BOOTSTRAP_ADVISORY_LOCK_KEY}
+      )::text AS "lockResult"
+    `;
+
+    const operation = await transaction.auditOperation.findUnique({
+      where: { id: parsedOperationId.data },
+      select: { targetId: true },
+    });
+    const [organisationCount, userCount, accountCount, plannedTargetCount] =
+      await Promise.all([
+        transaction.organisation.count(),
+        transaction.user.count(),
+        transaction.account.count(),
+        operation?.targetId
+          ? transaction.organisation.count({
+              where: { id: operation.targetId },
+            })
+          : Promise.resolve(1),
+      ]);
+
+    if (
+      organisationCount !== 0 ||
+      userCount !== 0 ||
+      accountCount !== 0 ||
+      plannedTargetCount !== 0
+    ) {
+      throw new InitialAdministratorBootstrapError(
+        "OPERATION_REQUIRES_REVIEW",
+        "The installation cannot be proven empty.",
+      );
+    }
+
+    await recordReviewedInitialAdminFailureInTransaction(
+      transaction,
+      parsedOperationId.data,
+    );
+  });
 }
