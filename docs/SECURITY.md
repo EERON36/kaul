@@ -123,6 +123,17 @@ Kaul must provide:
 - Production authentication requires HTTPS.
 - Development credentials must never be reused for pilot or production.
 
+Administrator-assisted password reset is limited to active Staff Members in
+the acting Administrator's Organisation. The server generates the temporary
+credential, sets a 24-hour forced-change expiry, revokes every target session,
+and records `PASSWORD_RESET_BY_ADMIN`. A target-specific transaction lock
+prevents simultaneous resets from producing two displayed credentials, and a
+valid outstanding temporary credential cannot be replaced. The credential is
+returned only after commit, displayed once, and excluded from storage, logs,
+URLs, and audit records. The current authenticated Administrator display is a
+development and pilot mechanism; an approved production delivery channel and
+sole-Administrator recovery procedure remain unresolved.
+
 Multi-factor authentication is not required for the first pilot milestone, but may be required before sensitive production use following a security review.
 
 ---

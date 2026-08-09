@@ -44,6 +44,7 @@ export default async function StaffPage() {
           staff={staff.map((member) => ({
             ...member,
             operationId: generateAuditOperationId(),
+            resetOperationId: generateAuditOperationId(),
           }))}
         />
       </div>

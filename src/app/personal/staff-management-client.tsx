@@ -8,13 +8,16 @@ import {
   createStaffAction,
   deactivateStaffAction,
   reactivateStaffAction,
+  resetStaffPasswordAction,
   type CreateStaffActionState,
+  type StaffPasswordResetActionState,
   type StaffStatusActionState,
 } from "./actions";
 
 type StaffManagementProps = Readonly<{
   createOperationId: string;
-  staff: readonly (StaffMemberListItem & Readonly<{ operationId: string }>)[];
+  staff: readonly (StaffMemberListItem &
+    Readonly<{ operationId: string; resetOperationId: string }>)[];
 }>;
 
 const initialStatusState: StaffStatusActionState = { status: "IDLE" };
@@ -61,6 +64,71 @@ function StaffStatusControl({
         {state.message}
       </p>
     </form>
+  );
+}
+
+function StaffPasswordResetControl({
+  member,
+}: Readonly<{
+  member: StaffMemberListItem & Readonly<{ resetOperationId: string }>;
+}>) {
+  const initialState: StaffPasswordResetActionState = {
+    status: "IDLE",
+    operationId: member.resetOperationId,
+  };
+  const [state, formAction, isPending] = useActionState(
+    resetStaffPasswordAction,
+    initialState,
+  );
+
+  function confirmReset(event: FormEvent<HTMLFormElement>) {
+    if (
+      !window.confirm(
+        `Vill du återställa lösenordet för ${member.name}? Alla personens befintliga sessioner avslutas.`,
+      )
+    ) {
+      event.preventDefault();
+    }
+  }
+
+  return (
+    <div>
+      <form action={formAction} onSubmit={confirmReset}>
+        <input name="operationId" type="hidden" value={state.operationId} />
+        <input name="targetUserId" type="hidden" value={member.id} />
+        <button className="secondary-button" disabled={isPending} type="submit">
+          {isPending ? "Återställer…" : "Återställ lösenord"}
+        </button>
+      </form>
+      <div
+        aria-live="polite"
+        className={
+          state.status === "ERROR" ? "form-error" : "credential-result"
+        }
+      >
+        {state.message ? <p>{state.message}</p> : null}
+        {state.temporaryCredential ? (
+          <>
+            <p>
+              <strong>Tillfälligt lösenord:</strong>{" "}
+              <code>{state.temporaryCredential}</code>
+            </p>
+            <p>
+              Giltigt till:{" "}
+              {new Intl.DateTimeFormat("sv-SE", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              }).format(new Date(state.temporaryCredentialExpiresAt ?? ""))}
+            </p>
+            <p>
+              Lösenordet visas bara nu, gäller i 24 timmar och måste bytas vid
+              nästa inloggning. Godkänd leveranskanal för produktion är ännu
+              inte beslutad.
+            </p>
+          </>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -173,7 +241,12 @@ export function StaffManagement({
                     {member.active ? "Aktiv" : "Inaktiv"}
                   </p>
                 </div>
-                <StaffStatusControl member={member} />
+                <div>
+                  {member.active ? (
+                    <StaffPasswordResetControl member={member} />
+                  ) : null}
+                  <StaffStatusControl member={member} />
+                </div>
               </li>
             ))}
           </ul>

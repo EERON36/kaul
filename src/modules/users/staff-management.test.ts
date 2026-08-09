@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createStaffMemberInputSchema,
+  staffPasswordResetInputSchema,
   staffMemberStatusInputSchema,
 } from "./staff-management-input";
 import { selectStaffMutationFailureOutcomeForTest } from "./staff-management.test-support";
@@ -49,6 +50,26 @@ describe("staff management input", () => {
     ).toThrow();
   });
 
+  it("accepts only operation and target identifiers for password reset", () => {
+    const input = {
+      operationId: "99eb11ad-ef00-442c-8431-3f4fe4c7502d",
+      targetUserId: "fictional-user-id",
+    };
+
+    expect(staffPasswordResetInputSchema.parse(input)).toEqual(input);
+    for (const extra of [
+      { password: "browser-controlled" },
+      { organisationId: "browser-controlled" },
+      { role: "ADMINISTRATOR" },
+      { action: "USER_SESSIONS_REVOKED" },
+      { result: "SUCCEEDED" },
+    ]) {
+      expect(() =>
+        staffPasswordResetInputSchema.parse({ ...input, ...extra }),
+      ).toThrow();
+    }
+  });
+
   it("keeps test support unavailable outside the test environment", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const { createStaffMemberForTest } =
@@ -61,6 +82,35 @@ describe("staff management input", () => {
           name: "Fiktiv Medarbetare",
           email: "staff@example.test",
           professionalTitle: "Fiktiv behandlare",
+        },
+        {
+          userId: "administrator-id",
+          name: "Fiktiv Administratör",
+          email: "administrator@example.test",
+          role: "ADMINISTRATOR",
+          organisationId: "organisation-id",
+          organisationName: "Fiktiva Omsorgen",
+          professionalTitle: "Fiktiv verksamhetsansvarig",
+          mustChangePassword: false,
+          credentialState: "APPLICATION_ALLOWED",
+        },
+        new Headers(),
+        {},
+      ),
+    ).toThrow("available only in tests");
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps password-reset test support unavailable outside tests", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const { resetStaffPasswordForTest } =
+      await import("./staff-password-reset.test-support");
+
+    expect(() =>
+      resetStaffPasswordForTest(
+        {
+          operationId: "7b3fe806-f0ae-44b9-87a8-a2632ef9b73f",
+          targetUserId: "fictional-user-id",
         },
         {
           userId: "administrator-id",

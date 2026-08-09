@@ -14,6 +14,11 @@ describe("staff management feedback", () => {
         new StaffManagementError("TARGET_UNAVAILABLE"),
       ),
     ).toMatch(/Medarbetaren kan inte ändras/);
+    expect(
+      getStaffManagementFeedback(
+        new StaffManagementError("RESET_ALREADY_PENDING"),
+      ),
+    ).toMatch(/giltig tillfällig inloggningsuppgift redan finns/);
   });
 
   it("does not downgrade audit or integrity failures to form feedback", () => {

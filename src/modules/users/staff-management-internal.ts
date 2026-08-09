@@ -49,6 +49,7 @@ export type CreatedStaffMember = Readonly<{
 export type StaffManagementErrorCode =
   | "DUPLICATE_EMAIL"
   | "TARGET_UNAVAILABLE"
+  | "RESET_ALREADY_PENDING"
   | "INCONSISTENT_RESULT"
   | "OPERATION_AMBIGUOUS";
 

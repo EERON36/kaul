@@ -830,12 +830,22 @@ deactivation revokes the target user's sessions as part of the single
 `ACCOUNT_DEACTIVATED` operation; `USER_SESSIONS_REVOKED` remains reserved for a
 future standalone session-revocation operation.
 
+Administrator-assisted Staff password reset is implemented and verified.
+Administrators can reset only active Staff Members in their own Organisation.
+The operation generates a 24-hour temporary credential, prevents replacement
+while a valid reset is outstanding, revokes every target session, and records
+`PASSWORD_RESET_BY_ADMIN` through the Audit Foundation. The credential is shown
+once to the authenticated Administrator and is never persisted in plaintext.
+This development and pilot display does not resolve the required
+organisation-approved production delivery channel.
+
 Later Milestone 1 work remains outstanding, including:
 
-- Administrator password-reset workflows
 - Authentication audit persistence, including `LOGIN_SUCCEEDED`,
   `LOGIN_FAILED`, `LOGOUT_SUCCEEDED`, `INITIAL_ADMIN_CREATED`, and
   `PASSWORD_CHANGED`
+- The organisation-approved production credential-delivery channel
+- The sole-Administrator credential-loss recovery procedure
 
 ### Milestone 2 — Clients and Assignments: Implementation in Progress
 
@@ -853,7 +863,8 @@ one active assignment per Client and Staff Member.
 Later Milestone 2 work remains outstanding, including Client editing,
 archiving, controlled category selection, basic search, and any broader home
 view. Journal, document, goal, follow-up, and report functionality remain in
-their later milestones.
+their later milestones. Further Client-domain expansion remains paused until
+the remaining Milestone 1 authentication audit integrations are complete.
 
 ---
 
