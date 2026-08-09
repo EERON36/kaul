@@ -1,13 +1,75 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { UserRole } from "../../generated/prisma/client";
+
 import {
   createStaffMemberInputSchema,
   staffPasswordResetInputSchema,
   staffMemberStatusInputSchema,
 } from "./staff-management-input";
-import { selectStaffMutationFailureOutcomeForTest } from "./staff-management.test-support";
+import {
+  isStaffPasswordResetEligibleForTest,
+  selectStaffMutationFailureOutcomeForTest,
+} from "./staff-management.test-support";
 
 describe("staff management input", () => {
+  const currentTime = new Date("2032-02-03T04:05:06.000Z");
+
+  it.each([
+    ["active Staff without an outstanding reset", false, null, false, true],
+    [
+      "active Staff with an outstanding reset",
+      true,
+      new Date(currentTime.getTime() + 1),
+      false,
+      false,
+    ],
+    [
+      "active Staff with an expired reset",
+      true,
+      new Date(currentTime.getTime() - 1),
+      false,
+      true,
+    ],
+    [
+      "active Staff with a stale future expiry",
+      false,
+      new Date(currentTime.getTime() + 1),
+      false,
+      true,
+    ],
+    ["inactive Staff", false, null, true, false],
+  ] as const)(
+    "derives password-reset UI eligibility for %s",
+    (_label, mustChangePassword, temporaryCredentialExpiresAt, banned, expected) => {
+      expect(
+        isStaffPasswordResetEligibleForTest(
+          {
+            role: UserRole.STAFF_MEMBER,
+            banned,
+            mustChangePassword,
+            temporaryCredentialExpiresAt,
+          },
+          currentTime,
+        ),
+      ).toBe(expected);
+    },
+  );
+
+  it("excludes Administrators from password-reset UI eligibility", () => {
+    expect(
+      isStaffPasswordResetEligibleForTest(
+        {
+          role: UserRole.ADMINISTRATOR,
+          banned: false,
+          mustChangePassword: false,
+          temporaryCredentialExpiresAt: null,
+        },
+        currentTime,
+      ),
+    ).toBe(false);
+  });
+
   it("classifies only uncertain post-callback failures as AMBIGUOUS", () => {
     expect(selectStaffMutationFailureOutcomeForTest(false)).toBe("FAILED");
     expect(selectStaffMutationFailureOutcomeForTest(true)).toBe("AMBIGUOUS");

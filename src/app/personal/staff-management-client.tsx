@@ -242,7 +242,7 @@ export function StaffManagement({
                   </p>
                 </div>
                 <div>
-                  {member.active ? (
+                  {member.canResetPassword ? (
                     <StaffPasswordResetControl member={member} />
                   ) : null}
                   <StaffStatusControl member={member} />
