@@ -144,9 +144,9 @@ The command is only for a completely empty installation. It refuses when either
 an Organisation or User already exists and is not a repair or recovery tool.
 
 The credential-delivery channel and sole-Administrator recovery procedure still
-require organisational approval. Persistent `INITIAL_ADMIN_CREATED` audit storage
-is also not implemented in the current slice. These unresolved controls block
-sensitive production use; terminal output is not an audit event.
+require organisational approval. `INITIAL_ADMIN_CREATED` is persistently audited
+in the current implementation; terminal output is not treated as an audit event.
+The unresolved operational controls still block sensitive production use.
 
 ---
 

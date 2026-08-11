@@ -254,6 +254,9 @@ No production deployment should depend on homelab-specific infrastructure.
 
 # Current Status
 
-Milestone 0 is complete, and Milestone 1 implementation is underway. The
-authentication and database foundation exists; later business functionality
-remains unimplemented.
+Milestone 0 is complete. Milestone 1 authentication, audit, and Staff
+management slices are implemented, with production credential-delivery and
+sole-Administrator recovery procedures still outstanding. Milestone 2 Client
+Foundation is also implemented: Administrators can create **Ungdomar** and
+**Vuxna** Clients and manage Staff assignments. Journal, document, report,
+search, export, and other later-milestone functionality remain unimplemented.

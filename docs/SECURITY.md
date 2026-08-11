@@ -2,6 +2,17 @@
 
 ## Authentication audit guarantees
 
+Better Auth is the credential, Session, and cookie boundary. Kaul configures
+that boundary server-side, uses its Prisma-backed records, and keeps public
+signup disabled. Kaul's route and mutation layers add the project-specific
+authorisation, credential-state, audit, and response-release rules; they do not
+replace Better Auth password handling or Session management.
+
+Sessions have a maximum absolute lifetime of 12 hours from creation. Session
+refresh is disabled, and the expiry written for every new Session is limited to
+that absolute maximum. This policy applies even if an upstream expiry would be
+longer.
+
 Initial Administrator bootstrap persists a `SYSTEM` audit intent before any
 Organisation, User, or Account is created. The planned Organisation UUID is
 both the audit organisation and target. Creation and the successful outcome
@@ -22,11 +33,14 @@ Successful credential verification crosses a trusted Better Auth Session hook
 before Session insertion. Kaul then commits a durable `LOGIN_SUCCEEDED` intent,
 creates the Session and successful outcome in one Prisma transaction, awaits
 captured request-local background work, and releases buffered authentication
-cookies only after confirmed commit. Banned accounts and expired temporary
-credentials receive a failed `LOGIN_SUCCEEDED` outcome because credentials were
-valid but Session establishment was denied. Pre-trust invalid-credential
-failures receive an identity-free `LOGIN_FAILED` outcome. Malformed input and
-rate-limit rejections are not individually audited.
+cookies only after confirmed commit. This is fail-closed: an audit or
+transaction failure returns a generic authentication-unavailable response and
+does not release a successful Session cookie. Banned accounts and expired
+temporary credentials receive a failed `LOGIN_SUCCEEDED` outcome because
+credentials were valid but Session establishment was denied. Pre-trust
+invalid-credential failures receive an identity-free `LOGIN_FAILED` outcome:
+they have no authenticated actor, organisation, or target identifier. Malformed
+input and rate-limit rejections are not individually audited.
 
 Audit target resolution rejects every non-null `resolvedTargetId` when the
 action policy forbids a target, including the login and logout vocabulary.
@@ -444,6 +458,9 @@ personal data.
   intent. If the intent cannot be persisted, the mutation must not begin.
 - Mutation outcomes and reviewed recoveries are separate append-only records. An
   intent is never updated to represent success or failure.
+- `FAILED` is used only after a definitive rollback or failed deletion.
+  `AMBIGUOUS` is used only when commit acknowledgement is unknown; it requires
+  reviewed recovery and must not be reported as success.
 - Where possible, a transaction-compatible mutation and its successful outcome
   are committed together after the separate intent transaction.
 - Explicit logout is the reviewed availability exception: the exact current
