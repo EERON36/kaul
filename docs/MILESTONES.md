@@ -8,7 +8,8 @@
   and post-commit replacement-cookie handling.
 - `LOGIN_SUCCEEDED` is integrated with durable trusted-identity intent,
   transactionally coupled Session success, and post-commit cookie release.
-- `LOGIN_FAILED` and `LOGOUT_SUCCEEDED` integration remains outstanding.
+- `LOGIN_FAILED` is integrated for pre-trust invalid credentials; `LOGOUT_SUCCEEDED`
+  integration remains outstanding.
 
 Version: 0.1
 
@@ -851,7 +852,7 @@ organisation-approved production delivery channel.
 
 Later Milestone 1 work remains outstanding, including:
 
-- Authentication audit persistence for `LOGIN_FAILED` and `LOGOUT_SUCCEEDED`
+- Authentication audit persistence for `LOGOUT_SUCCEEDED`
 - The organisation-approved production credential-delivery channel
 - The sole-Administrator credential-loss recovery procedure
 

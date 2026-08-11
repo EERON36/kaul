@@ -24,9 +24,9 @@ creates the Session and successful outcome in one Prisma transaction, awaits
 captured request-local background work, and releases buffered authentication
 cookies only after confirmed commit. Banned accounts and expired temporary
 credentials receive a failed `LOGIN_SUCCEEDED` outcome because credentials were
-valid but Session establishment was denied. Pre-trust failures and rate-limit
-rejections are not handled by this integration; `LOGIN_FAILED` remains
-outstanding.
+valid but Session establishment was denied. Pre-trust invalid-credential
+failures receive an identity-free `LOGIN_FAILED` outcome. Malformed input and
+rate-limit rejections are not individually audited.
 
 Audit target resolution rejects every non-null `resolvedTargetId` when the
 action policy forbids a target, including the login and logout vocabulary.

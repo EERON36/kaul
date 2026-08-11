@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   bufferAuthenticationResponse,
@@ -8,7 +8,12 @@ import {
   classifyLoginAuditTransactionResult,
   runLoginAuditTransaction,
 } from "./login-audit-transaction-result";
-import { handleAuditedEmailSignInInternal } from "./login-audit-internal";
+import {
+  classifyPreTrustLoginFailure,
+  handleAuditedEmailSignInInternal,
+  persistPreTrustLoginFailure,
+  type LoginAuditTestDependencies,
+} from "./login-audit-internal";
 import { handleAuditedEmailSignInForTest } from "./login-audit.test-support";
 
 describe("LOGIN_SUCCEEDED transaction classification", () => {
@@ -69,6 +74,101 @@ describe("LOGIN_SUCCEEDED transaction classification", () => {
 
     expect(result).toEqual({ state: "UNKNOWN" });
     expect(classifyLoginAuditTransactionResult(result.state)).toBe("AMBIGUOUS");
+  });
+});
+
+describe("pre-trust LOGIN_FAILED classification", () => {
+  const validFailure = {
+    isEmailSignInRequest: true,
+    responseStatus: 401,
+    responseCode: "INVALID_EMAIL_OR_PASSWORD",
+    trustedIdentityEstablished: false,
+    loginSucceededIntentExists: false,
+    sessionEstablished: false,
+    setCookieCount: 0,
+  } as const;
+
+  it("classifies an admitted invalid credential failure", () => {
+    expect(classifyPreTrustLoginFailure(validFailure)).toBe("LOGIN_FAILED");
+  });
+
+  it("does not classify a 401 by status alone", () => {
+    expect(
+      classifyPreTrustLoginFailure({
+        ...validFailure,
+        responseCode: undefined,
+      }),
+    ).toBe("NO_AUDIT");
+  });
+
+  it.each([
+    ["trusted identity", { trustedIdentityEstablished: true }],
+    ["LOGIN_SUCCEEDED intent", { loginSucceededIntentExists: true }],
+    ["Session", { sessionEstablished: true }],
+    ["authentication cookie", { setCookieCount: 1 }],
+    ["malformed validation", { responseStatus: 400 }],
+    ["rate limiting", { responseStatus: 429 }],
+    ["operational failure", { responseStatus: 503 }],
+  ] as const)("does not audit %s", (_label, overrides) => {
+    expect(
+      classifyPreTrustLoginFailure({ ...validFailure, ...overrides }),
+    ).toBe("NO_AUDIT");
+  });
+
+  it("requires the exact audited email sign-in route", () => {
+    expect(
+      classifyPreTrustLoginFailure({
+        ...validFailure,
+        isEmailSignInRequest: false,
+      }),
+    ).toBe("NO_AUDIT");
+  });
+});
+
+describe("pre-trust LOGIN_FAILED persistence failures", () => {
+  const operationId = "123e4567-e89b-42d3-a456-426614174000";
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("logs one static message when intent persistence fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const dependencies: LoginAuditTestDependencies = {
+      async createFailedLoginIntent() {
+        throw new Error("Fictional audit persistence detail");
+      },
+    };
+
+    await expect(
+      persistPreTrustLoginFailure(operationId, dependencies),
+    ).resolves.toBeUndefined();
+    expect(consoleError.mock.calls).toEqual([
+      ["Authentication audit persistence failed."],
+    ]);
+  });
+
+  it("logs one static message when outcome persistence fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const dependencies: LoginAuditTestDependencies = {
+      async createFailedLoginIntent() {
+        return { operationId } as never;
+      },
+      async recordFailedLoginOutcome() {
+        throw new Error("Fictional outcome persistence detail");
+      },
+    };
+
+    await expect(
+      persistPreTrustLoginFailure(operationId, dependencies),
+    ).resolves.toBeUndefined();
+    expect(consoleError.mock.calls).toEqual([
+      ["Authentication audit persistence failed."],
+    ]);
   });
 });
 

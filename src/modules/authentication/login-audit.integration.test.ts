@@ -152,6 +152,25 @@ async function loadLoginOperation(userId: string) {
   });
 }
 
+async function loadLoginFailedOperation(operationId: string) {
+  return prisma.auditOperation.findUniqueOrThrow({
+    where: { id: operationId },
+    select: {
+      id: true,
+      organisationId: true,
+      actorKind: true,
+      actorUserId: true,
+      action: true,
+      targetType: true,
+      targetId: true,
+      events: {
+        orderBy: { occurredAt: "asc" },
+        select: { type: true, result: true, resolvedTargetId: true },
+      },
+    },
+  });
+}
+
 beforeEach(async () => {
   await clearAuthenticationFixtures();
   requestContext.headers = new Headers();
@@ -676,5 +695,217 @@ describe("audited LOGIN_SUCCEEDED Session establishment", () => {
       fictionalSecret,
     );
     expect(await response.text()).not.toContain(fictionalSecret);
+  });
+});
+
+describe("audited pre-trust LOGIN_FAILED attempts", () => {
+  it("audits a wrong password with an identity-free failed outcome", async () => {
+    const user = await createFixtureUser({ role: UserRole.STAFF_MEMBER });
+    const operationId = generateAuditOperationId();
+
+    const response = await auditedSignIn(
+      signInRequest({
+        email: user.email,
+        password: "Wrong fictional password",
+        ipAddress: "192.0.2.80",
+      }),
+      { operationId },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      code: "AUTHENTICATION_FAILED",
+    });
+    expect(response.headers.getSetCookie()).toEqual([]);
+    await expect(loadLoginFailedOperation(operationId)).resolves.toEqual({
+      id: operationId,
+      organisationId: null,
+      actorKind: "UNAUTHENTICATED",
+      actorUserId: null,
+      action: "LOGIN_FAILED",
+      targetType: "AUTHENTICATION",
+      targetId: null,
+      events: [{ type: "OUTCOME", result: "FAILED", resolvedTargetId: null }],
+    });
+    await expect(
+      prisma.session.count({ where: { userId: user.id } }),
+    ).resolves.toBe(0);
+  });
+
+  it("audits an unknown email through the same identity-free path", async () => {
+    const operationId = generateAuditOperationId();
+
+    const response = await auditedSignIn(
+      signInRequest({
+        email: `${randomUUID()}@example.test`,
+        password: "Wrong fictional password",
+        ipAddress: "192.0.2.81",
+      }),
+      { operationId },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      code: "AUTHENTICATION_FAILED",
+    });
+    await expect(loadLoginFailedOperation(operationId)).resolves.toMatchObject({
+      id: operationId,
+      organisationId: null,
+      actorKind: "UNAUTHENTICATED",
+      actorUserId: null,
+      action: "LOGIN_FAILED",
+      targetType: "AUTHENTICATION",
+      targetId: null,
+      events: [{ type: "OUTCOME", result: "FAILED", resolvedTargetId: null }],
+    });
+  });
+
+  it("does not audit malformed input", async () => {
+    const operationId = generateAuditOperationId();
+    const request = new Request(
+      "http://localhost:3000/api/auth/sign-in/email",
+      {
+        method: "POST",
+        headers: authenticationHeaders("192.0.2.82"),
+        body: JSON.stringify({
+          email: "not-an-email",
+          password: "Wrong fictional password",
+        }),
+      },
+    );
+
+    const response = await auditedSignIn(request, { operationId });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      code: "AUTHENTICATION_FAILED",
+    });
+    await expect(
+      prisma.auditOperation.findUnique({ where: { id: operationId } }),
+    ).resolves.toBeNull();
+  });
+
+  it("does not audit an operational response even with the invalid-credential code", async () => {
+    const operationId = generateAuditOperationId();
+
+    const response = await auditedSignIn(
+      signInRequest({
+        email: `${randomUUID()}@example.test`,
+        password: "Wrong fictional password",
+        ipAddress: "192.0.2.86",
+      }),
+      {
+        operationId,
+        async transformAuthenticationResponse(authenticationResponse) {
+          return new Response(await authenticationResponse.text(), {
+            status: 503,
+            headers: authenticationResponse.headers,
+          });
+        },
+      },
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      code: "AUTHENTICATION_UNAVAILABLE",
+    });
+    await expect(
+      prisma.auditOperation.findUnique({ where: { id: operationId } }),
+    ).resolves.toBeNull();
+  });
+
+  it("does not audit the rate-limited request", async () => {
+    const ipAddress = "192.0.2.83";
+    const user = await createFixtureUser({ role: UserRole.STAFF_MEMBER });
+    const operationIds = Array.from({ length: 6 }, () =>
+      generateAuditOperationId(),
+    );
+    let lastResponse: Response | undefined;
+
+    for (const operationId of operationIds) {
+      lastResponse = await auditedSignIn(
+        signInRequest({
+          email: user.email,
+          password: "Wrong fictional password",
+          ipAddress,
+        }),
+        { operationId },
+      );
+    }
+
+    expect(lastResponse?.status).toBe(429);
+    await expect(
+      prisma.auditOperation.findUnique({ where: { id: operationIds[5] } }),
+    ).resolves.toBeNull();
+  });
+
+  it("preserves the generic response when intent persistence fails", async () => {
+    const operationId = generateAuditOperationId();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const fictionalSecret = "fictional-auth-audit-secret";
+
+    const response = await auditedSignIn(
+      signInRequest({
+        email: `${randomUUID()}@example.test`,
+        password: "Wrong fictional password",
+        ipAddress: "192.0.2.84",
+      }),
+      {
+        operationId,
+        async createFailedLoginIntent() {
+          throw new Error(fictionalSecret);
+        },
+      },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      code: "AUTHENTICATION_FAILED",
+    });
+    expect(consoleError.mock.calls).toEqual([
+      ["Authentication audit persistence failed."],
+    ]);
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+      fictionalSecret,
+    );
+    await expect(
+      prisma.auditOperation.findUnique({ where: { id: operationId } }),
+    ).resolves.toBeNull();
+  });
+
+  it("preserves the generic response and leaves an unresolved intent when outcome persistence fails", async () => {
+    const operationId = generateAuditOperationId();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const response = await auditedSignIn(
+      signInRequest({
+        email: `${randomUUID()}@example.test`,
+        password: "Wrong fictional password",
+        ipAddress: "192.0.2.85",
+      }),
+      {
+        operationId,
+        async recordFailedLoginOutcome() {
+          throw new Error("Fictional outcome persistence failure");
+        },
+      },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      code: "AUTHENTICATION_FAILED",
+    });
+    expect(consoleError.mock.calls).toEqual([
+      ["Authentication audit persistence failed."],
+    ]);
+    await expect(loadLoginFailedOperation(operationId)).resolves.toMatchObject({
+      id: operationId,
+      action: "LOGIN_FAILED",
+      events: [],
+    });
   });
 });
