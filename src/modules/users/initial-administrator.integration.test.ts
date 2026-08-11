@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { UserRole } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
+import { getTestEnvironment } from "../../test/test-environment";
 import { auth } from "../authentication/auth";
 import {
   bootstrapInitialAdministrator,
@@ -24,6 +25,7 @@ const fictionalMetadata = {
   administratorEmail: "Initial.Admin@Example.Test",
   professionalTitle: "Fiktiv verksamhetsansvarig",
 };
+const testOrigin = getTestEnvironment().origin;
 
 async function clearAuthenticationFoundation(): Promise<void> {
   await prisma.session.deleteMany();
@@ -123,7 +125,7 @@ describe("initial Administrator bootstrap with PostgreSQL", () => {
         password: result.temporaryCredential,
       },
       headers: new Headers({
-        origin: "http://localhost:3000",
+        origin: testOrigin,
         "x-real-ip": "192.0.2.81",
       }),
       asResponse: true,

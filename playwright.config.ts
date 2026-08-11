@@ -1,41 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const integrationDatabaseUrl = process.env.INTEGRATION_DATABASE_URL;
+import { getTestEnvironment } from "./src/test/test-environment";
 
-if (!integrationDatabaseUrl) {
-  throw new Error("INTEGRATION_DATABASE_URL is required for Playwright tests.");
-}
-
-let parsedDatabaseUrl: URL;
-
-try {
-  parsedDatabaseUrl = new URL(integrationDatabaseUrl);
-} catch {
-  throw new Error(
-    "INTEGRATION_DATABASE_URL must be a valid PostgreSQL URL for Playwright tests.",
-  );
-}
-
-const databaseName = decodeURIComponent(parsedDatabaseUrl.pathname.slice(1));
-const isLocalPostgreSql =
-  (parsedDatabaseUrl.protocol === "postgresql:" ||
-    parsedDatabaseUrl.protocol === "postgres:") &&
-  (parsedDatabaseUrl.hostname === "127.0.0.1" ||
-    parsedDatabaseUrl.hostname === "localhost");
-const isDisposableLocalDatabase = databaseName === "kaul_m1_schema_test";
-const isEphemeralCiDatabase =
-  process.env.CI === "true" && databaseName === "kaul";
-
-if (
-  !isLocalPostgreSql ||
-  (!isDisposableLocalDatabase && !isEphemeralCiDatabase)
-) {
-  throw new Error(
-    `Refusing to run Playwright tests against database "${databaseName}".`,
-  );
-}
-
-const playwrightBaseUrl = "http://127.0.0.1:3100";
+const testEnvironment = getTestEnvironment();
 const betterAuthSecret =
   process.env.BETTER_AUTH_SECRET ??
   "fictional-playwright-secret-at-least-32-characters";
@@ -48,7 +15,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: "list",
   use: {
-    baseURL: playwrightBaseUrl,
+    baseURL: testEnvironment.origin,
     extraHTTPHeaders: {
       "x-real-ip": "203.0.113.10",
     },
@@ -61,16 +28,18 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
-    url: playwrightBaseUrl,
+    command: `npm run dev -- --hostname 127.0.0.1 --port ${testEnvironment.port}`,
+    url: testEnvironment.origin,
     reuseExistingServer: false,
     timeout: 120_000,
     env: {
-      DATABASE_URL: integrationDatabaseUrl,
-      INTEGRATION_DATABASE_URL: integrationDatabaseUrl,
+      DATABASE_URL: testEnvironment.databaseUrl,
+      INTEGRATION_DATABASE_URL: testEnvironment.integrationDatabaseUrl,
+      KAUL_TEST_ID: testEnvironment.testId,
+      KAUL_TEST_PORT: String(testEnvironment.port),
       DEPLOYMENT_ENV: "test",
       BETTER_AUTH_SECRET: betterAuthSecret,
-      BETTER_AUTH_URL: playwrightBaseUrl,
+      BETTER_AUTH_URL: testEnvironment.origin,
     },
   },
 });

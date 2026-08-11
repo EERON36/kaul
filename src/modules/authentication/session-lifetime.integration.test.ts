@@ -4,12 +4,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { UserRole } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
+import { getTestEnvironment } from "../../test/test-environment";
 import { auth } from "./auth";
 import { SESSION_LIFETIME_SECONDS } from "./session-policy";
 
 const password = "Fictional Session lifetime passphrase 2030";
 const lifetimeMilliseconds = SESSION_LIFETIME_SECONDS * 1_000;
 const lifetimeToleranceMilliseconds = 2_000;
+const testOrigin = getTestEnvironment().origin;
 
 type FixtureOptions = Readonly<{
   role: UserRole;
@@ -59,7 +61,7 @@ function authenticationHeaders(ipAddress: string, cookie?: string): Headers {
   return new Headers({
     "content-type": "application/json",
     ...(cookie ? { cookie } : {}),
-    origin: "http://localhost:3000",
+    origin: testOrigin,
     "x-real-ip": ipAddress,
   });
 }
@@ -70,7 +72,7 @@ async function signIn(options: {
   rememberMe?: boolean;
 }): Promise<Response> {
   return auth.handler(
-    new Request("http://localhost:3000/api/auth/sign-in/email", {
+    new Request(`${testOrigin}/api/auth/sign-in/email`, {
       method: "POST",
       headers: authenticationHeaders(options.ipAddress),
       body: JSON.stringify({

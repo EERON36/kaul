@@ -130,21 +130,27 @@ do not under-test a shared security, database, or route change.
 ## Parallel database work
 
 Only one task may own a Prisma migration at a time unless owners explicitly
-coordinate. Until isolated parallel-test infrastructure exists, PostgreSQL and
-Playwright resources are shared and must be serialised.
+coordinate. PostgreSQL remains one shared service, but database-writing and
+browser verification may run concurrently when every task first validates its
+explicit `KAUL_TEST_ID` and `KAUL_TEST_PORT` with `npm run test:db:check`.
 
-After that infrastructure lands, each task may use its own validated test
-database identifier and Playwright port. Validation must prove that each task
-uses its assigned disposable resources before database-writing or browser tests
-begin.
+Each task database is `kaul_test_<validated-id>`, never `kaul`. Use
+`test:db:create`, `test:db:migrate`, and explicit `test:db:drop` for that
+task only. Do not stop the shared Compose service, select another port, kill a
+process, or clean up unknown task databases. `test:db:list` is diagnostic and
+read-only.
+
+For a task named `logout` on port `3111`, set both database URL variables to
+the same fictional local URL ending in `kaul_test_logout`, set
+`BETTER_AUTH_URL` to `http://127.0.0.1:3111`, then run `test:db:check` before
+creating or using the database. The validator rejects partial or mismatched
+configuration.
 
 ## Future automation boundary
 
 The following are candidates for later automation, not current capabilities:
 
 - Codex-native worktree creation.
-- Per-task test environments.
-- Verification scripts.
 - Post-merge Git and worktree cleanup.
 
 Potential reusable workflows are `start-slice`, `verify-slice`, and

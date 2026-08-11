@@ -10,11 +10,13 @@ vi.mock("next/headers", () => ({
 
 import { UserRole } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
+import { getTestEnvironment } from "../../test/test-environment";
 import { auth } from "./auth";
 import { AuthenticationGuardError, requireApplicationUser } from "./guards";
 
 const organisationIds = new Set<string>();
 const userEmails = new Set<string>();
+const testOrigin = getTestEnvironment().origin;
 
 function fictionalId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
@@ -79,7 +81,7 @@ describe("authentication guards with PostgreSQL sessions", () => {
         password: "Fictional-Guard-Password-2026!",
       },
       headers: new Headers({
-        origin: "http://localhost:3000",
+        origin: testOrigin,
         "x-real-ip": "192.0.2.71",
       }),
       asResponse: true,
@@ -92,7 +94,7 @@ describe("authentication guards with PostgreSQL sessions", () => {
       .join("; ");
     requestContext.headers = new Headers({
       cookie: cookieHeader,
-      origin: "http://localhost:3000",
+      origin: testOrigin,
       "x-real-ip": "192.0.2.71",
     });
 

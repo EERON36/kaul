@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { UserRole } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
+import { getTestEnvironment } from "../../test/test-environment";
 import {
   createUserAuditIntent,
   generateAuditOperationId,
@@ -18,6 +19,7 @@ import {
 
 const administratorPassword = "Fictional administrator password 2030";
 const staffPassword = "Fictional generated staff password 2030";
+const testOrigin = getTestEnvironment().origin;
 
 type Fixture = Readonly<{
   actor: AdministratorUser;
@@ -65,7 +67,7 @@ async function createAdministratorFixture(): Promise<Fixture> {
       password: administratorPassword,
     },
     headers: new Headers({
-      origin: "http://localhost:3000",
+      origin: testOrigin,
       "x-real-ip": "192.0.2.151",
     }),
     asResponse: true,
@@ -84,7 +86,7 @@ async function createAdministratorFixture(): Promise<Fixture> {
       credentialState: "APPLICATION_ALLOWED",
     },
     headers: new Headers({
-      origin: "http://localhost:3000",
+      origin: testOrigin,
       cookie: cookiesFrom(signIn),
       "x-real-ip": "192.0.2.151",
     }),
@@ -161,7 +163,7 @@ describe("staff management with PostgreSQL", () => {
     const signIn = await auth.api.signInEmail({
       body: { email: result.email, password: staffPassword },
       headers: new Headers({
-        origin: "http://localhost:3000",
+        origin: testOrigin,
         "x-real-ip": "192.0.2.152",
       }),
       asResponse: true,
@@ -312,7 +314,7 @@ describe("staff management with PostgreSQL", () => {
     const initialSignIn = await auth.api.signInEmail({
       body: { email: staff.email, password: staffPassword },
       headers: new Headers({
-        origin: "http://localhost:3000",
+        origin: testOrigin,
         "x-real-ip": "192.0.2.153",
       }),
       asResponse: true,
@@ -334,7 +336,7 @@ describe("staff management with PostgreSQL", () => {
     const deniedSignIn = await auth.api.signInEmail({
       body: { email: staff.email, password: staffPassword },
       headers: new Headers({
-        origin: "http://localhost:3000",
+        origin: testOrigin,
         "x-real-ip": "192.0.2.156",
       }),
       asResponse: true,
@@ -363,7 +365,7 @@ describe("staff management with PostgreSQL", () => {
     const signInAgain = await auth.api.signInEmail({
       body: { email: staff.email, password: staffPassword },
       headers: new Headers({
-        origin: "http://localhost:3000",
+        origin: testOrigin,
         "x-real-ip": "192.0.2.154",
       }),
       asResponse: true,
@@ -389,7 +391,7 @@ describe("staff management with PostgreSQL", () => {
     await auth.api.signInEmail({
       body: { email: staff.email, password: staffPassword },
       headers: new Headers({
-        origin: "http://localhost:3000",
+        origin: testOrigin,
         "x-real-ip": "192.0.2.155",
       }),
     });

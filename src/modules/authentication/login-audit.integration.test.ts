@@ -14,6 +14,7 @@ import {
   type Session,
 } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
+import { getTestEnvironment } from "../../test/test-environment";
 import {
   appendAuditOutcomeInTransaction,
   createLoginSucceededAuditIntent,
@@ -32,6 +33,7 @@ const password = "Fictional audited login passphrase 2030";
 const futureExpiry = new Date("2035-01-02T03:04:05.000Z");
 const expiredCredential = new Date("2020-01-02T03:04:05.000Z");
 const twelveHoursMilliseconds = 12 * 60 * 60 * 1_000;
+const testOrigin = getTestEnvironment().origin;
 
 type FixtureUser = Readonly<{
   id: string;
@@ -50,7 +52,7 @@ function authenticationHeaders(ipAddress: string, cookie?: string): Headers {
   return new Headers({
     "content-type": "application/json",
     ...(cookie ? { cookie } : {}),
-    origin: "http://localhost:3000",
+    origin: testOrigin,
     "x-real-ip": ipAddress,
   });
 }
@@ -60,7 +62,7 @@ function signInRequest(options: {
   password?: string;
   ipAddress: string;
 }): Request {
-  return new Request("http://localhost:3000/api/auth/sign-in/email", {
+  return new Request(`${testOrigin}/api/auth/sign-in/email`, {
     method: "POST",
     headers: authenticationHeaders(options.ipAddress),
     body: JSON.stringify({
@@ -762,17 +764,14 @@ describe("audited pre-trust LOGIN_FAILED attempts", () => {
 
   it("does not audit malformed input", async () => {
     const operationId = generateAuditOperationId();
-    const request = new Request(
-      "http://localhost:3000/api/auth/sign-in/email",
-      {
-        method: "POST",
-        headers: authenticationHeaders("192.0.2.82"),
-        body: JSON.stringify({
-          email: "not-an-email",
-          password: "Wrong fictional password",
-        }),
-      },
-    );
+    const request = new Request(`${testOrigin}/api/auth/sign-in/email`, {
+      method: "POST",
+      headers: authenticationHeaders("192.0.2.82"),
+      body: JSON.stringify({
+        email: "not-an-email",
+        password: "Wrong fictional password",
+      }),
+    });
 
     const response = await auditedSignIn(request, { operationId });
 
