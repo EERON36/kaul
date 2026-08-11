@@ -6,7 +6,9 @@
   failure and ambiguity handling, and reviewed empty-install recovery.
 - `PASSWORD_CHANGED` is integrated with the forced password-change transaction
   and post-commit replacement-cookie handling.
-- Login and logout audit integration remains outstanding.
+- `LOGIN_SUCCEEDED` is integrated with durable trusted-identity intent,
+  transactionally coupled Session success, and post-commit cookie release.
+- `LOGIN_FAILED` and `LOGOUT_SUCCEEDED` integration remains outstanding.
 
 Version: 0.1
 
@@ -849,9 +851,7 @@ organisation-approved production delivery channel.
 
 Later Milestone 1 work remains outstanding, including:
 
-- Authentication audit persistence, including `LOGIN_SUCCEEDED`,
-  `LOGIN_FAILED`, `LOGOUT_SUCCEEDED`, `INITIAL_ADMIN_CREATED`, and
-  `PASSWORD_CHANGED`
+- Authentication audit persistence for `LOGIN_FAILED` and `LOGOUT_SUCCEEDED`
 - The organisation-approved production credential-delivery channel
 - The sole-Administrator credential-loss recovery procedure
 

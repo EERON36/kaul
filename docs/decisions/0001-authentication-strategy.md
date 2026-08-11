@@ -246,6 +246,20 @@ This is an absolute lifetime measured from session creation, not an idle timeout
 Session use must not move the expiry. Tests cover the instant immediately before
 and immediately after the 12-hour boundary.
 
+The email sign-in route uses a request-scoped Better Auth instance bound to one
+outer Prisma transaction. After credential verification, its first Session hook
+loads the current User and Organisation from trusted database state and commits
+a durable `LOGIN_SUCCEEDED` intent before Better Auth's Admin and Kaul Session
+eligibility hooks run. The Session and successful audit outcome then commit
+together. Better Auth response cookies are buffered and released separately only
+after transaction commit is confirmed. Definitive rollback records failure;
+when commit state is genuinely unknown, Kaul attempts to append `AMBIGUOUS` if
+no authoritative terminal outcome is already committed. An immutable
+`SUCCEEDED` or `FAILED` outcome remains authoritative and is never overwritten.
+If ambiguity persistence cannot complete, the operation may remain unresolved
+for operator review. Kaul releases no cookie and never retries the business
+mutation automatically. This integration does not implement `LOGIN_FAILED`.
+
 Logout revokes the current session. A normal password change uses
 `revokeOtherSessions: true`. Administrator-assisted reset and deactivation revoke
 all sessions. Revocation tests must prove denial on the next protected request.
@@ -402,9 +416,11 @@ checks remain enabled.
 
 ## Failure Consistency
 
-This ADR does not claim that Better Auth mutations and Kaul audit writes share a
-transaction. That must be proven against the pinned adapter before any atomicity
-claim is made.
+Compatibility with Better Auth `1.6.25` and the Prisma adapter now proves that
+email sign-in Session creation and the `LOGIN_SUCCEEDED` successful outcome can
+share Kaul's outer Prisma transaction. The proof is limited to this reviewed
+Session-establishment path; it does not make a general atomicity claim for other
+Better Auth mutations.
 
 Administrator operations use an idempotency key and a durable audit intent before
 the irreversible authentication mutation. If the intent cannot be written, the
@@ -446,7 +462,8 @@ existence.
 
 Persistent audit infrastructure is implemented by the Audit Foundation.
 `INITIAL_ADMIN_CREATED` and forced-flow `PASSWORD_CHANGED` are integrated.
-Login and logout audit actions remain outstanding.
+`LOGIN_SUCCEEDED` is integrated at the trusted Session-establishment boundary.
+`LOGIN_FAILED` and `LOGOUT_SUCCEEDED` remain outstanding.
 
 ## Required Verification
 

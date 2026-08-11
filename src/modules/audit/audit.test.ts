@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AuditError,
+  createLoginSucceededAuditIntent,
   createPasswordChangedAuditIntent,
   createUnauthenticatedAuditIntent,
   createUserAuditIntent,
@@ -12,6 +13,37 @@ import { auditOperationIdSchema } from "./audit-vocabulary";
 import type { AuthenticatedUser } from "../authentication/guards";
 
 describe("audit service boundary", () => {
+  it("keeps LOGIN_SUCCEEDED action and target context server-owned", async () => {
+    const input = {
+      operationId: "123e4567-e89b-42d3-a456-426614174000",
+      actor: {
+        userId: "123e4567-e89b-42d3-a456-426614174001",
+        organisationId: "123e4567-e89b-42d3-a456-426614174002",
+      },
+    };
+
+    await expect(
+      createLoginSucceededAuditIntent({
+        ...input,
+        action: "ACCOUNT_DEACTIVATED",
+      } as never),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(
+      createLoginSucceededAuditIntent({
+        ...input,
+        target: { targetId: "browser-target" },
+      } as never),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+
+    if (false) {
+      createLoginSucceededAuditIntent({
+        ...input,
+        // @ts-expect-error Login callers cannot select the audit action.
+        action: "LOGIN_SUCCEEDED",
+      });
+    }
+  });
+
   it("keeps forced-password users outside the generic application audit boundary", () => {
     if (false) {
       const forcedUser = {} as AuthenticatedUser;

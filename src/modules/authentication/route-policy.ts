@@ -11,6 +11,23 @@ function isPath(pathname: string, expected: string): boolean {
   return pathname === expected || pathname === `${expected}/`;
 }
 
+export function isEmailSignInRequest(request: Request): boolean {
+  return (
+    request.method === "POST" &&
+    isPath(new URL(request.url).pathname, "/api/auth/sign-in/email")
+  );
+}
+
+export function routeEmailSignInRequest(
+  globalHandler: BetterAuthRouteHandler,
+  auditedHandler: BetterAuthRouteHandler,
+): BetterAuthRouteHandler {
+  return (request) =>
+    isEmailSignInRequest(request)
+      ? auditedHandler(request)
+      : globalHandler(request);
+}
+
 export function isRawAdminRoute(request: Request): boolean {
   const pathname = new URL(request.url).pathname;
 
@@ -33,6 +50,10 @@ function safeJsonResponse(body: string, status: number): Response {
   });
 }
 
+export function createAuthenticationUnavailableResponse(): Response {
+  return safeJsonResponse(SIGN_IN_SERVER_FAILURE_BODY, 500);
+}
+
 function normalizeSignInResponse(request: Request, response: Response) {
   if (!isPath(new URL(request.url).pathname, "/api/auth/sign-in/email")) {
     return response;
@@ -46,7 +67,7 @@ function normalizeSignInResponse(request: Request, response: Response) {
     return safeJsonResponse(SIGN_IN_FAILURE_BODY, 401);
   }
 
-  return safeJsonResponse(SIGN_IN_SERVER_FAILURE_BODY, 500);
+  return createAuthenticationUnavailableResponse();
 }
 
 export function blockRawAdminRoutes(
