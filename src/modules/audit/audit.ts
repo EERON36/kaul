@@ -89,6 +89,23 @@ type PasswordChangedAuditIntentInput = Readonly<{
   actor: Pick<AuthenticatedUser, "userId" | "organisationId">;
 }>;
 
+type LoginSucceededAuditIntentInput = Readonly<{
+  operationId: string;
+  actor: Pick<AuthenticatedUser, "userId" | "organisationId">;
+}>;
+
+const loginSucceededAuditIntentInputSchema = z
+  .object({
+    operationId: auditOperationIdSchema,
+    actor: z
+      .object({
+        userId: auditHistoricalIdentifierSchema,
+        organisationId: auditHistoricalIdentifierSchema,
+      })
+      .strict(),
+  })
+  .strict();
+
 const unauthenticatedAuditIntentInputSchema = z
   .object({
     operationId: auditOperationIdSchema,
@@ -612,6 +629,45 @@ export async function createPasswordChangedAuditIntent(
         where: {
           id: context.actorUserId ?? undefined,
           organisationId: context.organisationId ?? undefined,
+        },
+        select: { id: true },
+      });
+
+      if (!actor) {
+        throw new AuditError("INCONSISTENT_OPERATION", context.operationId);
+      }
+
+      return persistAuditIntent(transaction, context);
+    }),
+  );
+}
+
+export async function createLoginSucceededAuditIntent(
+  input: LoginSucceededAuditIntentInput,
+): Promise<AuditIntentHandle> {
+  const parsedInput = loginSucceededAuditIntentInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    throw new AuditError("INVALID_INPUT");
+  }
+
+  const context = buildIntentContext({
+    operationId: parsedInput.data.operationId,
+    organisationId: parsedInput.data.actor.organisationId,
+    actorKind: "USER",
+    actorUserId: parsedInput.data.actor.userId,
+    action: "LOGIN_SUCCEEDED",
+    targetId: null,
+  });
+
+  return persistCommittedAuditIntent(context, () =>
+    prisma.$transaction(async (transaction) => {
+      const actor = await transaction.user.findFirst({
+        where: {
+          id: context.actorUserId ?? undefined,
+          organisationId: context.organisationId ?? undefined,
+          organisation: {
+            is: { id: context.organisationId ?? undefined },
+          },
         },
         select: { id: true },
       });

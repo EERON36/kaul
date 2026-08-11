@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { applyBetterAuthRoutePolicy } from "./route-policy";
+import {
+  applyBetterAuthRoutePolicy,
+  isEmailSignInRequest,
+  routeEmailSignInRequest,
+} from "./route-policy";
 
 const blockedPaths = [
   "/api/auth/admin/create-user",
@@ -12,13 +16,46 @@ const blockedPaths = [
   "/api/auth/change-password/",
 ];
 
-function createRequest(pathname: string): Request {
+function createRequest(pathname: string, method = "GET"): Request {
   return new Request(`http://localhost:3000${pathname}`, {
+    method,
     headers: { "x-real-ip": "203.0.113.10" },
   });
 }
 
 describe("Better Auth route policy", () => {
+  it("selects only the exact POST email sign-in boundary for auditing", async () => {
+    const auditedHandler = vi.fn(async () => new Response("audited"));
+    const globalHandler = vi.fn(async () => new Response("global"));
+    const handler = routeEmailSignInRequest(globalHandler, auditedHandler);
+    const auditedRequest = createRequest("/api/auth/sign-in/email", "POST");
+
+    expect(isEmailSignInRequest(auditedRequest)).toBe(true);
+    expect(await (await handler(auditedRequest)).text()).toBe("audited");
+    expect(auditedHandler).toHaveBeenCalledWith(auditedRequest);
+    expect(globalHandler).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["GET", "/api/auth/sign-in/email"],
+    ["POST", "/api/auth/sign-out"],
+    ["POST", "/api/auth/get-session"],
+    ["POST", "/api/auth/sign-in/social"],
+  ])("keeps %s %s on the global handler", async (method, pathname) => {
+    const auditedHandler = vi.fn(async () => new Response("audited"));
+    const globalHandler = vi.fn(async () => new Response("global"));
+    const request = createRequest(pathname, method);
+
+    expect(isEmailSignInRequest(request)).toBe(false);
+    expect(
+      await (
+        await routeEmailSignInRequest(globalHandler, auditedHandler)(request)
+      ).text(),
+    ).toBe("global");
+    expect(globalHandler).toHaveBeenCalledWith(request);
+    expect(auditedHandler).not.toHaveBeenCalled();
+  });
+
   it.each(blockedPaths)("returns a generic 404 for %s", async (pathname) => {
     const handler = vi.fn(async () => new Response("forwarded"));
     const response = await applyBetterAuthRoutePolicy(handler)(

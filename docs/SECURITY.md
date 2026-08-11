@@ -18,6 +18,16 @@ The current authenticated browser remains signed in through Better Auth's
 transactionally committed replacement-session rotation; every pre-change
 Session is revoked.
 
+Successful credential verification crosses a trusted Better Auth Session hook
+before Session insertion. Kaul then commits a durable `LOGIN_SUCCEEDED` intent,
+creates the Session and successful outcome in one Prisma transaction, awaits
+captured request-local background work, and releases buffered authentication
+cookies only after confirmed commit. Banned accounts and expired temporary
+credentials receive a failed `LOGIN_SUCCEEDED` outcome because credentials were
+valid but Session establishment was denied. Pre-trust failures and rate-limit
+rejections are not handled by this integration; `LOGIN_FAILED` remains
+outstanding.
+
 Audit target resolution rejects every non-null `resolvedTargetId` when the
 action policy forbids a target, including the login and logout vocabulary.
 
