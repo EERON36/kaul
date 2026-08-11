@@ -8,6 +8,7 @@ import {
   ClientAccessError,
   requireClientAccess,
 } from "@/modules/clients/client-access";
+import { getClientCategoryLabel } from "@/modules/clients/client-category";
 import { getClientStatusLabel } from "@/modules/clients/client-presentation";
 import { listAssignableStaff } from "@/modules/clients/clients";
 
@@ -50,7 +51,7 @@ export default async function ClientPage({
           </div>
           <div>
             <dt>Kategori</dt>
-            <dd>{result.client.category}</dd>
+            <dd>{getClientCategoryLabel(result.client.category)}</dd>
           </div>
           <div>
             <dt>Status</dt>

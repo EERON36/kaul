@@ -39,7 +39,7 @@ function clientForm(): FormData {
   form.set("firstName", "Fiktiv");
   form.set("lastName", "Klient");
   form.set("personIdentifier", "FIKTIV-01");
-  form.set("category", "Fiktiv kategori");
+  form.set("category", "ADULT");
   return form;
 }
 

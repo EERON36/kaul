@@ -338,6 +338,16 @@ h2 {
   list-style: none;
 }
 
+.client-category-groups {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.client-category-group h3 {
+  margin-bottom: 0.65rem;
+  font-size: 1.15rem;
+}
+
 .client-list-link {
   display: grid;
   gap: 0.25rem;

@@ -22,14 +22,14 @@ describe("Client input", () => {
         firstName: " Fiktiv ",
         lastName: " Klient ",
         personIdentifier: " test-42 ",
-        category: " Fiktiv kategori ",
+        category: " ADULT ",
       }),
     ).toEqual({
       operationId,
       firstName: "Fiktiv",
       lastName: "Klient",
       personIdentifier: "TEST-42",
-      category: "Fiktiv kategori",
+      category: "ADULT",
     });
 
     expect(() =>
@@ -42,6 +42,30 @@ describe("Client input", () => {
         organisationId: "browser-controlled",
       }),
     ).toThrow();
+  });
+
+  it("accepts only the approved Client categories", () => {
+    expect(
+      createClientInputSchema.parse({
+        operationId,
+        firstName: "Fiktiv",
+        lastName: "Klient",
+        personIdentifier: "TEST-42",
+        category: "YOUTH",
+      }).category,
+    ).toBe("YOUTH");
+
+    for (const category of ["", "Fiktiv kategori", "Vuxna", "ADULTS"]) {
+      expect(() =>
+        createClientInputSchema.parse({
+          operationId,
+          firstName: "Fiktiv",
+          lastName: "Klient",
+          personIdentifier: "TEST-42",
+          category,
+        }),
+      ).toThrow();
+    }
   });
 
   it("accepts only the approved Assignment responsibility values", () => {

@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { useActionState } from "react";
 
+import {
+  CLIENT_CATEGORY_LABELS,
+  getClientCategoryLabel,
+  groupClientsByCategory,
+} from "@/modules/clients/client-category";
 import { getClientStatusLabel } from "@/modules/clients/client-presentation";
 import type { ClientListItem } from "@/modules/clients/clients";
 
@@ -66,12 +71,18 @@ export function ClientList({
             </div>
             <div className="form-field">
               <label htmlFor="client-category">Kategori</label>
-              <input
+              <select
                 id="client-category"
-                maxLength={100}
                 name="category"
                 required
-              />
+                defaultValue=""
+              >
+                <option disabled value="">
+                  Välj kategori
+                </option>
+                <option value="ADULT">{CLIENT_CATEGORY_LABELS.ADULT}</option>
+                <option value="YOUTH">{CLIENT_CATEGORY_LABELS.YOUTH}</option>
+              </select>
             </div>
             <button className="primary-button" disabled={pending} type="submit">
               {pending ? "Skapar…" : "Skapa klient"}
@@ -93,25 +104,38 @@ export function ClientList({
         {clients.length === 0 ? (
           <p>Det finns inga klienter som du kan öppna.</p>
         ) : (
-          <ul className="client-list">
-            {clients.map((client) => (
-              <li key={client.id}>
-                <Link
-                  className="client-list-link"
-                  href={`/klienter/${client.id}`}
-                >
-                  <span className="client-list-name">
-                    {client.firstName} {client.lastName}
-                  </span>
-                  <span className="client-identifier">
-                    {client.personIdentifier}
-                  </span>
-                  <span>{client.category}</span>
-                  <span>Status: {getClientStatusLabel(client.status)}</span>
-                </Link>
-              </li>
+          <div className="client-category-groups">
+            {groupClientsByCategory(clients).map((group) => (
+              <section
+                aria-labelledby={`client-category-${group.key}`}
+                className="client-category-group"
+                key={group.key}
+              >
+                <h3 id={`client-category-${group.key}`}>{group.label}</h3>
+                <ul className="client-list">
+                  {group.clients.map((client) => (
+                    <li key={client.id}>
+                      <Link
+                        className="client-list-link"
+                        href={`/klienter/${client.id}`}
+                      >
+                        <span className="client-list-name">
+                          {client.firstName} {client.lastName}
+                        </span>
+                        <span className="client-identifier">
+                          {client.personIdentifier}
+                        </span>
+                        <span>{getClientCategoryLabel(client.category)}</span>
+                        <span>
+                          Status: {getClientStatusLabel(client.status)}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         )}
       </section>
     </>

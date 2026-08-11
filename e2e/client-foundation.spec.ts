@@ -160,7 +160,7 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await page.getByLabel("Förnamn").fill("Fiktiv");
   await page.getByLabel("Efternamn").fill("Klientperson");
   await page.getByLabel("Personreferens").fill("e2e-klient-01");
-  await page.getByLabel("Kategori").fill("Fiktiv kategori");
+  await page.getByLabel("Kategori").selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
   await expect(page.getByText("E2E-KLIENT-01")).toBeVisible();
@@ -241,4 +241,50 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await primaryContext.close();
   await secondaryContext.close();
   await unrelatedContext.close();
+});
+
+test("Client categories remain usable on a narrow viewport", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await logIn(page, administratorEmail, "192.0.2.185");
+  await page.getByRole("link", { name: "Klienter" }).click();
+
+  await expect(page.getByLabel("Kategori")).toHaveValue("");
+  await page.getByLabel("Förnamn").fill("Vuxen");
+  await page.getByLabel("Efternamn").fill("Klient");
+  await page.getByLabel("Personreferens").fill("e2e-mobile-adult-01");
+  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByRole("button", { name: "Skapa klient" }).click();
+  await expect(page.getByText("Klienten har skapats.")).toBeVisible();
+
+  await page.getByLabel("Förnamn").fill("Ungdom");
+  await page.getByLabel("Efternamn").fill("Klient");
+  await page.getByLabel("Personreferens").fill("e2e-mobile-youth-01");
+  await page.getByLabel("Kategori").selectOption("YOUTH");
+  await page.getByRole("button", { name: "Skapa klient" }).click();
+  await expect(page.getByText("Klienten har skapats.")).toBeVisible();
+
+  await expect(page.getByRole("heading", { name: "Vuxna" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ungdomar" })).toBeVisible();
+  await expect(page.getByText("E2E-MOBILE-ADULT-01")).toBeVisible();
+  await expect(page.getByText("E2E-MOBILE-YOUTH-01")).toBeVisible();
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
+
+  await page.getByRole("link", { name: /Ungdom Klient/ }).click();
+  await expect(page).toHaveURL(/\/klienter\/[0-9a-f-]+$/);
+  await expect(
+    page.locator(".client-details dd").filter({ hasText: "Ungdomar" }),
+  ).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(`${baseUrl}/klienter`);
+  await page.getByRole("link", { name: /Vuxen Klient/ }).click();
+  await expect(page).toHaveURL(/\/klienter\/[0-9a-f-]+$/);
+  await expect(
+    page.locator(".client-details dd").filter({ hasText: "Vuxna" }),
+  ).toBeVisible();
 });

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { AssignmentResponsibility } from "../../generated/prisma/enums";
 import { auditOperationIdSchema } from "../audit/audit-vocabulary";
+import { CLIENT_CATEGORY_VALUES } from "./client-category";
 
 const internalUuidSchema = z.uuid();
 
@@ -18,7 +19,7 @@ export const createClientInputSchema = z
       .string()
       .transform(canonicalizePersonIdentifier)
       .pipe(z.string().min(1).max(64)),
-    category: z.string().trim().min(1).max(100),
+    category: z.string().trim().pipe(z.enum(CLIENT_CATEGORY_VALUES)),
   })
   .strict();
 
