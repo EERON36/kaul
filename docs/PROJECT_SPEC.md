@@ -158,12 +158,15 @@ Cannot:
 
 # Client Categories
 
-The system supports two categories.
+The system supports two client categories that must remain clearly separated in
+the application for legal and operational reasons:
 
 - Ungdomar
 - Vuxna
 
-Both categories follow the same workflow.
+Both categories follow the same workflow. This requirement does not, by
+itself, establish separate staff access or visibility rules; that unresolved
+domain question is recorded in the domain model.
 
 ---
 
@@ -190,7 +193,7 @@ Version 1 must include:
 
 The following features are intentionally postponed.
 
-- Mobile applications
+- Native mobile applications
 - AI features
 - Calendar synchronisation
 - Email reminders

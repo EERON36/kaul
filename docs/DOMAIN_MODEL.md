@@ -178,6 +178,15 @@ The Swedish interface displays these categories as:
 - Ungdom
 - Vuxen
 
+These categories must remain clearly separated in the application for legal and
+operational reasons. The current requirement establishes category and UI
+separation only; it does not establish independently separated staff access or
+visibility.
+
+Open domain question: Does this requirement mean only clear organisational/UI
+separation, or must staff access/visibility also be independently separated
+between Vuxna and Ungdomar?
+
 The Client Foundation stores category as a required trimmed string of at most
 100 characters rather than a database enum. A controlled category-selection
 workflow is deferred to a later reviewed Client slice.
@@ -290,7 +299,7 @@ A journal entry has:
 - Optional structured sections
 - Optional related goals
 - Incident indicator
-- Draft or signed status
+- Status: `UTKAST` or `SIGNERAD`
 - Created date
 - Updated date while still a draft
 - Signed date
@@ -326,12 +335,16 @@ The Swedish interface may display these as:
 - Every journal entry belongs to exactly one client.
 - Every journal entry belongs to one organisation.
 - A staff member may only create entries for clients they can access.
-- Draft entries may be edited by their author.
-- Signed entries are immutable.
+- `UTKAST` entries are editable by their author, can be saved and reopened,
+  and can be continued later.
+- `SIGNERAD` is chosen explicitly by the user through "Signera". Once signed,
+  the original is immutable and neither a Staff Member nor an Administrator
+  may silently modify it.
 - A signed entry must visibly record the signer's name, professional title, role, and timestamp.
 - The displayed signing information must remain historically accurate even if the user's profile later changes.
 - A signed entry cannot be silently overwritten.
-- A correction must be created as a separate signed entry that references the original record.
+- A correction must be represented by a separate attributable linked
+  correction/addendum that preserves the signed original.
 - Removing a signed entry is not part of normal user functionality.
 - Administrative handling of erroneous or unlawful records must follow a defined policy and remain auditable.
 - An incident is still a journal entry, but it may trigger additional visibility or workflow.
@@ -464,8 +477,12 @@ Possible document origins are:
 - Moving from local storage to object storage must not require changing the domain model.
 - Original uploaded files should be preserved.
 - Replacing a document should create a new version or record rather than silently overwriting the original.
-- Access to documents follows the same client permissions as other records.
+- Access to documents follows the same server-side Client authorisation as
+  other records. Guessing a URL or identifier must not bypass that check.
 - Document access, upload, replacement, and export may be recorded in the audit log.
+- Upload/download metadata and audit requirements must be designed before
+  document implementation.
+- Storage infrastructure is intentionally not selected by this domain model.
 - File validation and allowed formats will be defined in security and implementation documentation.
 
 ---
