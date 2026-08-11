@@ -10,6 +10,7 @@ import type { Prisma } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
 import {
   appendAuditOutcomeInTransaction,
+  createUnauthenticatedAuditIntent,
   createLoginSucceededAuditIntent,
   generateAuditOperationId,
   recordAmbiguousAuditOutcome,
@@ -26,10 +27,41 @@ import {
   runLoginAuditTransaction,
   type LoginAuditTransactionExecutor,
 } from "./login-audit-transaction-result";
-import { createAuthenticationUnavailableResponse } from "./route-policy";
+import {
+  createAuthenticationUnavailableResponse,
+  isEmailSignInRequest,
+} from "./route-policy";
 
 const LOGIN_AUDIT_OPERATIONAL_FAILURE =
   "Kaul authentication audit operation failed.";
+const LOGIN_FAILED_AUDIT_PERSISTENCE_FAILURE =
+  "Authentication audit persistence failed.";
+
+export type PreTrustLoginFailureClassification = "LOGIN_FAILED" | "NO_AUDIT";
+
+export function classifyPreTrustLoginFailure(input: {
+  isEmailSignInRequest: boolean;
+  responseStatus: number;
+  responseCode?: string;
+  trustedIdentityEstablished: boolean;
+  loginSucceededIntentExists: boolean;
+  sessionEstablished: boolean;
+  setCookieCount: number;
+}): PreTrustLoginFailureClassification {
+  if (
+    !input.isEmailSignInRequest ||
+    input.responseStatus !== 401 ||
+    input.responseCode !== "INVALID_EMAIL_OR_PASSWORD" ||
+    input.trustedIdentityEstablished ||
+    input.loginSucceededIntentExists ||
+    input.sessionEstablished ||
+    input.setCookieCount > 0
+  ) {
+    return "NO_AUDIT";
+  }
+
+  return "LOGIN_FAILED";
+}
 
 export type LoginAuditMarker =
   | "TRUSTED_IDENTITY"
@@ -47,14 +79,17 @@ type LoginAuditState = {
   succeededOutcomeAppended: boolean;
   failedOutcomeAttempted: boolean;
   failedOutcomeAppended: boolean;
+  preTrustLoginFailure: boolean;
   backgroundTasks: Promise<unknown>[];
 };
 
 export type LoginAuditTestDependencies = Readonly<{
   operationId?: string;
   createIntent?: typeof createLoginSucceededAuditIntent;
+  createFailedLoginIntent?: typeof createUnauthenticatedAuditIntent;
   appendOutcome?: typeof appendAuditOutcomeInTransaction;
   recordFailedOutcome?: typeof recordFailedAuditOutcome;
+  recordFailedLoginOutcome?: typeof recordFailedAuditOutcome;
   recordAmbiguousOutcome?: typeof recordAmbiguousAuditOutcome;
   transactionExecutor?: LoginAuditTransactionExecutor<Prisma.TransactionClient>;
   afterIntentPersisted?: () => void | Promise<void>;
@@ -71,6 +106,7 @@ function createState(): LoginAuditState {
     succeededOutcomeAppended: false,
     failedOutcomeAttempted: false,
     failedOutcomeAppended: false,
+    preTrustLoginFailure: false,
     backgroundTasks: [],
   };
 }
@@ -84,6 +120,30 @@ function mark(
 
 function logOperationalFailure(): void {
   console.error(LOGIN_AUDIT_OPERATIONAL_FAILURE);
+}
+
+function logLoginFailedAuditPersistenceFailure(): void {
+  console.error(LOGIN_FAILED_AUDIT_PERSISTENCE_FAILURE);
+}
+
+async function readAuthenticationResponseCode(
+  response: Response,
+): Promise<string | undefined> {
+  try {
+    const body: unknown = await response.clone().json();
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "code" in body &&
+      typeof body.code === "string"
+    ) {
+      return body.code;
+    }
+  } catch {
+    // A non-JSON response cannot be a classified Better Auth credential error.
+  }
+
+  return undefined;
 }
 
 async function drainBackgroundTasks(state: LoginAuditState): Promise<void> {
@@ -251,6 +311,25 @@ async function appendAmbiguousOutcome(
   }
 }
 
+export async function persistPreTrustLoginFailure(
+  operationId: string,
+  dependencies: LoginAuditTestDependencies,
+): Promise<void> {
+  try {
+    const intent = await (
+      dependencies.createFailedLoginIntent ?? createUnauthenticatedAuditIntent
+    )({
+      operationId,
+      action: "LOGIN_FAILED",
+    });
+    await (dependencies.recordFailedLoginOutcome ?? recordFailedAuditOutcome)(
+      intent,
+    );
+  } catch {
+    logLoginFailedAuditPersistenceFailure();
+  }
+}
+
 export async function handleAuditedEmailSignInInternal(
   request: Request,
   testDependencies?: LoginAuditTestDependencies,
@@ -284,10 +363,24 @@ export async function handleAuditedEmailSignInInternal(
       mark(dependencies, "HANDLER_COMPLETED");
       await drainBackgroundTasks(state);
       mark(dependencies, "BACKGROUND_TASKS_DRAINED");
+      const authenticationResponseCode = await readAuthenticationResponseCode(
+        authenticationResponse,
+      );
       const bufferedResponse = await bufferAuthenticationResponse(
         authenticationResponse,
       );
       mark(dependencies, "RESPONSE_BUFFERED");
+
+      state.preTrustLoginFailure =
+        classifyPreTrustLoginFailure({
+          isEmailSignInRequest: isEmailSignInRequest(request),
+          responseStatus: authenticationResponse.status,
+          responseCode: authenticationResponseCode,
+          trustedIdentityEstablished: state.trustedIdentity !== undefined,
+          loginSucceededIntentExists: state.intent !== undefined,
+          sessionEstablished: state.session !== undefined,
+          setCookieCount: bufferedResponse.setCookieHeaders.length,
+        }) === "LOGIN_FAILED";
 
       if (state.trustedIdentity && !state.intent) {
         throw new Error("Login audit intent is unavailable.");
@@ -328,6 +421,9 @@ export async function handleAuditedEmailSignInInternal(
   );
 
   if (transactionResult.state === "COMPLETED") {
+    if (state.preTrustLoginFailure) {
+      await persistPreTrustLoginFailure(operationId, dependencies);
+    }
     return releaseAuthenticationResponse(transactionResult.value);
   }
 
