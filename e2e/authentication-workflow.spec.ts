@@ -126,6 +126,7 @@ test.afterAll(async () => {
 test("completes login, forced password change, shell access, logout, and new login", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
   fixtureRateLimitKeys.add(`${workflowBrowserIp}|/sign-in/email`);
   await page.setExtraHTTPHeaders({ "x-real-ip": workflowBrowserIp });
   const userId = await createFixtureUser({
@@ -172,6 +173,11 @@ test("completes login, forced password change, shell access, logout, and new log
   await expect(
     page.getByRole("heading", { name: "Byt lösenord" }),
   ).toBeVisible();
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
 
   await page.goto("/");
   await expect(page).toHaveURL(/\/byt-losenord$/);
@@ -208,6 +214,10 @@ test("completes login, forced password change, shell access, logout, and new log
   await page.getByRole("button", { name: "Spara nytt lösenord" }).click();
   await expect(page).toHaveURL(`${playwrightBaseUrl}/`);
   await expect(page.getByRole("heading", { name: "Översikt" })).toBeVisible();
+  const menuButton = page.locator(".mobile-menu-button");
+  await expect(menuButton).toHaveAttribute("aria-expanded", "false");
+  await menuButton.click();
+  await expect(menuButton).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("Fiktiv Administratör")).toBeVisible();
   await expect(page.getByText("Fiktiv verksamhetsansvarig")).toBeVisible();
   await expect(page.getByText("Fiktiva Omsorgen")).toBeVisible();
@@ -219,6 +229,14 @@ test("completes login, forced password change, shell access, logout, and new log
       name: /Dokument|Sök|Inställningar/,
     }),
   ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(menuButton).toHaveAttribute("aria-expanded", "false");
+  await expect(menuButton).toBeFocused();
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
   await expect(page.getByText(userId)).toHaveCount(0);
   await expect(page.getByText(/organisation_/)).toHaveCount(0);
 
@@ -228,13 +246,16 @@ test("completes login, forced password change, shell access, logout, and new log
     "x-real-ip": workflowBrowserIp,
   });
   await page.reload();
+  await menuButton.click();
   await expect(page.getByText("Administratör", { exact: true })).toBeVisible();
   await expect(page.getByText("Fiktiva Omsorgen")).toBeVisible();
+  await page.keyboard.press("Escape");
 
   const sessionsBeforeLogout = await prisma.session.count({
     where: { userId },
   });
   expect(sessionsBeforeLogout).toBeGreaterThan(0);
+  await menuButton.click();
   await page.getByRole("button", { name: "Logga ut" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await expect(prisma.session.count({ where: { userId } })).resolves.toBe(0);

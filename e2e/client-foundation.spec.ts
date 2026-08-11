@@ -248,6 +248,7 @@ test("Client categories remain usable on a narrow viewport", async ({
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await logIn(page, administratorEmail, "192.0.2.185");
+  await page.getByRole("button", { name: "Öppna meny" }).click();
   await page.getByRole("link", { name: "Klienter" }).click();
 
   await expect(page.getByLabel("Kategori")).toHaveValue("");

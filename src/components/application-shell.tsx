@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 
 import type { ApplicationUser } from "@/modules/authentication/guards";
@@ -7,9 +6,9 @@ import {
   getApplicationNavigation,
 } from "@/modules/users/application-shell";
 
-import { LogoutButton } from "./authentication/logout-button";
 import { EnvironmentNotice } from "./environment-notice";
 import { KaulWordmark } from "./kaul-wordmark";
+import { MobileNavigation } from "./mobile-navigation";
 
 type ApplicationShellProps = Readonly<{
   user: ApplicationUser;
@@ -33,24 +32,11 @@ export function ApplicationShell({
 
       <aside className="sidebar">
         <KaulWordmark />
-        <nav aria-label="Huvudnavigering">
-          {navigation.map((item) => (
-            <Link
-              aria-current={currentPath === item.href ? "page" : undefined}
-              className="navigation-link"
-              href={item.href}
-              key={item.href}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-        <div className="signed-in-user">
-          <p className="signed-in-name">{context.name}</p>
-          <p>{context.professionalTitle}</p>
-          <p>{context.roleLabel}</p>
-          <LogoutButton />
-        </div>
+        <MobileNavigation
+          context={context}
+          currentPath={currentPath}
+          navigation={navigation}
+        />
       </aside>
 
       <main className="main-content" id="huvudinnehall" tabIndex={-1}>
