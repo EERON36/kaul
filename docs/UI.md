@@ -1515,8 +1515,8 @@ The following interface patterns are not approved for Version 1:
 
 ## Current Status
 
-The user-interface direction is approved for project bootstrapping.
-
-Exact visual tokens and initial reusable components will be defined during Milestone 0.
+The user-interface direction is approved. Milestone 0 established the initial
+reusable components and visual foundation; current authenticated Staff and
+Client workflows are laptop-first and mobile-functional.
 
 The interface should be reviewed with the initial users during pilot preparation and adjusted based on real workflow feedback without abandoning the principles in this document.

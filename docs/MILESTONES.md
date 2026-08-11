@@ -174,7 +174,7 @@ The intended workflow is:
 
 Email invitations may be deferred if they add unnecessary dependency or complexity. A controlled temporary-password workflow is acceptable for the pilot.
 
-Slice 3 creates the initial Administrator only for fictional-data development and pilot verification. The persistent audit foundation now exists, but the bootstrap workflow does not yet store its required `INITIAL_ADMIN_CREATED` event. Console output is not an audit event, and the workflow is not production-security complete until that event is stored. An organisation-approved credential-delivery channel and a sole-Administrator recovery procedure also remain required before production operational acceptance.
+Slice 3 creates the initial Administrator only for fictional-data development and pilot verification. It persists the required `INITIAL_ADMIN_CREATED` audit intent and outcome; console output is not treated as an audit event. An organisation-approved credential-delivery channel and a sole-Administrator recovery procedure remain required before production operational acceptance.
 
 ## Explicitly Excluded
 
@@ -872,10 +872,10 @@ organisation-safe assignment relationships, one active primary assignment, and
 one active assignment per Client and Staff Member.
 
 Later Milestone 2 work remains outstanding, including Client editing,
-archiving, controlled category selection, basic search, and any broader home
-view. Journal, document, goal, follow-up, and report functionality remain in
-their later milestones. Further Client-domain expansion remains paused until
-the remaining Milestone 1 authentication audit integrations are complete.
+archiving, basic search, and any broader home view. The completed Client
+Foundation already provides controlled `ADULT` and `YOUTH` category selection
+and separates **Vuxna** and **Ungdomar** in the interface. Journal, document,
+goal, follow-up, and report functionality remain in their later milestones.
 
 ---
 

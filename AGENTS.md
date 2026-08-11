@@ -79,6 +79,25 @@ silently expanding the task.
 Challenge conflicts, weakened security or traceability, scope expansion, and
 speculative infrastructure. Propose the smallest safe alternative.
 
+### Parallel Work and Worktrees
+
+- Use isolated worktrees for coding tasks when parallel work is useful;
+  read-only planning may inspect `main` without an editing worktree.
+- Codex-native worktrees may begin on detached `HEAD`. After review and before
+  commit, create a named feature branch in that worktree.
+- A feature agent must not delete its worktree before reviewed work is
+  preserved and its pull request is merged. Post-merge cleanup is a separate,
+  verified task and may later be delegated to a maintenance workflow.
+- Cleanup must prove that the pull request is `MERGED`, `main` is synced, the
+  worktree has no unpreserved work, and any retained safety stash is no longer
+  needed before removing a worktree or local branch. GitHub deletes merged
+  remote branches automatically.
+- Reconcile overlapping branches onto current `main`, resolve only genuine
+  conflicts, and rerun verification proportional to their overlapping surface.
+- Only one owner may create a Prisma migration at a time unless explicitly
+  coordinated. Until isolated parallel-test resources exist, serialise shared
+  PostgreSQL and Playwright work; use validated per-task resources once they do.
+
 ## Architecture and Scope
 
 Preserve the modular-monolith architecture. Put business rules in their owning

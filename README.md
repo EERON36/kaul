@@ -1,51 +1,74 @@
 # Kaul
 
-Kaul is a professional case-management and documentation system for pedagogues and social-service organisations.
+Kaul is a Swedish professional case-management and documentation system for
+pedagogues and social-service organisations. It is being built as a secure,
+portable modular monolith for organisations that need clear client access and
+reliable historical records.
 
-## Status
+> Kaul is under development and must not be used with real or sensitive
+> personal data.
 
-Milestone 0 — Project Foundation.
+## Current status
 
-The repository currently contains the technical application foundation only. It does not contain authentication, client records, journals, documents, reports, search, or other business functionality.
+Implemented now:
 
-> Kaul is under development and must not be used with real or sensitive personal data.
+- Individual email-and-password authentication, Administrator and Staff Member
+  management, and a maximum 12-hour session lifetime.
+- Persistent, immutable audit operations for the implemented authentication,
+  staff, client, and assignment mutations.
+- Client creation with separate **Ungdomar** and **Vuxna** areas, plus primary
+  and secondary Staff assignments with server-side access control.
+- A laptop-first, mobile-functional authenticated application foundation.
 
-## Requirements
+Planned work includes the remaining client management features, journal entries
+and signing, documents, reports, search, exports, pilot readiness, and a later
+production-readiness decision. Kaul is not production-ready.
 
-- Node.js 24.18.0 LTS
-- npm 11.16.0
-- Docker with Docker Compose
+## Core stack
 
-The Node.js version is recorded in `.nvmrc`. Use the same Node.js major version in development and CI.
+Next.js App Router, React, strict TypeScript, PostgreSQL, Prisma, Better Auth,
+Zod, Tailwind CSS, Vitest, Playwright, Docker Compose, and GitHub Actions.
 
-## Local setup
+## Local prerequisites
 
-1. Copy `.env.example` to `.env` and keep the fictional development values.
+- Node.js 24.18.0 LTS and npm 11.16.0 (the exact supported range is in
+  `package.json`; the Node version is in `.nvmrc`).
+- Docker with Docker Compose.
+- Fictional local-development configuration copied from `.env.example`.
+
+## Start development
+
+1. Copy `.env.example` to `.env`; keep fictional local values only.
 2. Start PostgreSQL:
 
    ```powershell
    docker compose up -d database
    ```
 
-3. Install dependencies and prepare Prisma:
+3. Install dependencies, generate Prisma Client, and apply committed
+   migrations:
 
    ```powershell
-   npm install
+   npm ci
    npm run prisma:generate
    npm run db:deploy
    ```
 
-4. Start Kaul:
+4. For an empty local installation, create the initial Administrator once:
+
+   ```powershell
+   npm run bootstrap:admin
+   ```
+
+5. Start Kaul and open `http://localhost:3000`:
 
    ```powershell
    npm run dev
    ```
 
-Open `http://localhost:3000`.
+## Verification
 
-## Validation
-
-Run the foundation checks separately so failures remain easy to identify:
+Common checks:
 
 ```powershell
 npm run format:check
@@ -53,32 +76,32 @@ npm run lint
 npm run typecheck
 npm run test
 npm run build
-npx playwright install chromium
-npm run test:e2e
 npm run audit:ci
 ```
 
-The Playwright smoke test starts the development server automatically. PostgreSQL must be running.
-
-The CI audit policy prints all npm audit findings. It temporarily accepts only
-the reviewed Next.js transitive advisories encoded in the repository and still
-fails for every unexpected high- or critical-severity finding.
-
-## Database commands
+Database integration and browser tests need their documented disposable test
+resources; do not run their setup against the normal local `kaul` database.
+Install the Playwright browser before the first local browser-test run:
 
 ```powershell
-npm run prisma:generate
-npm run db:migrate
-npm run db:deploy
-npm run db:status
+npx playwright install chromium
+npm run test:integration
+npm run test:e2e
 ```
 
-Prisma migrations are committed to Git. Applied shared migrations must not be rewritten.
+Use `npm run db:status` to inspect migration status. Prisma migrations are
+committed to Git and applied shared migrations must not be rewritten.
 
-## Environment safety
+## Authoritative documentation
 
-- `.env` files are ignored by Git.
-- `.env.example` contains fictional local-development credentials only.
-- PostgreSQL is bound to `127.0.0.1` in the local Compose configuration.
-- Development, pilot, and production must use different credentials and data.
-- Production data must never be copied into development.
+- [Project scope and milestones](docs/PROJECT_SPEC.md) and
+  [current milestone status](docs/MILESTONES.md)
+- [Domain model](docs/DOMAIN_MODEL.md) and
+  [architecture](docs/ARCHITECTURE.md)
+- [Security requirements](docs/SECURITY.md) and
+  [deployment planning](docs/DEPLOYMENT.md)
+- [User-interface guidance](docs/UI.md),
+  [technical stack](docs/TECH_STACK.md), and
+  [development workflow](docs/DEVELOPMENT_WORKFLOW.md)
+
+Contributor rules, including test-database safety, are in `AGENTS.md`.
