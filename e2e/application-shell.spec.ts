@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 test("redirects unauthenticated users to the Swedish login page", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/");
 
   await expect(page).toHaveURL(/\/login$/);
@@ -13,6 +14,11 @@ test("redirects unauthenticated users to the Swedish login page", async ({
   await expect(
     page.getByText("Testmiljö – använd endast fiktiva uppgifter."),
   ).toBeVisible();
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
 });
 
 test("makes the skip link available from the keyboard", async ({ page }) => {

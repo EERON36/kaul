@@ -228,3 +228,23 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
     organisationId: administrator.organisationId,
   });
 });
+
+test("Personal remains usable on a narrow viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await logIn(page, administratorEmail, administratorPassword);
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  await page.getByRole("link", { name: "Personal" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Personal", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Namn")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Skapa medarbetare" }),
+  ).toBeVisible();
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
+});

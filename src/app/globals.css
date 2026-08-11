@@ -24,6 +24,7 @@ html {
 
 body {
   margin: 0;
+  min-width: 0;
   background: var(--background);
   color: var(--text);
   font-family: var(--font-plex-sans), Arial, sans-serif;
@@ -33,6 +34,12 @@ body {
 
 a {
   color: inherit;
+}
+
+button,
+input,
+select {
+  max-width: 100%;
 }
 
 a:focus-visible,
@@ -65,7 +72,10 @@ main:focus-visible {
 }
 
 .sidebar {
-  padding: 1.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  padding: 1rem;
   background: var(--navigation);
   color: #ffffff;
 }
@@ -73,7 +83,7 @@ main:focus-visible {
 .wordmark {
   display: flex;
   flex-direction: column;
-  margin-bottom: 2rem;
+  min-width: 0;
 }
 
 .wordmark-name {
@@ -91,10 +101,42 @@ main:focus-visible {
 
 .navigation-link {
   display: block;
+  min-height: 2.75rem;
   padding: 0.7rem 0.8rem;
   border-left: 4px solid transparent;
   font-weight: 500;
   text-decoration: none;
+}
+
+.mobile-navigation {
+  display: contents;
+}
+
+.mobile-menu-button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.85rem;
+  background: transparent;
+  border: 1px solid currentColor;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.mobile-navigation-panel {
+  display: none;
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding-top: 1rem;
+  border-top: 1px solid #6f8796;
+}
+
+.mobile-navigation-panel[data-open="true"] {
+  display: block;
+}
+
+.mobile-navigation-panel .signed-in-user {
+  margin-top: 1rem;
 }
 
 .navigation-link[aria-current="page"] {
@@ -138,6 +180,7 @@ main:focus-visible {
 
 .main-content {
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .environment-notice {
@@ -151,7 +194,7 @@ main:focus-visible {
 .page-content {
   width: min(100% - 2rem, 52rem);
   margin: 0 auto;
-  padding: clamp(2rem, 6vw, 4rem) 0;
+  padding: clamp(1.5rem, 6vw, 4rem) 0;
 }
 
 .eyebrow {
@@ -351,6 +394,7 @@ h2 {
 .client-list-link {
   display: grid;
   gap: 0.25rem;
+  min-width: 0;
   min-height: 4rem;
   padding: 1rem;
   border: 1px solid var(--border);
@@ -369,6 +413,7 @@ h2 {
 }
 
 .client-identifier {
+  overflow-wrap: anywhere;
   font-family: var(--font-plex-mono), Consolas, monospace;
 }
 
@@ -420,6 +465,11 @@ h2 {
   border: 1px solid var(--border);
 }
 
+.staff-card > div:last-child {
+  display: grid;
+  gap: 0.75rem;
+}
+
 .staff-card h3,
 .staff-card p,
 .staff-card form p {
@@ -449,6 +499,24 @@ h2 {
   margin-bottom: 1rem;
 }
 
+@media (max-width: 47.999rem) {
+  .authentication-main {
+    min-height: calc(100vh - 3rem);
+    padding: 1rem;
+    place-items: start center;
+  }
+
+  .authentication-panel {
+    padding: 1.5rem;
+  }
+
+  form .primary-button,
+  .assignment-list .secondary-button,
+  .staff-card .secondary-button {
+    width: 100%;
+  }
+}
+
 @media (min-width: 48rem) {
   .app-shell {
     display: grid;
@@ -456,7 +524,32 @@ h2 {
   }
 
   .sidebar {
+    display: block;
     min-height: 100vh;
+    padding: 1.5rem;
+  }
+
+  .wordmark {
+    margin-bottom: 2rem;
+  }
+
+  .mobile-navigation {
+    display: block;
+  }
+
+  .mobile-menu-button {
+    display: none;
+  }
+
+  .mobile-navigation-panel,
+  .mobile-navigation-panel[data-open="true"] {
+    display: block;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .mobile-navigation-panel .signed-in-user {
+    margin-top: 2rem;
   }
 }
 
