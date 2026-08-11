@@ -1255,15 +1255,21 @@ The application should remain fully understandable without animation.
 
 ## Responsive Behaviour
 
-Kaul is primarily a desktop web application.
+Kaul is laptop-first, but mobile-functional. Core workflows must remain usable
+on phones as well as on laptops, tablets, and narrow browser windows. Kaul is
+not mobile-first, and native mobile applications are outside Version 1.
 
-It should also remain usable on:
+### Responsive Requirements
 
-- Laptops
-- Tablets
-- Narrow browser windows
-
-Full mobile optimisation is not required for Version 1.
+- Navigation must work on narrow screens.
+- No important functionality may depend on hover alone.
+- Forms must use a one-column layout where necessary.
+- Ordinary content must not require page-wide horizontal scrolling.
+- Client workflows must remain usable on mobile.
+- Future Utkast, Signera, and document workflows must remain usable on
+  mobile.
+- Browser zoom and accessibility remain first-class requirements at every
+  supported viewport width.
 
 ### Responsive Priorities
 
@@ -1275,8 +1281,6 @@ Full mobile optimisation is not required for Version 1.
 - Allow sidebar collapse where needed
 - Stack metadata rather than compressing it excessively
 - Avoid horizontal scrolling for primary workflows
-
-Native mobile applications are outside Version 1.
 
 ---
 
