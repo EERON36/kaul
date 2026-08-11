@@ -173,10 +173,10 @@ The intended product categories are:
 - Youth
 - Adult
 
-The Swedish interface displays these categories as:
+The Swedish interface displays these approved categories as:
 
-- Ungdom
-- Vuxen
+- Ungdomar
+- Vuxna
 
 These categories must remain clearly separated in the application for legal and
 operational reasons. The current requirement establishes category and UI
@@ -188,8 +188,10 @@ separation, or must staff access/visibility also be independently separated
 between Vuxna and Ungdomar?
 
 The Client Foundation stores category as a required trimmed string of at most
-100 characters rather than a database enum. A controlled category-selection
-workflow is deferred to a later reviewed Client slice.
+100 characters rather than a database enum. The normal Client creation
+workflow accepts only the internal values `YOUTH` and `ADULT`, displayed as
+Ungdomar and Vuxna. Existing other strings are preserved and shown separately
+until they can be reviewed; they do not create a new access-control boundary.
 
 A client may have:
 
@@ -208,8 +210,9 @@ A client may have:
   not a Swedish personal identity number. It is trimmed, Unicode NFC
   normalised, uppercased, limited to 64 characters, and unique within the
   organisation.
-- Client categories are required bounded strings in Version 1. A controlled
-  category vocabulary is deferred.
+- Client categories are required strings in the approved `YOUTH`/`ADULT`
+  vocabulary for normal creation. The database does not enforce the vocabulary
+  so existing out-of-range records can be preserved for review.
 - Client status is `INACTIVE`, `ACTIVE`, or `ARCHIVED`.
 - New clients are `INACTIVE` with no archive date.
 - Creating the first active primary assignment activates an inactive client.

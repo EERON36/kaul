@@ -77,14 +77,15 @@ Responsible for:
 - Archiving clients
 - Assigning staff members
 
-Every client has one bounded category string. The intended product categories
-remain:
+Every client has one bounded category string. The approved product categories
+are represented in application code as:
 
-- Ungdom
-- Vuxen
+- `YOUTH`, displayed as Ungdomar
+- `ADULT`, displayed as Vuxna
 
-The database does not enforce a category enum in the Client Foundation slice;
-controlled category selection is deferred to a later reviewed Client slice.
+The database does not enforce a category enum. Server-side Client input
+validation controls normal creation, while unknown existing strings remain
+readable in a separate UI group for review.
 
 Every client may have one active primary staff assignment and zero or more
 active secondary staff assignments. Ended assignments are preserved as
