@@ -239,7 +239,9 @@ test("Personal remains usable on a narrow viewport", async ({ page }) => {
     page.getByRole("heading", { name: "Personal", exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("Namn")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Skapa medarbetare" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Skapa medarbetare" }),
+  ).toBeVisible();
   await expect(
     page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
