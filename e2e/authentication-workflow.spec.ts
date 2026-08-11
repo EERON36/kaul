@@ -255,10 +255,39 @@ test("completes login, forced password change, shell access, logout, and new log
     where: { userId },
   });
   expect(sessionsBeforeLogout).toBeGreaterThan(0);
+  const rawSignOutResponse = await page.request.post(
+    `${playwrightBaseUrl}/api/auth/sign-out`,
+    { headers: { origin: playwrightBaseUrl } },
+  );
+  expect(rawSignOutResponse.status()).toBe(404);
+  await expect(prisma.session.count({ where: { userId } })).resolves.toBe(
+    sessionsBeforeLogout,
+  );
   await menuButton.click();
   await page.getByRole("button", { name: "Logga ut" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await expect(prisma.session.count({ where: { userId } })).resolves.toBe(0);
+  await expect(
+    prisma.auditOperation.findFirstOrThrow({
+      where: { actorUserId: userId, action: "LOGOUT_SUCCEEDED" },
+      orderBy: { createdAt: "desc" },
+      select: {
+        actorKind: true,
+        actorUserId: true,
+        targetType: true,
+        targetId: true,
+        events: {
+          select: { type: true, result: true, resolvedTargetId: true },
+        },
+      },
+    }),
+  ).resolves.toEqual({
+    actorKind: "USER",
+    actorUserId: userId,
+    targetType: "AUTHENTICATION",
+    targetId: null,
+    events: [{ type: "OUTCOME", result: "SUCCEEDED", resolvedTargetId: null }],
+  });
   await page.goto("/");
   await expect(page).toHaveURL(/\/login$/);
 

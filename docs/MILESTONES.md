@@ -9,7 +9,7 @@
 - `LOGIN_SUCCEEDED` is integrated with durable trusted-identity intent,
   transactionally coupled Session success, and post-commit cookie release.
 - `LOGIN_FAILED` is integrated for pre-trust invalid credentials; `LOGOUT_SUCCEEDED`
-  integration remains outstanding.
+  is integrated at the verified explicit Session-deletion boundary.
 
 Version: 0.1
 
@@ -820,18 +820,21 @@ Slice 2 — central authentication and session guards — is implemented and
 verified.
 
 Slice 3 — initial Organisation and Administrator bootstrap — is implemented and
-verified for fictional development and pilot verification. Persistent
-`INITIAL_ADMIN_CREATED` audit storage, an approved credential-delivery channel,
-and sole-Administrator recovery remain outstanding production blockers.
+verified for fictional development and pilot verification, including durable
+`INITIAL_ADMIN_CREATED` auditing and reviewed empty-install recovery. An
+approved credential-delivery channel and sole-Administrator credential-loss
+recovery remain outstanding production blockers.
 
 Slice 4 — login, forced first password change, authenticated application shell,
-and logout — is implemented and verified.
+and logout — is implemented and verified. Its authentication audit slices now
+cover `PASSWORD_CHANGED`, `LOGIN_SUCCEEDED`, admitted pre-trust `LOGIN_FAILED`,
+and verified explicit `LOGOUT_SUCCEEDED`.
 
 The Milestone 1 Audit Foundation is implemented and verified as the prerequisite
 for later protected Administrator mutations. It provides immutable durable
 operation intents, append-only outcome and recovery events, idempotency keys,
 and database-level immutability. No existing authentication workflow has been
-retrofitted in this foundation slice.
+weakened to obtain audit coverage.
 
 Slice 5 — Staff Management — is implemented and verified. Administrators can
 list, create, deactivate, and reactivate Staff Members within their own
@@ -852,7 +855,6 @@ organisation-approved production delivery channel.
 
 Later Milestone 1 work remains outstanding, including:
 
-- Authentication audit persistence for `LOGOUT_SUCCEEDED`
 - The organisation-approved production credential-delivery channel
 - The sole-Administrator credential-loss recovery procedure
 

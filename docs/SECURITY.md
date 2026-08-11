@@ -446,6 +446,12 @@ personal data.
   intent is never updated to represent success or failure.
 - Where possible, a transaction-compatible mutation and its successful outcome
   are committed together after the separate intent transaction.
+- Explicit logout is the reviewed availability exception: the exact current
+  Session is verified deleted in its own committed transaction before
+  `LOGOUT_SUCCEEDED` is appended. Outcome persistence failure must not recreate
+  the Session or prevent authentication-cookie clearing. A definitive deletion
+  rollback records `FAILED`; unknown commit acknowledgement records
+  `AMBIGUOUS`; neither may record success.
 - Audit operations are immutable and audit events are append-only through
   ordinary application behaviour.
 - PostgreSQL rejects ordinary update, delete, and truncate operations against

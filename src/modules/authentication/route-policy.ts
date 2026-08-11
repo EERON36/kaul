@@ -40,6 +40,10 @@ export function isRawChangePasswordRoute(request: Request): boolean {
   return isPath(new URL(request.url).pathname, "/api/auth/change-password");
 }
 
+export function isRawSignOutRoute(request: Request): boolean {
+  return isPath(new URL(request.url).pathname, "/api/auth/sign-out");
+}
+
 function safeJsonResponse(body: string, status: number): Response {
   return new Response(body, {
     status,
@@ -86,7 +90,11 @@ export function applyBetterAuthRoutePolicy(
   handler: BetterAuthRouteHandler,
 ): BetterAuthRouteHandler {
   return async (request) => {
-    if (isRawAdminRoute(request) || isRawChangePasswordRoute(request)) {
+    if (
+      isRawAdminRoute(request) ||
+      isRawChangePasswordRoute(request) ||
+      isRawSignOutRoute(request)
+    ) {
       return new Response(null, { status: 404 });
     }
 

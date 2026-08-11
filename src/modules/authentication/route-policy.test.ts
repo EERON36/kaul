@@ -14,6 +14,8 @@ const blockedPaths = [
   "/api/auth/admin/set-user-password",
   "/api/auth/change-password",
   "/api/auth/change-password/",
+  "/api/auth/sign-out",
+  "/api/auth/sign-out/",
 ];
 
 function createRequest(pathname: string, method = "GET"): Request {
