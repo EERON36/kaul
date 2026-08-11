@@ -1,0 +1,4 @@
+interface:
+  display_name: "Handoff reviewed Kaul slice"
+  short_description: "Move reviewed Kaul changes toward a PR"
+  default_prompt: "Use $reviewed-slice-handoff to preserve review coverage while preparing this Kaul slice for a pull request."

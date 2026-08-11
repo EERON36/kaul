@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Kaul slice"
+  short_description: "Choose checks by Kaul slice risk"
+  default_prompt: "Use $verify-slice to select and run proportionate checks for this Kaul slice."

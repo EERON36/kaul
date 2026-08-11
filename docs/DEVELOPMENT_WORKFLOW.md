@@ -69,8 +69,12 @@ task thread
 → commit and push
 → pull request and CI
 → squash merge
-→ separate post-merge cleanup
-→ archive task thread
+→ post-merge preflight
+→ archive task thread manually
+→ Codex retires physical worktree
+→ helper reports global Git prune impact
+→ operator runs repository-wide Git prune explicitly
+→ helper verifies absence and cleans the proven local branch
 ```
 
 A feature agent does **not** delete its worktree before the pull request has
@@ -87,14 +91,36 @@ local branch, verify all of the following:
 4. A retained safety stash is no longer needed.
 
 GitHub automatically deletes merged remote branches. Local cleanup must still
-be deliberate. A dedicated maintenance task or reusable workflow may perform
-this cleanup in the future.
+be deliberate. Use the repository-local `cleanup-merged-slice` Skill with an
+explicit PR number, worktree path, and expected feature branch.
+
+First run its `preflight` command while the finished worktree still exists. It
+checks the worktree is clean, including ignored content that might be valuable.
+If it reports a blocker, stop. Do not bypass it with reset, clean,
+force-removal, or stash deletion.
+
+After preflight, archive the finished Codex task manually. Codex may then
+retire its physical worktree. The helper never deletes that directory. Once
+Git shows the exact worktree registration as `prunable`, run the `prune`
+command. It reports the current repository-wide prune impact and refuses when
+another prunable registration makes that impact ambiguous. It never runs
+`git worktree prune` automatically.
+
+If only the intended registration is prunable, the operator explicitly runs
+`git worktree prune -v`, understanding that Git prune is repository-wide, then
+reruns the helper. The helper must prove the intended registration is absent
+and immediately revalidate repository, PR, branch SHA, and worktree ownership
+before deleting the unchanged proven local branch.
 
 ## Review policy
 
 Normal changes receive one meaningful review. Security-sensitive changes also
 receive a dedicated security review. Review the working-tree diff before
 staging; do not reread an identical staged diff after that complete review.
+The reviewed identity includes the contents of every untracked non-ignored
+file, not only its path. Use `npm run review:snapshot` through the
+`reviewed-slice-handoff` Skill to capture and verify deterministic hashes
+without logging file contents.
 
 Staging is a mechanical validation step:
 
@@ -104,9 +130,14 @@ git diff --stat
 git diff --cached --stat
 ```
 
-If `git diff --stat` is empty after staging, the staged content matches the
-reviewed working tree. Review again only when a correction materially changes
-the reviewed security or architecture boundary.
+If `git diff --stat` is empty after staging and the pre-staging review snapshot
+matched, the staged content matches the reviewed working tree. Review again
+only when a correction materially changes the reviewed security or architecture
+boundary.
+
+Use the repository-local `reviewed-slice-handoff` Skill after the human final
+review. It handles detached Codex worktrees, requires explicit branch, commit,
+push, and PR inputs, and stops when the reviewed diff changes. It never merges.
 
 ## Verification policy
 
@@ -127,6 +158,10 @@ When parallel branches overlap:
 Do not blindly rerun every suite when a focused set proves the shared boundary;
 do not under-test a shared security, database, or route change.
 
+The repository-local `verify-slice` Skill applies the risk classes above. It
+reuses the existing database lifecycle commands and never chooses test IDs,
+ports, or abandoned-database cleanup on the operator's behalf.
+
 ## Parallel database work
 
 Only one task may own a Prisma migration at a time unless owners explicitly
@@ -146,15 +181,28 @@ the same fictional local URL ending in `kaul_test_logout`, set
 creating or using the database. The validator rejects partial or mismatched
 configuration.
 
-## Future automation boundary
+## Automation boundary
 
-The following are candidates for later automation, not current capabilities:
+Repository-local Skills now cover risk-aware verification, reviewed-slice
+handoff, and fail-closed post-merge cleanup. The helpers are available as:
 
-- Codex-native worktree creation.
-- Post-merge Git and worktree cleanup.
+```text
+npm run cleanup:merged-slice -- preflight --pr <number> --worktree <path> --branch <name>
+npm run cleanup:merged-slice -- prune --pr <number> --worktree <path> --branch <name>
+npm run review:snapshot -- <capture --output|verify --snapshot> <external-snapshot-file>
+```
 
-Potential reusable workflows are `start-slice`, `verify-slice`, and
-`cleanup-merged-slice`.
+The cleanup preflight can safely fast-forward clean local `main`, but does not
+remove a worktree or branch. The first post-retirement `prune` run reports the
+global Git prune impact. After the operator explicitly runs `git worktree
+prune -v`, a second run proves the intended registration is absent before
+local branch cleanup. Neither helper removes filesystem paths or includes
+ignored files in reviewed staging.
+
+`start-slice` remains Codex-native. A separate wrapper would only duplicate
+worktree creation; start by reading the project rules, classifying risk,
+checking dependency and Git state, and obtaining explicit test IDs and ports
+when database or browser evidence will be required.
 
 Human approval remains required for meaningful final review,
 security-sensitive merge decisions, product and domain decisions, and schema or

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cleanup merged Kaul slice"
+  short_description: "Safely clean a retired Kaul worktree"
+  default_prompt: "Use $cleanup-merged-slice to safely clean one explicitly identified merged Kaul slice."
