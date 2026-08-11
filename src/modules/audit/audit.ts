@@ -94,6 +94,11 @@ type LoginSucceededAuditIntentInput = Readonly<{
   actor: Pick<AuthenticatedUser, "userId" | "organisationId">;
 }>;
 
+type LogoutSucceededAuditIntentInput = Readonly<{
+  operationId: string;
+  actor: Pick<AuthenticatedUser, "userId" | "organisationId">;
+}>;
+
 const loginSucceededAuditIntentInputSchema = z
   .object({
     operationId: auditOperationIdSchema,
@@ -105,6 +110,9 @@ const loginSucceededAuditIntentInputSchema = z
       .strict(),
   })
   .strict();
+
+const logoutSucceededAuditIntentInputSchema =
+  loginSucceededAuditIntentInputSchema;
 
 const unauthenticatedAuditIntentInputSchema = z
   .object({
@@ -681,6 +689,45 @@ export async function createLoginSucceededAuditIntent(
   );
 }
 
+export async function createLogoutSucceededAuditIntent(
+  input: LogoutSucceededAuditIntentInput,
+): Promise<AuditIntentHandle> {
+  const parsedInput = logoutSucceededAuditIntentInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    throw new AuditError("INVALID_INPUT");
+  }
+
+  const context = buildIntentContext({
+    operationId: parsedInput.data.operationId,
+    organisationId: parsedInput.data.actor.organisationId,
+    actorKind: "USER",
+    actorUserId: parsedInput.data.actor.userId,
+    action: "LOGOUT_SUCCEEDED",
+    targetId: null,
+  });
+
+  return persistCommittedAuditIntent(context, () =>
+    prisma.$transaction(async (transaction) => {
+      const actor = await transaction.user.findFirst({
+        where: {
+          id: context.actorUserId ?? undefined,
+          organisationId: context.organisationId ?? undefined,
+          organisation: {
+            is: { id: context.organisationId ?? undefined },
+          },
+        },
+        select: { id: true },
+      });
+
+      if (!actor) {
+        throw new AuditError("INCONSISTENT_OPERATION", context.operationId);
+      }
+
+      return persistAuditIntent(transaction, context);
+    }),
+  );
+}
+
 export function createSystemAuditIntent(
   input: SystemAuditIntentInput,
 ): Promise<AuditIntentHandle> {
@@ -744,6 +791,19 @@ export function recordFailedAuditOutcome(
     intent,
     "OUTCOME",
     "FAILED",
+    resolvedTargetId,
+  );
+}
+
+export function recordSucceededAuditOutcome(
+  intent: AuditIntentHandle,
+  resolvedTargetId?: string | null,
+): Promise<void> {
+  return appendAuditEvent(
+    prisma,
+    intent,
+    "OUTCOME",
+    "SUCCEEDED",
     resolvedTargetId,
   );
 }

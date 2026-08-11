@@ -260,9 +260,27 @@ If ambiguity persistence cannot complete, the operation may remain unresolved
 for operator review. Kaul releases no cookie and never retries the business
 mutation automatically. This integration does not implement `LOGIN_FAILED`.
 
-Logout revokes the current session. A normal password change uses
-`revokeOtherSessions: true`. Administrator-assisted reset and deactivation revoke
-all sessions. Revocation tests must prove denial on the next protected request.
+Explicit logout uses a Kaul-owned route because Better Auth `1.6.25` catches
+Session-deletion errors on its raw `/sign-out` route before clearing cookies and
+returning success. The raw route is blocked. Kaul establishes the current
+Session and User from Better Auth's signed cookie and database state, commits a
+durable `LOGOUT_SUCCEEDED` intent, and serialises deletion attempts for the exact
+Session. Better Auth performs deletion inside a transaction with sensitive
+library logging disabled; Kaul verifies the exact Session absent before commit.
+Only an acknowledged deletion commit may receive `SUCCEEDED`. A definitive
+rollback receives `FAILED`; an unknown commit acknowledgement receives
+`AMBIGUOUS`. No deletion is retried and no Session is recreated.
+
+Cookie expiration is obtained independently from Better Auth's configured
+cookie-clearing behavior and is returned for every accepted explicit logout,
+including deletion, ambiguity, and audit-outcome persistence failures. The
+successful audit outcome is therefore appended after the deletion commit. If it
+cannot be stored, the Session remains deleted and the durable intent remains
+unresolved for review. A stale request whose Session was already absent is
+client-idempotent cookie clearing without a new `LOGOUT_SUCCEEDED` intent. A
+normal password change uses `revokeOtherSessions: true`. Administrator-assisted
+reset and deactivation revoke all sessions. Revocation tests must prove denial
+on the next protected request.
 
 Every protected page, route handler, server action, and mutation performs full
 server-side session validation. Next.js proxy or middleware checks and navigation
@@ -463,7 +481,9 @@ existence.
 Persistent audit infrastructure is implemented by the Audit Foundation.
 `INITIAL_ADMIN_CREATED` and forced-flow `PASSWORD_CHANGED` are integrated.
 `LOGIN_SUCCEEDED` is integrated at the trusted Session-establishment boundary.
-`LOGIN_FAILED` and `LOGOUT_SUCCEEDED` remain outstanding.
+`LOGIN_FAILED` is integrated for admitted pre-trust invalid credentials, and
+`LOGOUT_SUCCEEDED` is integrated at the verified explicit Session-deletion
+boundary.
 
 ## Required Verification
 

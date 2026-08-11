@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 
-import { authClient } from "@/modules/authentication/auth-client";
-
 export function LogoutButton() {
   const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>();
@@ -12,9 +10,19 @@ export function LogoutButton() {
     setIsPending(true);
     setErrorMessage(undefined);
 
-    const result = await authClient.signOut();
+    let response: Response;
+    try {
+      response = await fetch("/api/kaul/logout", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+    } catch {
+      setErrorMessage("Det gick inte att logga ut. Försök igen.");
+      setIsPending(false);
+      return;
+    }
 
-    if (result.error) {
+    if (!response.ok) {
       setErrorMessage("Det gick inte att logga ut. Försök igen.");
       setIsPending(false);
       return;
