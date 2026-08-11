@@ -2,33 +2,9 @@ import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "vitest/config";
 
-const integrationDatabaseUrl = process.env.INTEGRATION_DATABASE_URL;
+import { getTestEnvironment } from "./src/test/test-environment";
 
-if (!integrationDatabaseUrl) {
-  throw new Error(
-    "INTEGRATION_DATABASE_URL is required for integration tests.",
-  );
-}
-
-const parsedDatabaseUrl = new URL(integrationDatabaseUrl);
-const databaseName = decodeURIComponent(parsedDatabaseUrl.pathname.slice(1));
-const isLocalPostgreSql =
-  (parsedDatabaseUrl.protocol === "postgresql:" ||
-    parsedDatabaseUrl.protocol === "postgres:") &&
-  (parsedDatabaseUrl.hostname === "127.0.0.1" ||
-    parsedDatabaseUrl.hostname === "localhost");
-const isDisposableLocalDatabase = databaseName === "kaul_m1_schema_test";
-const isEphemeralCiDatabase =
-  process.env.CI === "true" && databaseName === "kaul";
-
-if (
-  !isLocalPostgreSql ||
-  (!isDisposableLocalDatabase && !isEphemeralCiDatabase)
-) {
-  throw new Error(
-    `Refusing to run integration tests against database "${databaseName}".`,
-  );
-}
+const testEnvironment = getTestEnvironment();
 
 export default defineConfig({
   resolve: {
@@ -40,12 +16,15 @@ export default defineConfig({
   },
   test: {
     env: {
-      DATABASE_URL: integrationDatabaseUrl,
+      DATABASE_URL: testEnvironment.databaseUrl,
+      INTEGRATION_DATABASE_URL: testEnvironment.integrationDatabaseUrl,
+      KAUL_TEST_ID: testEnvironment.testId,
+      KAUL_TEST_PORT: String(testEnvironment.port),
       DEPLOYMENT_ENV: "test",
       BETTER_AUTH_SECRET:
         process.env.BETTER_AUTH_SECRET ??
         "fictional-integration-secret-at-least-32-characters",
-      BETTER_AUTH_URL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+      BETTER_AUTH_URL: testEnvironment.origin,
     },
     fileParallelism: false,
     include: ["src/**/*.integration.test.ts"],

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Prisma, UserRole } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
+import { getTestEnvironment } from "../../test/test-environment";
 import {
   createLogoutSucceededAuditIntent,
   generateAuditOperationId,
@@ -24,13 +25,14 @@ const password = "Fictional logout integration passphrase 2030";
 const fixtureUserIds = new Set<string>();
 const fixtureOrganisationIds = new Set<string>();
 const fixtureRateLimitKeys = new Set<string>();
+const testOrigin = getTestEnvironment().origin;
 
 function authenticationHeaders(ipAddress: string, cookie?: string): Headers {
   fixtureRateLimitKeys.add(`${ipAddress}|/sign-in/email`);
   return new Headers({
     "content-type": "application/json",
     ...(cookie ? { cookie } : {}),
-    origin: "http://localhost:3000",
+    origin: testOrigin,
     "x-real-ip": ipAddress,
   });
 }
@@ -94,7 +96,7 @@ async function createFixtureUser() {
 }
 
 async function signIn(email: string, ipAddress: string) {
-  const request = new Request("http://localhost:3000/api/auth/sign-in/email", {
+  const request = new Request(`${testOrigin}/api/auth/sign-in/email`, {
     method: "POST",
     headers: authenticationHeaders(ipAddress),
     body: JSON.stringify({ email, password }),

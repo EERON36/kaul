@@ -10,6 +10,7 @@ vi.mock("next/headers", () => ({
 
 import { UserRole } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
+import { getTestEnvironment } from "../../test/test-environment";
 import { auth } from "./auth";
 import {
   AuthenticationGuardError,
@@ -33,6 +34,7 @@ const replacementPassword = "Fictional replacement passphrase 2030";
 const alternativePassword = "Alternative fictional passphrase 2030";
 const futureExpiry = new Date("2030-01-03T03:04:05.000Z");
 const currentTime = new Date("2030-01-02T03:04:05.000Z");
+const testOrigin = getTestEnvironment().origin;
 
 async function clearAuthenticationFoundation(): Promise<void> {
   await prisma.session.deleteMany();
@@ -46,7 +48,7 @@ async function clearAuthenticationFoundation(): Promise<void> {
 function authenticationHeaders(ipAddress: string, cookie?: string) {
   return new Headers({
     ...(cookie ? { cookie } : {}),
-    origin: "http://localhost:3000",
+    origin: testOrigin,
     "x-real-ip": ipAddress,
   });
 }

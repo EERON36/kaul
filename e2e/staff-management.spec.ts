@@ -5,18 +5,14 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 import { PrismaClient, UserRole } from "../src/generated/prisma/client";
 import { createAuthentication } from "../src/modules/authentication/auth";
+import { getTestEnvironment } from "../src/test/test-environment";
 
-const integrationDatabaseUrl = process.env.INTEGRATION_DATABASE_URL;
-const baseUrl = "http://127.0.0.1:3100";
-
-if (!integrationDatabaseUrl) {
-  throw new Error(
-    "INTEGRATION_DATABASE_URL is required for staff-management E2E tests.",
-  );
-}
+const testEnvironment = getTestEnvironment();
 
 const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: integrationDatabaseUrl }),
+  adapter: new PrismaPg({
+    connectionString: testEnvironment.integrationDatabaseUrl,
+  }),
 });
 const fixtureAuthentication = createAuthentication(prisma);
 const administratorEmail = "slice5.e2e.administrator@example.test";
@@ -105,7 +101,7 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
   page,
 }) => {
   await logIn(page, administratorEmail, administratorPassword);
-  await expect(page).toHaveURL(`${baseUrl}/`);
+  await expect(page).toHaveURL(`${testEnvironment.origin}/`);
   await page.getByRole("link", { name: "Personal" }).click();
   await expect(
     page.getByRole("heading", { name: "Personal", exact: true }),
@@ -139,7 +135,7 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
     .getByLabel("Bekräfta nytt lösenord")
     .fill(staffReplacementPassword);
   await staffPage.getByRole("button", { name: "Spara nytt lösenord" }).click();
-  await expect(staffPage).toHaveURL(`${baseUrl}/`);
+  await expect(staffPage).toHaveURL(`${testEnvironment.origin}/`);
   await expect(staffPage.getByRole("link", { name: "Personal" })).toHaveCount(
     0,
   );
@@ -174,7 +170,7 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
   ).toBeVisible();
   await expect(page.getByText(/Status:\s*Aktiv/)).toBeVisible();
   await logIn(staffPage, staffEmail, staffReplacementPassword);
-  await expect(staffPage).toHaveURL(`${baseUrl}/`);
+  await expect(staffPage).toHaveURL(`${testEnvironment.origin}/`);
 
   await page.getByRole("button", { name: "Återställ lösenord" }).click();
   await expect(page.getByText("Lösenordet har återställts.")).toBeVisible();
@@ -207,7 +203,7 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
     .fill(staffFinalPassword);
   await staffPage.getByLabel("Bekräfta nytt lösenord").fill(staffFinalPassword);
   await staffPage.getByRole("button", { name: "Spara nytt lösenord" }).click();
-  await expect(staffPage).toHaveURL(`${baseUrl}/`);
+  await expect(staffPage).toHaveURL(`${testEnvironment.origin}/`);
   await expect(staffPage.getByRole("link", { name: "Hem" })).toBeVisible();
   await expect(staffPage.getByRole("link", { name: "Klienter" })).toBeVisible();
   await expect(staffPage.getByRole("link", { name: "Personal" })).toHaveCount(

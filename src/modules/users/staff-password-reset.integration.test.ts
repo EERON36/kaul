@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { UserRole } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
+import { getTestEnvironment } from "../../test/test-environment";
 import {
   createUserAuditIntent,
   generateAuditOperationId,
@@ -17,6 +18,7 @@ const staffPassword = "Fictional chosen staff password before reset 2032";
 const temporaryPassword = "Fictional temporary staff password reset 2032";
 const replacementPassword = "Fictional replacement staff password 2032";
 const currentTime = new Date("2032-02-03T04:05:06.000Z");
+const testOrigin = getTestEnvironment().origin;
 
 type Fixture = Readonly<{
   actor: AdministratorUser;
@@ -41,7 +43,7 @@ function cookiesFrom(response: Response): string {
 
 function signInHeaders(ipAddress: string): Headers {
   return new Headers({
-    origin: "http://localhost:3000",
+    origin: testOrigin,
     "x-real-ip": ipAddress,
   });
 }
@@ -96,7 +98,7 @@ async function createAdministratorFixture(): Promise<Fixture> {
       credentialState: "APPLICATION_ALLOWED",
     },
     headers: new Headers({
-      origin: "http://localhost:3000",
+      origin: testOrigin,
       cookie: cookiesFrom(administratorSignIn),
       "x-real-ip": "192.0.2.181",
     }),

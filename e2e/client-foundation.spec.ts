@@ -5,16 +5,14 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 import { PrismaClient, UserRole } from "../src/generated/prisma/client";
 import { createAuthentication } from "../src/modules/authentication/auth";
+import { getTestEnvironment } from "../src/test/test-environment";
 
-const integrationDatabaseUrl = process.env.INTEGRATION_DATABASE_URL;
-const baseUrl = "http://127.0.0.1:3100";
-
-if (!integrationDatabaseUrl) {
-  throw new Error("INTEGRATION_DATABASE_URL is required for Client E2E tests.");
-}
+const testEnvironment = getTestEnvironment();
 
 const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: integrationDatabaseUrl }),
+  adapter: new PrismaPg({
+    connectionString: testEnvironment.integrationDatabaseUrl,
+  }),
 });
 const fixtureAuthentication = createAuthentication(prisma);
 const organisationName = "Fiktiva Klientflödesorganisationen";
@@ -134,7 +132,7 @@ async function logIn(
   await page.getByLabel("E-post").fill(email);
   await page.getByLabel("Lösenord").fill(password);
   await page.getByRole("button", { name: "Logga in" }).click();
-  await expect(page).toHaveURL(`${baseUrl}/`);
+  await expect(page).toHaveURL(`${testEnvironment.origin}/`);
 }
 
 test.describe.configure({ mode: "serial" });
@@ -282,7 +280,7 @@ test("Client categories remain usable on a narrow viewport", async ({
     page.locator(".client-details dd").filter({ hasText: "Ungdomar" }),
   ).toBeVisible();
   await page.goBack();
-  await expect(page).toHaveURL(`${baseUrl}/klienter`);
+  await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
   await page.getByRole("link", { name: /Vuxen Klient/ }).click();
   await expect(page).toHaveURL(/\/klienter\/[0-9a-f-]+$/);
   await expect(

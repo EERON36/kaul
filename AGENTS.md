@@ -127,33 +127,35 @@ portable and domain logic independent of hosts and Prisma representations.
 The normal local development database is `kaul`. Never run destructive,
 integration, or Playwright setup against it.
 
-The only approved local disposable integration and E2E database is:
-
-`kaul_m1_schema_test`
+Each local integration or E2E task must use an explicit validated
+`KAUL_TEST_ID` and `KAUL_TEST_PORT`. The disposable database is always
+`kaul_test_<id>`; `kaul` and `postgres` are invalid IDs.
 
 For local database-writing tests:
 
 1. Start only the PostgreSQL service if needed.
 2. Confirm the normal `kaul` database exists separately.
-3. Prove `kaul_m1_schema_test` does not already exist before creating it.
-4. Point both `DATABASE_URL` and `INTEGRATION_DATABASE_URL` explicitly at the
-   disposable database for every relevant process.
-5. Apply committed migrations with `npx prisma migrate deploy`.
+3. Set both variables, then run `npm run test:db:check` to validate the ID,
+   local URLs, matching database name, port (3101–3199), and auth origin.
+4. Run `npm run test:db:create`; it refuses existing databases.
+5. Run `npm run test:db:migrate`, which uses `prisma migrate deploy` with both
+   database URL variables set to the task database.
 6. Run the approved integration or Playwright command.
-7. If cleanup is explicitly authorised, drop only the exact disposable
-   database.
-8. Use `docker compose down` without `--volumes`.
-9. Confirm the normal database and named volume remain.
+7. If cleanup is explicitly authorised, run `npm run test:db:drop`; it can
+   drop only the current derived task database and does not force connections.
 
 Stop if the disposable database already exists unless the user explicitly
-authorises its reuse or deletion. Never delete Docker volumes as test cleanup.
+authorises its deletion. Tasks share the PostgreSQL service: do not run
+`docker compose down` during normal verification and never delete Docker
+volumes as test cleanup. `npm run test:db:list` is read-only and may be used
+to diagnose abandoned `kaul_test_*` databases.
 
 Do not use `prisma db push`, reset commands, Better Auth migration commands, or
 hand-written schema workarounds for verification. Prisma is the only migration
 system. Inspect generated SQL and never rewrite an applied shared migration.
 
-CI is the deliberate exception: its isolated PostgreSQL service may use a
-database named `kaul` when `CI=true`. Do not reproduce that exception locally.
+CI uses the same guard with its isolated `kaul_test_ci` service database. Do
+not reproduce CI credentials or its database outside CI.
 
 Use only fictional identities, credentials, secrets, and data. For
 authentication-dependent checks, supply process-local values:

@@ -5,18 +5,14 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 import { PrismaClient, UserRole } from "../src/generated/prisma/client";
 import { createAuthentication } from "../src/modules/authentication/auth";
+import { getTestEnvironment } from "../src/test/test-environment";
 
-const integrationDatabaseUrl = process.env.INTEGRATION_DATABASE_URL;
-const playwrightBaseUrl = "http://127.0.0.1:3100";
-
-if (!integrationDatabaseUrl) {
-  throw new Error(
-    "INTEGRATION_DATABASE_URL is required for authentication workflow E2E tests.",
-  );
-}
+const testEnvironment = getTestEnvironment();
 
 const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: integrationDatabaseUrl }),
+  adapter: new PrismaPg({
+    connectionString: testEnvironment.integrationDatabaseUrl,
+  }),
 });
 const fixtureAuthentication = createAuthentication(prisma);
 const workflowBrowserIp = "192.0.2.121";
@@ -39,7 +35,7 @@ const fixtureEmails = [
 function headersFor(ipAddress: string) {
   fixtureRateLimitKeys.add(`${ipAddress}|/sign-in/email`);
   return new Headers({
-    origin: playwrightBaseUrl,
+    origin: testEnvironment.origin,
     "x-real-ip": ipAddress,
   });
 }
@@ -212,7 +208,7 @@ test("completes login, forced password change, shell access, logout, and new log
     .fill(replacementPassword);
   await page.getByLabel("Bekräfta nytt lösenord").fill(replacementPassword);
   await page.getByRole("button", { name: "Spara nytt lösenord" }).click();
-  await expect(page).toHaveURL(`${playwrightBaseUrl}/`);
+  await expect(page).toHaveURL(`${testEnvironment.origin}/`);
   await expect(page.getByRole("heading", { name: "Översikt" })).toBeVisible();
   const menuButton = page.locator(".mobile-menu-button");
   await expect(menuButton).toHaveAttribute("aria-expanded", "false");
@@ -256,8 +252,8 @@ test("completes login, forced password change, shell access, logout, and new log
   });
   expect(sessionsBeforeLogout).toBeGreaterThan(0);
   const rawSignOutResponse = await page.request.post(
-    `${playwrightBaseUrl}/api/auth/sign-out`,
-    { headers: { origin: playwrightBaseUrl } },
+    `${testEnvironment.origin}/api/auth/sign-out`,
+    { headers: { origin: testEnvironment.origin } },
   );
   expect(rawSignOutResponse.status()).toBe(404);
   await expect(prisma.session.count({ where: { userId } })).resolves.toBe(
@@ -300,7 +296,7 @@ test("completes login, forced password change, shell access, logout, and new log
 
   await page.getByLabel("Lösenord").fill(replacementPassword);
   await page.getByRole("button", { name: "Logga in" }).click();
-  await expect(page).toHaveURL(`${playwrightBaseUrl}/`);
+  await expect(page).toHaveURL(`${testEnvironment.origin}/`);
 });
 
 test("denies expired and banned credentials with the same generic response", async ({

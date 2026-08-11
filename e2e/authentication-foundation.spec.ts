@@ -2,45 +2,21 @@ import { expect, test } from "@playwright/test";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import { PrismaClient } from "../src/generated/prisma/client";
+import { getTestEnvironment } from "../src/test/test-environment";
 
-const integrationDatabaseUrl = process.env.INTEGRATION_DATABASE_URL;
-const playwrightBaseUrl = "http://127.0.0.1:3100";
-
-if (!integrationDatabaseUrl) {
-  throw new Error(
-    "INTEGRATION_DATABASE_URL is required for authentication E2E tests.",
-  );
-}
-
-const parsedDatabaseUrl = new URL(integrationDatabaseUrl);
-const databaseName = decodeURIComponent(parsedDatabaseUrl.pathname.slice(1));
-const isLocalPostgreSql =
-  (parsedDatabaseUrl.protocol === "postgresql:" ||
-    parsedDatabaseUrl.protocol === "postgres:") &&
-  (parsedDatabaseUrl.hostname === "127.0.0.1" ||
-    parsedDatabaseUrl.hostname === "localhost");
-const isDisposableLocalDatabase = databaseName === "kaul_m1_schema_test";
-const isEphemeralCiDatabase =
-  process.env.CI === "true" && databaseName === "kaul";
-
-if (
-  !isLocalPostgreSql ||
-  (!isDisposableLocalDatabase && !isEphemeralCiDatabase)
-) {
-  throw new Error(
-    `Refusing to run authentication E2E tests against database "${databaseName}".`,
-  );
-}
+const testEnvironment = getTestEnvironment();
 
 const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: integrationDatabaseUrl }),
+  adapter: new PrismaPg({
+    connectionString: testEnvironment.integrationDatabaseUrl,
+  }),
 });
 
 test.use({ trace: "off" });
 
 function fictionalHeaders(ipAddress: string) {
   return {
-    origin: playwrightBaseUrl,
+    origin: testEnvironment.origin,
     "x-real-ip": ipAddress,
   };
 }
