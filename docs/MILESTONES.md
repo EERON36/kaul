@@ -858,7 +858,7 @@ Later Milestone 1 work remains outstanding, including:
 - The organisation-approved production credential-delivery channel
 - The sole-Administrator credential-loss recovery procedure
 
-### Milestone 2 — Clients and Assignments: Implementation in Progress
+### Milestone 2 — Clients and Assignments: Complete
 
 The Client Foundation slice is implemented and verified. Administrators can
 create organisation-owned Clients and manage historical primary and secondary
@@ -891,15 +891,31 @@ Basic permission-aware Client Search is implemented and verified in the
 ordinary **Klienter** workflow. Name tokens and exact canonical Personreferens
 matching execute inside the same organisation-, lifecycle-, and
 Assignment-scoped PostgreSQL query. Submitted search terms stay out of URLs,
-results use the existing narrow Client-list shape, and archived Clients remain
-in the separate Administrator workflow.
+results use role-appropriate narrow Client-list shapes, and archived Clients
+remain in the separate Administrator workflow.
 
-Later Milestone 2 work remains outstanding, including the Staff assigned-Client
-home view and remaining partial workspace/presentation evidence. The completed
-Client Foundation, Editing, Archiving, and Basic Client Search slices separate
-**Vuxna** and **Ungdomar** in the interface. Journal, document, goal, follow-up,
-and report functionality remain in their later milestones. Milestone 2 remains
-open.
+The final Staff Home and responsibility-orientation slice is implemented and
+verified. Staff Home shows only active Clients reached through the current
+user's active primary or secondary Assignment. Administrator Client discovery
+shows the active primary responsible Staff Member, and the Client workspace
+shows compact current primary/secondary responsibility before Assignment
+management. These flows reuse the central organisation-, lifecycle-, and
+Assignment-scoped Client access boundary.
+
+Focused PostgreSQL lifecycle and non-disclosure tests, desktop Playwright, and a
+375×812 Staff Home/workspace workflow verify the remaining 2 AM Test and
+mobile-functional completion criteria. Milestone 2 is complete.
+
+Administrator filtering by responsible Staff, Assignment dates in every active
+Client view, secondary Staff names in every Client-list row, and unimplemented
+future workspace sections remain deferred non-blocking work. Journal, document,
+goal, follow-up, and report functionality remain in their later milestones.
+
+### Next product milestone — Milestone 3: Journal and Signed Records
+
+Milestone 3 is the next product milestone. Kaul is not production-ready, and
+the production credential-delivery, sole-Administrator recovery, pilot, and
+production-readiness gates remain open.
 
 ---
 

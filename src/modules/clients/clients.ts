@@ -22,15 +22,18 @@ import {
   endAssignmentInternal,
   listAssignableStaffInternal,
   listArchivedClientsInternal,
+  listAssignedClientsForHomeInternal,
   listClientsInternal,
   searchClientsInternal,
   updateClientInternal,
+  type AssignedClientHomeItem,
   type ClientListItem,
 } from "./clients-internal";
 
 export {
   ClientManagementError,
   type ArchiveClientInput,
+  type AssignedClientHomeItem,
   type ClientSearchInput,
   type ClientListItem,
   type CreateAssignmentInput,
@@ -38,6 +41,17 @@ export {
   type EndAssignmentInput,
   type UpdateClientInput,
 };
+
+export async function listAssignedClientsForHome(): Promise<{
+  user: ApplicationUser;
+  clients: readonly AssignedClientHomeItem[];
+}> {
+  const user = await requireApplicationUser();
+  return {
+    user,
+    clients: await listAssignedClientsForHomeInternal(user),
+  };
+}
 
 export async function listClients(): Promise<{
   user: ApplicationUser;

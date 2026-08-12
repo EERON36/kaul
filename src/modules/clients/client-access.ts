@@ -46,6 +46,43 @@ const clientDetailSelection = {
   },
 } satisfies Prisma.ClientSelect;
 
+function getStaffClientAccessWhere(
+  user: ApplicationUser,
+): Prisma.ClientWhereInput {
+  return {
+    organisationId: user.organisationId,
+    status: ClientStatus.ACTIVE,
+    assignments: {
+      some: {
+        organisationId: user.organisationId,
+        staffUserId: user.userId,
+        endedAt: null,
+      },
+    },
+  };
+}
+
+export function getOrdinaryClientAccessWhere(
+  user: ApplicationUser,
+): Prisma.ClientWhereInput {
+  if (user.role === "STAFF_MEMBER") {
+    return getStaffClientAccessWhere(user);
+  }
+
+  return {
+    organisationId: user.organisationId,
+    status: { in: [ClientStatus.ACTIVE, ClientStatus.INACTIVE] },
+  };
+}
+
+function getClientDetailAccessWhere(
+  user: ApplicationUser,
+): Prisma.ClientWhereInput {
+  return user.role === "STAFF_MEMBER"
+    ? getStaffClientAccessWhere(user)
+    : { organisationId: user.organisationId };
+}
+
 export async function findAccessibleClientForUser(
   clientId: string,
   user: ApplicationUser,
@@ -53,15 +90,7 @@ export async function findAccessibleClientForUser(
   return prisma.client.findFirst({
     where: {
       id: clientId,
-      organisationId: user.organisationId,
-      ...(user.role === "STAFF_MEMBER"
-        ? {
-            status: ClientStatus.ACTIVE,
-            assignments: {
-              some: { staffUserId: user.userId, endedAt: null },
-            },
-          }
-        : {}),
+      ...getClientDetailAccessWhere(user),
     },
     select: clientDetailSelection,
   });

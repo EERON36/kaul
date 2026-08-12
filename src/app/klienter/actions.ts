@@ -66,6 +66,7 @@ export async function createClientAction(
       personIdentifier: String(formData.get("personIdentifier") ?? ""),
       category: String(formData.get("category") ?? ""),
     });
+    revalidatePath("/");
     revalidatePath("/klienter");
     return {
       status: "SUCCESS",
@@ -97,6 +98,7 @@ export async function createAssignmentAction(
       responsibility: String(formData.get("responsibility") ?? "") as
         "PRIMARY" | "SECONDARY",
     });
+    revalidatePath("/");
     revalidatePath("/klienter");
     revalidatePath(`/klienter/${clientId}`);
     return {
@@ -136,6 +138,7 @@ export async function archiveClientAction(
   }
 
   revalidatePath("/klienter");
+  revalidatePath("/");
   revalidatePath("/klienter/arkiverade");
   revalidatePath(`/klienter/${trustedClientId}`);
   redirect(`/klienter/${trustedClientId}?arkiverad=klar`);
@@ -156,6 +159,7 @@ export async function updateClientAction(
       personIdentifier: String(formData.get("personIdentifier") ?? ""),
       category: String(formData.get("category") ?? ""),
     });
+    revalidatePath("/");
     revalidatePath("/klienter");
     revalidatePath(`/klienter/${result.client.id}`);
     return {
@@ -186,6 +190,7 @@ export async function endAssignmentAction(
       operationId,
       assignmentId: String(formData.get("assignmentId") ?? ""),
     });
+    revalidatePath("/");
     revalidatePath("/klienter");
     revalidatePath(`/klienter/${result.clientId}`);
     return {

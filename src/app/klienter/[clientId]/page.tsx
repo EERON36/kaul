@@ -10,7 +10,10 @@ import {
   requireClientAccess,
 } from "@/modules/clients/client-access";
 import { getClientCategoryLabel } from "@/modules/clients/client-category";
-import { getClientStatusLabel } from "@/modules/clients/client-presentation";
+import {
+  getAssignmentResponsibilityLabel,
+  getClientStatusLabel,
+} from "@/modules/clients/client-presentation";
 import { listAssignableStaff } from "@/modules/clients/clients";
 
 import { AssignmentManagement } from "./assignment-management-client";
@@ -18,6 +21,71 @@ import { ClientArchive } from "./client-archive-client";
 import { ClientEdit } from "./client-edit-client";
 
 export const dynamic = "force-dynamic";
+
+type ResponsibilityAssignment = Readonly<{
+  id: string;
+  responsibility: "PRIMARY" | "SECONDARY";
+  endedAt: Date | null;
+  staffUser: Readonly<{
+    name: string;
+    professionalTitle: string;
+  }>;
+}>;
+
+function ClientResponsibilitySummary({
+  assignments,
+}: Readonly<{ assignments: readonly ResponsibilityAssignment[] }>) {
+  const activeAssignments = assignments.filter(
+    (assignment) => assignment.endedAt === null,
+  );
+  const primary = activeAssignments.find(
+    (assignment) => assignment.responsibility === "PRIMARY",
+  );
+  const secondary = activeAssignments.filter(
+    (assignment) => assignment.responsibility === "SECONDARY",
+  );
+
+  return (
+    <section
+      aria-labelledby="responsibility-summary-heading"
+      className="client-section"
+    >
+      <h2 id="responsibility-summary-heading">Aktuellt ansvar</h2>
+      <dl className="responsibility-summary">
+        <div>
+          <dt>{getAssignmentResponsibilityLabel("PRIMARY")}</dt>
+          <dd>
+            {primary ? (
+              <>
+                <strong>{primary.staffUser.name}</strong>
+                <span>{primary.staffUser.professionalTitle}</span>
+              </>
+            ) : (
+              "Ingen aktiv primär ansvarig"
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>{getAssignmentResponsibilityLabel("SECONDARY")}</dt>
+          <dd>
+            {secondary.length === 0 ? (
+              "Ingen aktiv sekundär ansvarig"
+            ) : (
+              <ul className="responsibility-name-list">
+                {secondary.map((assignment) => (
+                  <li key={assignment.id}>
+                    <strong>{assignment.staffUser.name}</strong>
+                    <span>{assignment.staffUser.professionalTitle}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
 
 export default async function ClientPage({
   params,
@@ -96,6 +164,12 @@ export default async function ClientPage({
           </p>
         ) : null}
 
+        {!isArchived ? (
+          <ClientResponsibilitySummary
+            assignments={result.client.assignments}
+          />
+        ) : null}
+
         {result.user.role === "ADMINISTRATOR" && !isArchived ? (
           <ClientEdit
             client={result.client}
@@ -156,31 +230,7 @@ export default async function ClientPage({
               </ul>
             )}
           </section>
-        ) : (
-          <section
-            aria-labelledby="assignment-heading"
-            className="client-section"
-          >
-            <h2 id="assignment-heading">Ansvarig personal</h2>
-            <ul className="assignment-list">
-              {result.client.assignments
-                .filter((assignment) => !assignment.endedAt)
-                .map((assignment) => (
-                  <li key={assignment.id}>
-                    <div>
-                      <h3>{assignment.staffUser.name}</h3>
-                      <p>{assignment.staffUser.professionalTitle}</p>
-                      <p>
-                        {assignment.responsibility === "PRIMARY"
-                          ? "Primär"
-                          : "Sekundär"}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-            </ul>
-          </section>
-        )}
+        ) : null}
 
         {result.user.role === "ADMINISTRATOR" && !isArchived ? (
           <ClientArchive

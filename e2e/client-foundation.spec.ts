@@ -3,7 +3,12 @@ import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 import { PrismaPg } from "@prisma/adapter-pg";
 
-import { PrismaClient, UserRole } from "../src/generated/prisma/client";
+import {
+  AssignmentResponsibility,
+  ClientStatus,
+  PrismaClient,
+  UserRole,
+} from "../src/generated/prisma/client";
 import { createAuthentication } from "../src/modules/authentication/auth";
 import { getTestEnvironment } from "../src/test/test-environment";
 
@@ -163,6 +168,11 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
   await expect(page.getByText("E2E-KLIENT-01")).toBeVisible();
   await expect(page.getByText("Status: Ej aktiv")).toBeVisible();
+  await expect(
+    page
+      .locator(".client-list-link", { hasText: "E2E-KLIENT-01" })
+      .getByText("Ingen aktiv primär ansvarig"),
+  ).toBeVisible();
   await page.getByRole("link", { name: /Fiktiv Klientperson/ }).click();
 
   await page
@@ -179,6 +189,22 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await page.getByLabel("Ansvar", { exact: true }).selectOption("SECONDARY");
   await page.getByRole("button", { name: "Lägg till tilldelning" }).click();
   await expect(page.getByText("Tilldelningen har sparats.")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Aktuellt ansvar" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".responsibility-summary").getByText("Fiktiv Primär"),
+  ).toBeVisible();
+  await expect(
+    page.locator(".responsibility-summary").getByText("Fiktiv Sekundär"),
+  ).toBeVisible();
+
+  await page.goto("/klienter");
+  const administratorClientRow = page.locator(".client-list-link", {
+    hasText: "E2E-KLIENT-01",
+  });
+  await expect(administratorClientRow.getByText("Fiktiv Primär")).toBeVisible();
+  await administratorClientRow.click();
 
   const client = await prisma.client.findFirstOrThrow({
     where: { personIdentifier: "E2E-KLIENT-01" },
@@ -186,6 +212,17 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   const primaryContext = await browser.newContext();
   const primaryPage = await primaryContext.newPage();
   await logIn(primaryPage, primaryEmail, "192.0.2.182");
+  const primaryHomeRow = primaryPage.locator(".client-list-link", {
+    hasText: "E2E-KLIENT-01",
+  });
+  await expect(
+    primaryPage.getByRole("heading", { name: "Mina klienter" }),
+  ).toBeVisible();
+  await expect(primaryHomeRow.getByText("Ansvar: Primär")).toBeVisible();
+  await primaryHomeRow.click();
+  await expect(
+    primaryPage.getByRole("heading", { name: "Aktuellt ansvar" }),
+  ).toBeVisible();
   await expect(primaryPage.getByRole("link", { name: "Personal" })).toHaveCount(
     0,
   );
@@ -206,6 +243,15 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
     unrelatedPage.getByText("This page could not be found"),
   ).toBeVisible();
 
+  const secondaryContext = await browser.newContext();
+  const secondaryPage = await secondaryContext.newPage();
+  await logIn(secondaryPage, secondaryEmail, "192.0.2.184");
+  await expect(
+    secondaryPage
+      .locator(".client-list-link", { hasText: "E2E-KLIENT-01" })
+      .getByText("Ansvar: Sekundär"),
+  ).toBeVisible();
+
   page.on("dialog", (dialog) => dialog.accept());
   await page.goto(`/klienter/${client.id}`);
   await page
@@ -214,18 +260,23 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
     .click();
   await expect(page.getByText("Tilldelningen har avslutats.")).toBeVisible();
   await expect(page.getByText("Ej aktiv", { exact: true })).toBeVisible();
-  await primaryPage.goto("/klienter");
+  await primaryPage.goto("/");
   await expect(primaryPage.getByText("E2E-KLIENT-01")).toHaveCount(0);
   await primaryPage.goto(`/klienter/${client.id}`);
   await expect(
     primaryPage.getByText("This page could not be found"),
   ).toBeVisible();
 
-  const secondaryContext = await browser.newContext();
-  const secondaryPage = await secondaryContext.newPage();
-  await logIn(secondaryPage, secondaryEmail, "192.0.2.184");
-  await secondaryPage.goto("/klienter");
+  await secondaryPage.goto("/");
   await expect(secondaryPage.getByText("E2E-KLIENT-01")).toHaveCount(0);
+
+  await page.goto("/klienter");
+  await expect(
+    page
+      .locator(".client-list-link", { hasText: "E2E-KLIENT-01" })
+      .getByText("Ingen aktiv primär ansvarig"),
+  ).toBeVisible();
+  await page.goto(`/klienter/${client.id}`);
 
   await page
     .getByLabel("Medarbetare")
@@ -233,12 +284,182 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await page.getByLabel("Ansvar", { exact: true }).selectOption("PRIMARY");
   await page.getByRole("button", { name: "Lägg till tilldelning" }).click();
   await expect(page.getByText("Aktiv", { exact: true })).toBeVisible();
-  await secondaryPage.goto("/klienter");
-  await expect(secondaryPage.getByText("E2E-KLIENT-01")).toBeVisible();
+  await secondaryPage.goto("/");
+  await expect(
+    secondaryPage
+      .locator(".client-list-link", { hasText: "E2E-KLIENT-01" })
+      .getByText("Ansvar: Sekundär"),
+  ).toBeVisible();
 
   await primaryContext.close();
   await secondaryContext.close();
   await unrelatedContext.close();
+});
+
+test("Staff Home and responsibility context remain clear at a 375px viewport", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const administrator = await prisma.user.findUniqueOrThrow({
+    where: { email: administratorEmail },
+  });
+  const primary = await prisma.user.findUniqueOrThrow({
+    where: { email: primaryEmail },
+  });
+  const secondary = await prisma.user.findUniqueOrThrow({
+    where: { email: secondaryEmail },
+  });
+  const unrelated = await prisma.user.findUniqueOrThrow({
+    where: { email: unrelatedEmail },
+  });
+  const primaryClientId = randomUUID();
+  const secondaryClientId = randomUUID();
+  const unassignedClientId = randomUUID();
+
+  await prisma.client.createMany({
+    data: [
+      {
+        id: primaryClientId,
+        organisationId: primary.organisationId,
+        firstName: "Mobil",
+        lastName: "Primärklient",
+        personIdentifier:
+          "HEM-MOBIL-PRIMÄR-LÅNG-REFERENS-012345678901234567890123",
+        category: "ADULT",
+        status: ClientStatus.ACTIVE,
+      },
+      {
+        id: secondaryClientId,
+        organisationId: primary.organisationId,
+        firstName: "Mobil",
+        lastName: "Sekundärklient",
+        personIdentifier: "HEM-MOBIL-SEKUNDÄR",
+        category: "YOUTH",
+        status: ClientStatus.ACTIVE,
+      },
+      {
+        id: unassignedClientId,
+        organisationId: primary.organisationId,
+        firstName: "Mobil",
+        lastName: "Otilldelad klient",
+        personIdentifier: "HEM-MOBIL-OTILLDELAD",
+        category: "ADULT",
+        status: ClientStatus.ACTIVE,
+      },
+      {
+        id: randomUUID(),
+        organisationId: primary.organisationId,
+        firstName: "Mobil",
+        lastName: "Inaktiv klient",
+        personIdentifier: "HEM-MOBIL-INAKTIV",
+        category: "ADULT",
+        status: ClientStatus.INACTIVE,
+      },
+      {
+        id: randomUUID(),
+        organisationId: primary.organisationId,
+        firstName: "Mobil",
+        lastName: "Arkiverad klient",
+        personIdentifier: "HEM-MOBIL-ARKIVERAD",
+        category: "YOUTH",
+        status: ClientStatus.ARCHIVED,
+        archivedAt: new Date(),
+      },
+    ],
+  });
+  await prisma.assignment.createMany({
+    data: [
+      {
+        id: randomUUID(),
+        organisationId: primary.organisationId,
+        clientId: primaryClientId,
+        staffUserId: primary.id,
+        responsibility: AssignmentResponsibility.PRIMARY,
+        createdByUserId: administrator.id,
+      },
+      {
+        id: randomUUID(),
+        organisationId: primary.organisationId,
+        clientId: primaryClientId,
+        staffUserId: secondary.id,
+        responsibility: AssignmentResponsibility.SECONDARY,
+        createdByUserId: administrator.id,
+      },
+      {
+        id: randomUUID(),
+        organisationId: primary.organisationId,
+        clientId: secondaryClientId,
+        staffUserId: unrelated.id,
+        responsibility: AssignmentResponsibility.PRIMARY,
+        createdByUserId: administrator.id,
+      },
+      {
+        id: randomUUID(),
+        organisationId: primary.organisationId,
+        clientId: secondaryClientId,
+        staffUserId: primary.id,
+        responsibility: AssignmentResponsibility.SECONDARY,
+        createdByUserId: administrator.id,
+      },
+      {
+        id: randomUUID(),
+        organisationId: primary.organisationId,
+        clientId: unassignedClientId,
+        staffUserId: unrelated.id,
+        responsibility: AssignmentResponsibility.PRIMARY,
+        createdByUserId: administrator.id,
+      },
+    ],
+  });
+
+  await logIn(page, primaryEmail, "192.0.2.192");
+  const primaryRow = page.locator(".client-list-link", {
+    hasText: "HEM-MOBIL-PRIMÄR",
+  });
+  const secondaryRow = page.locator(".client-list-link", {
+    hasText: "HEM-MOBIL-SEKUNDÄR",
+  });
+  await expect(
+    page.getByRole("heading", { name: "Mina klienter" }),
+  ).toBeVisible();
+  await expect(primaryRow.getByText("Ansvar: Primär")).toBeVisible();
+  await expect(secondaryRow.getByText("Ansvar: Sekundär")).toBeVisible();
+  await expect(page.getByText("HEM-MOBIL-OTILLDELAD")).toHaveCount(0);
+  await expect(page.getByText("HEM-MOBIL-INAKTIV")).toHaveCount(0);
+  await expect(page.getByText("HEM-MOBIL-ARKIVERAD")).toHaveCount(0);
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
+
+  await primaryRow.focus();
+  await expect(primaryRow).toBeFocused();
+  await primaryRow.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Mobil Primärklient" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".responsibility-summary").getByText("Primär", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".responsibility-summary").getByText("Sekundär", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".responsibility-summary").getByText("Fiktiv Primär"),
+  ).toBeVisible();
+  await expect(
+    page.locator(".responsibility-summary").getByText("Fiktiv Sekundär"),
+  ).toBeVisible();
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
 });
 
 test("Client categories remain usable on a narrow viewport", async ({
