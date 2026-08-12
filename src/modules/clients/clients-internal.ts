@@ -21,6 +21,7 @@ import type { ApplicationUser } from "../authentication/guards";
 import type { AdministratorUser } from "../users/authorization";
 import {
   archiveClientInputSchema,
+  canonicalizePersonIdentifier,
   createAssignmentInputSchema,
   createClientInputSchema,
   endAssignmentInputSchema,
@@ -29,10 +30,18 @@ import {
   type CreateAssignmentInput,
   type CreateClientInput,
   type EndAssignmentInput,
+  type NormalizedClientSearchQuery,
   type UpdateClientInput,
 } from "./client-input";
 
 const CLIENT_MUTATION_LOCK_NAMESPACE = 1_129_607_912;
+
+function escapePrismaContainsPattern(value: string): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("%", "\\%")
+    .replaceAll("_", "\\_");
+}
 
 export type ClientListItem = Readonly<{
   id: string;
@@ -84,6 +93,41 @@ export type ClientManagementTestDependencies = Readonly<{
   beforeBusinessTransaction?: () => void | Promise<void>;
   afterBusinessMutation?: () => void | Promise<void>;
 }>;
+
+const clientListSelection = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  personIdentifier: true,
+  category: true,
+  status: true,
+} satisfies Prisma.ClientSelect;
+
+const clientListOrder = [
+  { lastName: "asc" },
+  { firstName: "asc" },
+  { personIdentifier: "asc" },
+] satisfies Prisma.ClientOrderByWithRelationInput[];
+
+function getOrdinaryClientAccessWhere(
+  user: ApplicationUser,
+): Prisma.ClientWhereInput {
+  return {
+    organisationId: user.organisationId,
+    ...(user.role === UserRole.STAFF_MEMBER
+      ? {
+          status: ClientStatus.ACTIVE,
+          assignments: {
+            some: { staffUserId: user.userId, endedAt: null },
+          },
+        }
+      : {
+          status: {
+            in: [ClientStatus.ACTIVE, ClientStatus.INACTIVE],
+          },
+        }),
+  };
+}
 
 function getTestDependencies(
   dependencies?: ClientManagementTestDependencies,
@@ -209,34 +253,51 @@ export async function listClientsInternal(
   user: ApplicationUser,
 ): Promise<readonly ClientListItem[]> {
   return prisma.client.findMany({
+    where: getOrdinaryClientAccessWhere(user),
+    orderBy: clientListOrder,
+    select: clientListSelection,
+  });
+}
+
+export async function searchClientsInternal(
+  user: ApplicationUser,
+  query: NormalizedClientSearchQuery,
+): Promise<readonly ClientListItem[]> {
+  if (!query) return listClientsInternal(user);
+
+  const nameTokens = query.split(/\s+/u);
+
+  return prisma.client.findMany({
     where: {
-      organisationId: user.organisationId,
-      ...(user.role === UserRole.STAFF_MEMBER
-        ? {
-            status: ClientStatus.ACTIVE,
-            assignments: {
-              some: { staffUserId: user.userId, endedAt: null },
-            },
-          }
-        : {
-            status: {
-              in: [ClientStatus.ACTIVE, ClientStatus.INACTIVE],
-            },
+      ...getOrdinaryClientAccessWhere(user),
+      OR: [
+        { personIdentifier: canonicalizePersonIdentifier(query) },
+        {
+          AND: nameTokens.map((token) => {
+            // Client name writes currently trim but do not normalise Unicode.
+            // Match both canonical forms without removing Swedish diacritics.
+            const decomposedToken = token.normalize("NFD");
+            const canonicalVariants =
+              decomposedToken === token ? [token] : [token, decomposedToken];
+            const escapedVariants = canonicalVariants.map(
+              escapePrismaContainsPattern,
+            );
+
+            return {
+              OR: escapedVariants.flatMap((variant) => [
+                {
+                  firstName: { contains: variant, mode: "insensitive" },
+                },
+                { lastName: { contains: variant, mode: "insensitive" } },
+              ]),
+            };
           }),
+        },
+      ],
     },
-    orderBy: [
-      { lastName: "asc" },
-      { firstName: "asc" },
-      { personIdentifier: "asc" },
-    ],
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      personIdentifier: true,
-      category: true,
-      status: true,
-    },
+    orderBy: clientListOrder,
+    select: clientListSelection,
+    take: 50,
   });
 }
 

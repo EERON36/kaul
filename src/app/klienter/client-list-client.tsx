@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 
 import {
   CLIENT_CATEGORY_LABELS,
@@ -11,7 +11,12 @@ import {
 import { getClientStatusLabel } from "@/modules/clients/client-presentation";
 import type { ClientListItem } from "@/modules/clients/clients";
 
-import { createClientAction, type ClientActionState } from "./actions";
+import {
+  createClientAction,
+  searchClientsAction,
+  type ClientActionState,
+  type ClientSearchActionState,
+} from "./actions";
 
 export function ClientList({
   clients,
@@ -27,9 +32,73 @@ export function ClientList({
     createClientAction,
     initialState,
   );
+  const initialSearchState: ClientSearchActionState = {
+    status: "IDLE",
+    clients,
+    query: "",
+    searched: false,
+  };
+  const [searchState, searchAction, searchPending] = useActionState(
+    searchClientsAction,
+    initialSearchState,
+  );
+  const [searchQuery, setSearchQuery] = useState("");
+  const displayedClients = searchState.searched ? searchState.clients : clients;
 
   return (
     <>
+      <section
+        aria-labelledby="client-search-heading"
+        className="client-section"
+      >
+        <h2 id="client-search-heading">Sök klienter</h2>
+        <form action={searchAction} className="client-search-form">
+          <div className="form-field">
+            <label htmlFor="client-search-query">Sök klienter</label>
+            <input
+              autoComplete="off"
+              id="client-search-query"
+              maxLength={100}
+              name="query"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Namn eller personreferens"
+              value={searchQuery}
+            />
+          </div>
+          <button
+            className="primary-button"
+            disabled={searchPending}
+            type="submit"
+          >
+            {searchPending ? "Söker…" : "Sök"}
+          </button>
+        </form>
+        {searchState.searched ? (
+          <form
+            action={searchAction}
+            className="client-search-reset"
+            onSubmit={() => setSearchQuery("")}
+          >
+            <input name="query" type="hidden" value="" />
+            <button
+              className="secondary-button"
+              disabled={searchPending}
+              type="submit"
+            >
+              Rensa sökning
+            </button>
+          </form>
+        ) : null}
+        <p
+          aria-live="polite"
+          className={
+            searchState.status === "ERROR" ? "form-error" : "form-status"
+          }
+        >
+          {searchState.message}
+        </p>
+      </section>
+
       {canCreate ? (
         <section
           aria-labelledby="create-client-heading"
@@ -101,11 +170,15 @@ export function ClientList({
 
       <section aria-labelledby="client-list-heading" className="client-section">
         <h2 id="client-list-heading">Klientlista</h2>
-        {clients.length === 0 ? (
-          <p>Det finns inga klienter som du kan öppna.</p>
+        {displayedClients.length === 0 ? (
+          <p>
+            {searchState.searched
+              ? "Inga klienter matchar din sökning."
+              : "Det finns inga klienter som du kan öppna."}
+          </p>
         ) : (
           <div className="client-category-groups">
-            {groupClientsByCategory(clients).map((group) => (
+            {groupClientsByCategory(displayedClients).map((group) => (
               <section
                 aria-labelledby={`client-category-${group.key}`}
                 className="client-category-group"

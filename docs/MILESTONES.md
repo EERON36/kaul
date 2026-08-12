@@ -887,12 +887,19 @@ history. Archived Clients are read-only, excluded from ordinary Administrator
 and Staff lists, and available to Administrators through the separate
 **Arkiverade klienter** workflow.
 
-Later Milestone 2 work remains outstanding, including basic permission-aware
-Client search, the Staff assigned-Client home view, and remaining partial
-workspace/presentation evidence. The completed Client Foundation, Editing, and
-Archiving slices separate **Vuxna** and **Ungdomar** in the interface. Journal,
-document, goal, follow-up, and report functionality remain in their later
-milestones. Milestone 2 remains open.
+Basic permission-aware Client Search is implemented and verified in the
+ordinary **Klienter** workflow. Name tokens and exact canonical Personreferens
+matching execute inside the same organisation-, lifecycle-, and
+Assignment-scoped PostgreSQL query. Submitted search terms stay out of URLs,
+results use the existing narrow Client-list shape, and archived Clients remain
+in the separate Administrator workflow.
+
+Later Milestone 2 work remains outstanding, including the Staff assigned-Client
+home view and remaining partial workspace/presentation evidence. The completed
+Client Foundation, Editing, Archiving, and Basic Client Search slices separate
+**Vuxna** and **Ungdomar** in the interface. Journal, document, goal, follow-up,
+and report functionality remain in their later milestones. Milestone 2 remains
+open.
 
 ---
 

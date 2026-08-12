@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   archiveClientInputSchema,
   canonicalizePersonIdentifier,
+  clientSearchInputSchema,
   createAssignmentInputSchema,
   createClientInputSchema,
   endAssignmentInputSchema,
@@ -15,6 +16,18 @@ describe("Client input", () => {
   it("canonicalises an opaque person reference deterministically", () => {
     expect(canonicalizePersonIdentifier("  fiktiv-é-42  ")).toBe("FIKTIV-É-42");
     expect(canonicalizePersonIdentifier("e\u0301")).toBe("É");
+  });
+
+  it("normalises Client search text without changing Swedish letters", () => {
+    expect(clientSearchInputSchema.parse("  A\u030Asa\u2003Öberg  ")).toBe(
+      "Åsa\u2003Öberg",
+    );
+    expect(clientSearchInputSchema.parse(" \t\n ")).toBe("");
+  });
+
+  it("rejects unsupported and overlong Client search input", () => {
+    expect(() => clientSearchInputSchema.parse("x".repeat(101))).toThrow();
+    expect(() => clientSearchInputSchema.parse({ query: "Fiktiv" })).toThrow();
   });
 
   it("accepts exactly the approved Client creation fields", () => {

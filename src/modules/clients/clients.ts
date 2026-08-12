@@ -7,11 +7,13 @@ import {
 import { requireAdministrator } from "../users/authorization";
 import type {
   ArchiveClientInput,
+  ClientSearchInput,
   CreateAssignmentInput,
   CreateClientInput,
   EndAssignmentInput,
   UpdateClientInput,
 } from "./client-input";
+import { clientSearchInputSchema } from "./client-input";
 import {
   ClientManagementError,
   archiveClientInternal,
@@ -21,6 +23,7 @@ import {
   listAssignableStaffInternal,
   listArchivedClientsInternal,
   listClientsInternal,
+  searchClientsInternal,
   updateClientInternal,
   type ClientListItem,
 } from "./clients-internal";
@@ -28,6 +31,7 @@ import {
 export {
   ClientManagementError,
   type ArchiveClientInput,
+  type ClientSearchInput,
   type ClientListItem,
   type CreateAssignmentInput,
   type CreateClientInput,
@@ -41,6 +45,16 @@ export async function listClients(): Promise<{
 }> {
   const user = await requireApplicationUser();
   return { user, clients: await listClientsInternal(user) };
+}
+
+export async function searchClients(input: ClientSearchInput): Promise<{
+  user: ApplicationUser;
+  clients: readonly ClientListItem[];
+  query: string;
+}> {
+  const query = clientSearchInputSchema.parse(input);
+  const user = await requireApplicationUser();
+  return { user, clients: await searchClientsInternal(user, query), query };
 }
 
 export async function listAssignableStaff() {

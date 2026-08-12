@@ -279,6 +279,6 @@ Architecture approved.
 
 Milestone 0 is complete. Implemented modules now cover Better Auth-backed
 authentication and session guards, immutable audit operations, Administrator
-and Staff management, and the Client Foundation with assignment-based access.
-Journal, document, report, search, export, and other later-milestone modules
-remain unimplemented.
+and Staff management, and Client management with assignment-based access and
+permission-aware basic Client search. Journal, document, report, global search,
+export, and other later-milestone modules remain unimplemented.

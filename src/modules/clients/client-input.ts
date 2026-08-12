@@ -6,9 +6,20 @@ import { CLIENT_CATEGORY_VALUES } from "./client-category";
 
 const internalUuidSchema = z.uuid();
 
+export const CLIENT_SEARCH_MAX_LENGTH = 100;
+
 export function canonicalizePersonIdentifier(value: string): string {
   return value.trim().normalize("NFC").toUpperCase();
 }
+
+export function normalizeClientSearchQuery(value: string): string {
+  return value.trim().normalize("NFC");
+}
+
+export const clientSearchInputSchema = z
+  .string()
+  .transform(normalizeClientSearchQuery)
+  .pipe(z.string().max(CLIENT_SEARCH_MAX_LENGTH));
 
 export const createClientInputSchema = z
   .object({
@@ -61,6 +72,10 @@ export const endAssignmentInputSchema = z
   .strict();
 
 export type CreateClientInput = z.input<typeof createClientInputSchema>;
+export type ClientSearchInput = z.input<typeof clientSearchInputSchema>;
+export type NormalizedClientSearchQuery = z.output<
+  typeof clientSearchInputSchema
+>;
 export type UpdateClientInput = z.input<typeof updateClientInputSchema>;
 export type ArchiveClientInput = z.input<typeof archiveClientInputSchema>;
 export type CreateAssignmentInput = z.input<typeof createAssignmentInputSchema>;

@@ -260,5 +260,7 @@ sole-Administrator recovery procedures still outstanding. Milestone 2 Client
 Foundation, Client Editing, and Client Archiving are also implemented:
 Administrators can create and edit the permitted fields of **Ungdomar** and
 **Vuxna** Clients, manage Staff assignments, and archive eligible Clients into
-a separate read-only historical workflow. Journal, document, report, search,
-export, and other later-milestone functionality remain unimplemented.
+a separate read-only historical workflow. The ordinary Client workflow also
+supports permission-aware basic name and Personreferens search. Journal,
+document, report, global search, export, and other later-milestone functionality
+remain unimplemented.

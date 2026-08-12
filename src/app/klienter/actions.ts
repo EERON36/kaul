@@ -10,7 +10,9 @@ import {
   createAssignment,
   createClient,
   endAssignment,
+  searchClients,
   updateClient,
+  type ClientListItem,
 } from "@/modules/clients/clients";
 
 export type ClientActionState = Readonly<{
@@ -18,6 +20,38 @@ export type ClientActionState = Readonly<{
   operationId: string;
   message?: string;
 }>;
+
+export type ClientSearchActionState = Readonly<{
+  status: "IDLE" | "ERROR" | "SUCCESS";
+  clients: readonly ClientListItem[];
+  query: string;
+  searched: boolean;
+  message?: string;
+}>;
+
+const CLIENT_SEARCH_ERROR_MESSAGE =
+  "Sökningen kunde inte genomföras. Kontrollera söktexten och försök igen.";
+
+export async function searchClientsAction(
+  previousState: ClientSearchActionState,
+  formData: FormData,
+): Promise<ClientSearchActionState> {
+  try {
+    const result = await searchClients(String(formData.get("query") ?? ""));
+    return {
+      status: "SUCCESS",
+      clients: result.clients,
+      query: result.query,
+      searched: result.query.length > 0,
+    };
+  } catch {
+    return {
+      ...previousState,
+      status: "ERROR",
+      message: CLIENT_SEARCH_ERROR_MESSAGE,
+    };
+  }
+}
 
 export async function createClientAction(
   _previousState: ClientActionState,
