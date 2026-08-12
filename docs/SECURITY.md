@@ -448,13 +448,19 @@ Examples include:
 - Organisation export
 
 The accepted Client and Assignment mutation action identifiers are
-`CLIENT_CREATED`, `CLIENT_UPDATED`, `ASSIGNMENT_CREATED`, and
+`CLIENT_CREATED`, `CLIENT_UPDATED`, `CLIENT_ARCHIVED`, `ASSIGNMENT_CREATED`, and
 `ASSIGNMENT_ENDED`. They target the server-generated internal Client or
 Assignment identifier and contain no Client personal data. A Client edit that
 is already identical after normalisation returns a no-change result without
 creating a successful update operation. If the same state is reached only
 after an update intent was committed, that intent receives a definitive failed
 outcome rather than false success evidence.
+
+Client archiving uses the same per-Client transaction lock as Client editing and
+Assignment changes. Its `CLIENT_ARCHIVED` success outcome commits atomically
+with the `ARCHIVED` status and server-owned archive timestamp after the
+Administrator, Organisation, lifecycle state, and absence of active Assignments
+have been revalidated inside the transaction.
 
 ### Audit Rules
 

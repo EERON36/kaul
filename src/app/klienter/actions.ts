@@ -1,10 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 import { generateAuditOperationId } from "@/modules/audit/audit";
 import { getClientManagementFeedback } from "@/modules/clients/client-feedback";
 import {
+  archiveClient,
   createAssignment,
   createClient,
   endAssignment,
@@ -77,6 +79,32 @@ export async function createAssignmentAction(
       message,
     };
   }
+}
+
+export async function archiveClientAction(
+  _previousState: ClientActionState,
+  formData: FormData,
+): Promise<ClientActionState> {
+  const operationId = String(formData.get("operationId") ?? "");
+  const clientId = String(formData.get("clientId") ?? "");
+  let trustedClientId: string;
+  try {
+    const result = await archiveClient({ operationId, clientId });
+    trustedClientId = result.clientId;
+  } catch (error) {
+    const message = getClientManagementFeedback(error);
+    if (!message) throw error;
+    return {
+      status: "ERROR",
+      operationId: generateAuditOperationId(),
+      message,
+    };
+  }
+
+  revalidatePath("/klienter");
+  revalidatePath("/klienter/arkiverade");
+  revalidatePath(`/klienter/${trustedClientId}`);
+  redirect(`/klienter/${trustedClientId}?arkiverad=klar`);
 }
 
 export async function updateClientAction(

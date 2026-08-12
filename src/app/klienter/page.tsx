@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 
 import { ApplicationShell } from "@/components/application-shell";
 import { generateAuditOperationId } from "@/modules/audit/audit";
@@ -30,6 +31,11 @@ export default async function ClientsPage() {
         <p className="introductory-text">
           Öppna en klient för att se grunduppgifter och ansvarig personal.
         </p>
+        {result.user.role === "ADMINISTRATOR" ? (
+          <p>
+            <Link href="/klienter/arkiverade">Visa arkiverade klienter</Link>
+          </p>
+        ) : null}
         <ClientList
           canCreate={result.user.role === "ADMINISTRATOR"}
           clients={result.clients}

@@ -82,6 +82,12 @@ export const AUDIT_ACTION_POLICY = {
     targetType: "CLIENT",
     targetId: "REQUIRED",
   },
+  CLIENT_ARCHIVED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "CLIENT",
+    targetId: "REQUIRED",
+  },
   ASSIGNMENT_CREATED: {
     actorKinds: ["USER"],
     organisation: "REQUIRED",
@@ -110,6 +116,7 @@ export const AUDIT_ACTIONS = [
   "USER_SESSIONS_REVOKED",
   "CLIENT_CREATED",
   "CLIENT_UPDATED",
+  "CLIENT_ARCHIVED",
   "ASSIGNMENT_CREATED",
   "ASSIGNMENT_ENDED",
 ] as const satisfies readonly (keyof typeof AUDIT_ACTION_POLICY)[];

@@ -878,12 +878,21 @@ scoped, uses PostgreSQL uniqueness, serialises each target Client, and commits
 `CLIENT_UPDATED` success evidence atomically with a real change. Unchanged
 normalised submissions do not create false successful update evidence.
 
-Later Milestone 2 work remains outstanding, including Client archiving, basic
-permission-aware Client search, the Staff assigned-Client home view, and
-remaining partial workspace/presentation evidence. The completed Client
-Foundation and Editing slices separate **Vuxna** and **Ungdomar** in the
-interface. Journal, document, goal, follow-up, and report functionality remain
-in their later milestones. Milestone 2 remains open.
+The Client Archiving slice is implemented and verified. Administrators can
+archive only inactive Clients after every active Assignment has been manually
+ended. The operation shares the per-Client transaction lock with Client editing
+and Assignment changes, records `CLIENT_ARCHIVED` success atomically with the
+server-owned archive timestamp, and preserves all Client and Assignment
+history. Archived Clients are read-only, excluded from ordinary Administrator
+and Staff lists, and available to Administrators through the separate
+**Arkiverade klienter** workflow.
+
+Later Milestone 2 work remains outstanding, including basic permission-aware
+Client search, the Staff assigned-Client home view, and remaining partial
+workspace/presentation evidence. The completed Client Foundation, Editing, and
+Archiving slices separate **Vuxna** and **Ungdomar** in the interface. Journal,
+document, goal, follow-up, and report functionality remain in their later
+milestones. Milestone 2 remains open.
 
 ---
 

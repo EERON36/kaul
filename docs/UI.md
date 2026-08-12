@@ -425,7 +425,9 @@ Each list item or row should clearly show:
 - Search and filtering should remain simple.
 - Staff members see only assigned clients.
 - Administrators may filter by responsible staff member.
-- Archived clients should not dominate active lists.
+- Ordinary Client lists exclude archived Clients. Administrators use the
+  separate **Arkiverade klienter** view for historical access; Staff Members do
+  not have access to that view.
 - Empty states should explain the next available action.
 
 Avoid presenting clients as decorative profile cards.
@@ -485,6 +487,11 @@ Its purpose is orientation.
 - Administrator-only actions should be visually secondary.
 - Destructive actions should not be placed beside the primary action without separation.
 - Assignment information should be visible but not visually dominant.
+
+Archived Client detail is an Administrator-only historical view. It clearly
+shows archive status and date, identity, category, and Assignment history. It
+does not show Client editing, Assignment management, archive, or restore
+controls.
 
 ---
 

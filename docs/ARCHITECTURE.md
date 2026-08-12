@@ -91,6 +91,11 @@ Every client may have one active primary staff assignment and zero or more
 active secondary staff assignments. Ended assignments are preserved as
 historical responsibility records.
 
+Client archiving is an explicit lifecycle operation. It requires an inactive
+Client with no active Assignments, preserves all history, and moves the Client
+from ordinary lists into a separate Administrator-only archive. Archived
+Clients are read-only in Version 1.
+
 Client access is enforced through one central server-side boundary. An
 Administrator may access Clients in their Organisation. A Staff Member may
 access a Client only while the Client is active and the Staff Member has an

@@ -37,6 +37,13 @@ export const updateClientInputSchema = z
   })
   .strict();
 
+export const archiveClientInputSchema = z
+  .object({
+    operationId: auditOperationIdSchema,
+    clientId: internalUuidSchema,
+  })
+  .strict();
+
 export const createAssignmentInputSchema = z
   .object({
     operationId: auditOperationIdSchema,
@@ -55,5 +62,6 @@ export const endAssignmentInputSchema = z
 
 export type CreateClientInput = z.input<typeof createClientInputSchema>;
 export type UpdateClientInput = z.input<typeof updateClientInputSchema>;
+export type ArchiveClientInput = z.input<typeof archiveClientInputSchema>;
 export type CreateAssignmentInput = z.input<typeof createAssignmentInputSchema>;
 export type EndAssignmentInput = z.input<typeof endAssignmentInputSchema>;

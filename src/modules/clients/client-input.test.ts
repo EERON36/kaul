@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  archiveClientInputSchema,
   canonicalizePersonIdentifier,
   createAssignmentInputSchema,
   createClientInputSchema,
@@ -97,6 +98,30 @@ describe("Client input", () => {
     ]) {
       expect(() =>
         updateClientInputSchema.parse({
+          ...input,
+          [protectedField]: "browser-controlled",
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("accepts only the target and operation identifiers for Client archiving", () => {
+    const input = {
+      operationId,
+      clientId: "123e4567-e89b-42d3-a456-426614174001",
+    };
+
+    expect(archiveClientInputSchema.parse(input)).toEqual(input);
+    for (const protectedField of [
+      "organisationId",
+      "actorUserId",
+      "role",
+      "status",
+      "archivedAt",
+      "activeAssignments",
+    ]) {
+      expect(() =>
+        archiveClientInputSchema.parse({
           ...input,
           [protectedField]: "browser-controlled",
         }),

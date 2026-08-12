@@ -1,11 +1,13 @@
 import type { AdministratorUser } from "../users/authorization";
 import type {
+  ArchiveClientInput,
   CreateAssignmentInput,
   CreateClientInput,
   EndAssignmentInput,
   UpdateClientInput,
 } from "./client-input";
 import {
+  archiveClientInternal,
   createAssignmentInternal,
   createClientInternal,
   endAssignmentInternal,
@@ -26,6 +28,15 @@ export function createClientForTest(
 ) {
   assertTestEnvironment();
   return createClientInternal(input, actor, dependencies);
+}
+
+export function archiveClientForTest(
+  input: ArchiveClientInput,
+  actor: AdministratorUser,
+  dependencies: ClientManagementTestDependencies,
+) {
+  assertTestEnvironment();
+  return archiveClientInternal(input, actor, dependencies);
 }
 
 export function createAssignmentForTest(

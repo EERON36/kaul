@@ -17,4 +17,15 @@ describe("Client management feedback", () => {
       getClientManagementFeedback(new ClientManagementError("NO_CHANGES")),
     ).toBe("Det finns inga ändringar att spara.");
   });
+
+  it("maps archive state and Assignment conflicts to the same safe guidance", () => {
+    for (const code of [
+      "ARCHIVE_STATE_CONFLICT",
+      "ACTIVE_ASSIGNMENTS",
+    ] as const) {
+      expect(getClientManagementFeedback(new ClientManagementError(code))).toBe(
+        "Klienten kan inte arkiveras i sitt nuvarande läge. Ladda om sidan och kontrollera tilldelningarna.",
+      );
+    }
+  });
 });
