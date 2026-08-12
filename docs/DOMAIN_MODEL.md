@@ -297,24 +297,25 @@ The primary user action in the Swedish interface is:
 
 - Ny anteckning
 
-The user should not be required to choose between multiple complex workflows before beginning a note. A note type may be selected within the entry where useful.
+In Version 1, a journal entry is either the author's unfinished draft or a
+signed record. A correction is a separate signed journal entry linked directly
+to the signed original that it corrects.
 
 A journal entry has:
 
 - Client
+- Organisation
 - Author
 - Entry type
 - Event date and time
 - Written content
-- Optional structured sections
-- Optional related goals
-- Incident indicator
-- Status: `UTKAST` or `SIGNERAD`
+- Status: `DRAFT` or `SIGNED`
 - Created date
 - Updated date while still a draft
 - Signed date
-- Signer
+- Historical signing information
 - Stable reference identifier
+- Optional original signed entry, for a correction
 
 Possible entry types include:
 
@@ -325,7 +326,6 @@ Possible entry types include:
 - Home visit
 - School contact
 - Observation
-- Incident
 - Other
 
 The Swedish interface may display these as:
@@ -337,27 +337,57 @@ The Swedish interface may display these as:
 - Hembesök
 - Skolkontakt
 - Observation
-- Incident
 - Övrigt
+
+Incident classification remains deferred and is not part of the Milestone 3
+entry-type vocabulary.
 
 ### Journal Entry Rules
 
 - Every journal entry belongs to exactly one client.
 - Every journal entry belongs to one organisation.
-- A staff member may only create entries for clients they can access.
-- `UTKAST` entries are editable by their author, can be saved and reopened,
-  and can be continued later.
-- `SIGNERAD` is chosen explicitly by the user through "Signera". Once signed,
-  the original is immutable and neither a Staff Member nor an Administrator
-  may silently modify it.
-- A signed entry must visibly record the signer's name, professional title, role, and timestamp.
-- The displayed signing information must remain historically accurate even if the user's profile later changes.
-- A signed entry cannot be silently overwritten.
-- A correction must be represented by a separate attributable linked
-  correction/addendum that preserves the signed original.
-- Removing a signed entry is not part of normal user functionality.
-- Administrative handling of erroneous or unlawful records must follow a defined policy and remain auditable.
-- An incident is still a journal entry, but it may trigger additional visibility or workflow.
+- Every journal entry records its established entry type and the date and time
+  of the event being documented.
+- Event date and time describes the documented event. It remains distinct from
+  record creation, draft update, and signing timestamps.
+- Creating or continuing an entry always requires current authorisation for its
+  Client.
+- Version 1 permits at most one open draft for each author and Client.
+- A draft is visible only to its author, including when another user is an
+  Administrator. Only the author may read, reopen, edit, save, discard, or sign
+  it.
+- Draft privacy applies to lists, counts, previews, direct URLs, search
+  results, Server Actions, and every other application surface.
+- Saving preserves a draft and is not signing.
+- Signing is a separate authenticated Kaul action that changes `DRAFT` to
+  `SIGNED`. In Version 1 the draft author performs the signing action and is
+  the signer; browser-supplied author or signer identity is not authoritative.
+- Kaul signing is not a cryptographic digital signature, BankID, an external
+  electronic signature, or certificate-based signing.
+- A signed entry must preserve the signer's name, professional title,
+  application role, signing timestamp, and stable journal reference as
+  historical information.
+- Signed-entry visibility follows current Client authorisation: an
+  Administrator may read signed entries for Clients in their Organisation,
+  and a Staff Member may read signed entries only while current assignment
+  rules grant Client access.
+- Historical authorship alone does not preserve draft or signed-entry access
+  after the author loses Client authorisation.
+- The Ungdomar/Vuxna category is not a Journal authorisation boundary.
+- A signed original is immutable and cannot be edited or deleted by a Staff
+  Member or Administrator.
+- A correction is a separate signed entry linked directly to its original
+  signed entry. The original remains unchanged, and Version 1 does not create
+  an arbitrary correction tree.
+- A correction may be authored and signed by a currently authorised assigned
+  Staff Member or an Administrator with Organisation and Client access. It has
+  its own author, content, signing action, historical signing information, and
+  audit evidence.
+- A correction and its original must belong to the same Client and
+  Organisation, and the referenced original must already be signed.
+- The Journal lifecycle must prevent stale draft overwrites, simultaneous or
+  repeated signing, duplicate open drafts for one author and Client, signed
+  record mutation or deletion, and invalid or cross-boundary correction links.
 - A journal entry should remain understandable when exported independently of the Kaul interface.
 
 ---
@@ -558,6 +588,7 @@ Examples include:
 - Assignment creation
 - Assignment change
 - Journal signing
+- Journal draft creation or discard where required by audit policy
 - Journal correction
 - Document upload
 - Report finalisation
@@ -595,6 +626,10 @@ An audit event has:
   reviewed fields.
 - Audit events must remain understandable after users or clients are archived.
 - Failed security-relevant actions may be audited even when no authenticated user exists.
+- Journal draft creation and discard may be audited. Ordinary draft saves do
+  not create immutable audit noise.
+- Signing an original or a correction requires immutable audit evidence and
+  follows the existing durable-intent and immutable-outcome principles.
 - Actor, Organisation, and target identifiers are immutable historical scalar
   references rather than lifecycle foreign keys. This permits a bootstrap intent
   before Organisation creation and prevents lifecycle cascades from removing
@@ -643,9 +678,8 @@ Assignment
 Journal Entry
 ├── One Client
 ├── One Author
-├── Optional Signer
-├── Optional Referenced Goals
-└── Optional Corrected Journal Entry
+├── Historical Signing Information when Signed
+└── Optional Original Signed Journal Entry for a Correction
 
 Weekly Report
 ├── One Client
@@ -662,19 +696,27 @@ Access is determined using both role and assignment.
 
 ### Administrator
 
-An administrator may access all clients and records belonging to their organisation.
+An administrator may access all clients and signed records belonging to their
+organisation. An unfinished Anteckning draft is the explicit exception: an
+Administrator may access only their own draft and only while they retain
+normal Client authorisation.
 
 ### Staff Member
 
-A staff member may access a client only when they have an active primary or secondary assignment to that client.
+A staff member may access a Client only when they have an active primary or
+secondary assignment to that Client. Within an accessible Client, they may see
+signed journal entries but only their own unfinished draft.
 
 ### Domain Access Rules
 
 - Permission checks must be enforced by the application backend.
 - Hiding links or navigation items is not sufficient access control.
 - Search, reports, documents, exports, and direct URLs must apply the same access rules.
+- Draft lists, counts, previews, direct URLs, search results, and mutations must
+  not disclose another user's unfinished Anteckning draft.
 - Historical authorship does not automatically grant continued access after an assignment ends.
 - Organisation boundaries apply before role or assignment checks.
+- Ungdomar/Vuxna categorisation does not create a Journal access boundary.
 - Export permissions are restricted to administrators in Version 1.
 
 ---
@@ -693,11 +735,14 @@ The record is retained for history but excluded from ordinary active workflows.
 
 ### Draft
 
-The record is incomplete and may still be edited by an authorised user.
+The Anteckning is incomplete and may be read, reopened, edited, saved,
+discarded, or signed only by its author while that author retains current
+Client authorisation.
 
 ### Signed
 
-The journal entry is complete, attributed, timestamped, and immutable.
+The journal entry is complete, attributed, timestamped, immutable, and visible
+according to current Client authorisation.
 
 ### Final
 
@@ -707,6 +752,8 @@ The generated report or document is preserved as an official completed version.
 
 - Archiving must not destroy history.
 - Signed and final records must not be silently edited.
+- Saving a draft does not change its lifecycle state; signing is the explicit
+  authenticated `DRAFT` to `SIGNED` transition.
 - Corrections and replacements must remain traceable.
 - Hard deletion should be exceptional and policy-driven.
 - Domain records should include sufficient timestamps to explain their lifecycle.

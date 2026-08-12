@@ -301,26 +301,27 @@ Milestone 2 is complete when:
 
 ## Goal
 
-Allow authorised staff members to create professional client documentation with reliable signing and correction behaviour.
+Allow authorised users to create professional client documentation with reliable signing and correction behaviour.
 
 ## Scope
 
 This milestone includes:
 
-- Ny anteckning workflow
-- Draft journal entries
+- Client workspace **Anteckningar** workflow
+- Author-private draft journal entries
+- At most one open draft per author and Client
+- Draft create, reopen, save, and discard actions
 - Journal-entry types
-- Event date and time
+- Event date and time for the documented event
 - Journal content
-- Optional structured sections
-- Incident indicator
 - Stable journal reference identifiers
-- Signing
+- Explicit authenticated signing distinct from saving
 - Historical signer snapshot
 - Signed-entry immutability
-- Correction entries
-- Journal list within the client workspace
-- Journal search for authorised records
+- Signed-entry visibility through current Client authorisation
+- Separate signed correction entries linked to signed originals
+- Stale-update and concurrent-signing protection
+- Journal history within the Client workspace
 - Printable journal-entry view
 - Relevant audit events
 
@@ -335,16 +336,42 @@ Initial types may include:
 - Hembesök
 - Skolkontakt
 - Observation
-- Incident
 - Övrigt
 
 The primary action remains:
 
 - Ny anteckning
 
-Users should not need to choose a complex workflow before beginning documentation.
+Incident classification remains deferred and is not part of the Milestone 3
+entry-type vocabulary.
+
+## Draft and Access Rules
+
+- An unfinished draft is visible only to its author, including when another
+  user is an Administrator.
+- Only the author may read, reopen, edit, save, discard, or sign the draft.
+- The author must retain normal current Client authorisation for every draft
+  operation. Draft authorship does not preserve access.
+- Version 1 permits at most one open draft for each author and Client. The
+  author reopens that draft until it is signed or discarded.
+- Draft lists, counts, previews, direct URLs, search results, Server Actions,
+  and other application surfaces must not reveal another user's draft.
+- Once signed, an entry follows normal current Client authorisation rather than
+  draft privacy. Administrators may read signed entries for Organisation
+  Clients, and Staff Members may read them only while assignment rules grant
+  Client access.
+- Historical authorship does not preserve signed-entry access, and
+  Ungdomar/Vuxna categorisation is not a Journal authorisation boundary.
 
 ## Signing Rules
+
+- Saving a draft is not signing it.
+- Signing is an explicit authenticated server action that changes the author's
+  draft from `DRAFT` to `SIGNED`.
+- Signing in Version 1 is not a cryptographic digital signature, BankID,
+  external electronic signature, or certificate-based signing.
+- In Version 1 the draft author performs the signing action and becomes the
+  signer.
 
 Signing must preserve:
 
@@ -355,46 +382,92 @@ Signing must preserve:
 - Stable journal reference
 
 Signed entries must not change when the user later changes their profile.
+No user, including an Administrator, may edit or delete a signed original.
 
 ## Correction Rules
 
-- A correction is a separate journal entry.
-- The correction references the original entry.
+- A correction is a separate signed journal entry linked directly to the
+  original signed entry rather than through an arbitrary correction tree.
 - The original signed text remains unchanged.
 - The relationship between the records remains visible.
-- Corrections are themselves signed.
+- A correction may be authored by a currently authorised assigned Staff Member
+  or an Administrator with Organisation and Client access.
+- The correction has its own author, content, signing action, signing
+  information, stable reference, and audit evidence.
+- The correction and original must belong to the same Client and Organisation.
+
+## Audit and Integrity Rules
+
+- Draft creation and discard may be auditable. Ordinary draft saves do not
+  create immutable audit noise.
+- Signing an original or correction requires immutable audit evidence through
+  the existing durable-intent and immutable-outcome architecture.
+- The Journal lifecycle must prevent stale draft overwrites, simultaneous or
+  repeated signing, duplicate open drafts for one author and Client, mutation
+  or deletion of signed records, and invalid or cross-Client or
+  cross-Organisation correction links.
+- These are product and domain invariants. Exact database locking, constraint,
+  and transaction mechanics are decided in the Journal foundation slice.
 
 ## Explicitly Excluded
 
 This milestone does not include:
 
 - Collaborative editing
+- Attachments
+- Autosave
+- Rich text
+- Templates
 - Automatic text generation
 - AI summaries
 - Advanced approval chains
 - Hard deletion of signed records
 - Email distribution of journal content
-- Offline drafts
 - Browser-storage drafts
+- PWA and offline drafts
+- Search across Journal records
+- Exports
+- Client Documents and Final Reports, which remain in later milestones
+- Retention or deletion policy
+- Multi-factor authentication
+- Notifications
+- Incident classification
+- BankID, cryptographic signatures, and external electronic signatures
 
 ## Completion Criteria
 
 Milestone 3 is complete when:
 
-- Authorised staff members can create drafts.
-- Drafts can be edited by their authorised author.
-- Drafts can be signed.
-- Signing occurs on the server.
+- Currently Client-authorised users can create and reopen only their own
+  drafts.
+- Another Staff Member and an Administrator are denied access to the author's
+  unfinished draft across lists, counts, previews, direct URLs, Server Actions,
+  and other application surfaces.
+- At most one open draft exists for each author and Client.
+- Drafts and signed entries preserve the established journal-entry type and
+  event date and time. The event date and time is distinct from creation,
+  draft-save, and signing timestamps.
+- **Spara utkast** preserves a draft without signing it.
+- Stale draft updates are rejected without overwriting newer content.
+- **Signera** is an explicit authenticated server action, and simultaneous or
+  repeated signing cannot create two signed outcomes.
 - Signing information is historically preserved.
-- Signed entries cannot be edited through ordinary application behaviour.
-- Attempts to modify signed entries are denied and tested.
-- Corrections preserve the original record.
-- Journal entries are visible only to authorised users.
-- Direct journal URLs enforce permissions.
+- Signed originals cannot be edited or deleted by Staff Members or
+  Administrators, and denied mutation paths are tested.
+- Signed entries are visible according to current Organisation and Client
+  authorisation, without access expansion from historical authorship or
+  Ungdomar/Vuxna categorisation.
+- Corrections are separate signed records linked to a valid original in the
+  same Client and Organisation, and the original remains unchanged.
+- Draft creation and discard follow the approved optional audit policy;
+  ordinary draft saves avoid immutable audit noise; signing originals and
+  corrections creates immutable audit evidence.
+- Direct journal URLs and every server-side read and mutation enforce the same
+  permissions.
 - Journal text is absent from ordinary operational logs.
-- Journal actions create suitable audit events.
 - Journal records can be printed clearly.
-- The complete note workflow passes the 2 AM Test.
+- The complete **Anteckningar** workflow passes the 2 AM Test and remains
+  laptop-first, mobile-functional, keyboard usable, and narrow-screen usable.
 
 ---
 

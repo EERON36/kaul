@@ -107,16 +107,43 @@ active assignment to it.
 
 Responsible for:
 
-- Journal entries
-- Follow-ups
-- Weekly reports
-- Signatures
+- Author-private draft entries
+- Signed journal entries
+- Corrections linked to signed originals
+- Journal authorisation and lifecycle invariants
 
-Every journal entry belongs to exactly one client.
+The Journal System remains a module within Kaul's modular monolith. It uses the
+central authentication, Organisation, and Client-access boundaries and the
+existing Audit Log; it does not introduce a separate service or signing
+provider.
 
-Journal entries should be immutable once signed.
+Every journal entry belongs to exactly one Client and Organisation. Version 1
+permits at most one open draft for each author and Client.
 
-Corrections should be stored as new entries rather than modifying historical records.
+Draft and signed access are deliberately different. An unfinished draft is
+private to its author, including from Administrators, and every draft operation
+also requires current Client authorisation. A signed entry follows the central
+current Client-access boundary: Administrators may read signed entries for
+Clients in their Organisation, while Staff Members require current assignment-
+based Client access. Historical authorship does not grant access.
+
+Signing is an explicit authenticated application transition from `DRAFT` to
+`SIGNED`, not a cryptographic or external electronic signature. Signed-record
+immutability is a domain and database invariant: a signed original cannot be
+updated or deleted through ordinary application or Administrator behaviour.
+
+Corrections are separate signed entries linked directly to a valid signed
+original in the same Client and Organisation. The original remains unchanged.
+The Journal boundary must also prevent stale draft overwrite, simultaneous or
+repeated signing, duplicate open drafts, and invalid correction links. The
+Journal foundation slice will choose the smallest transaction, constraint, and
+locking mechanics that enforce these invariants.
+
+Signing an original or correction uses the existing immutable audit
+architecture and its durable-intent and immutable-outcome principles. Ordinary
+draft saves do not create immutable audit noise; draft creation and discard may
+be auditable. The Journal module does not introduce read/view audit events
+without a separate authoritative requirement.
 
 ---
 

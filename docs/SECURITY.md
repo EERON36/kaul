@@ -196,13 +196,19 @@ Version 1 supports:
 
 ### Administrator Access
 
-Administrators may access all clients and records within their organisation.
+Administrators may access all Clients and signed records within their
+Organisation. An unfinished Anteckning draft is the explicit exception:
+Administrators may access only their own draft and only while normal Client
+authorisation remains valid.
 
 Administrative access must still remain auditable.
 
 ### Staff Access
 
 Staff members may access only clients connected to them through an active primary or secondary assignment.
+
+Within an authorised Client, a Staff Member may read signed journal entries but
+may access only their own unfinished Anteckning draft.
 
 ### Authorisation Requirements
 
@@ -225,10 +231,13 @@ The server must enforce access for:
 ### Authorisation Rules
 
 - Hidden navigation is not access control.
-- Client, user, role, assignment, and organisation identifiers supplied by the browser are untrusted.
+- Client, user, role, assignment, author, signer, and Organisation identifiers
+  supplied by the browser are untrusted.
 - Permission checks must occur immediately before protected reads or mutations.
 - Ending an assignment removes future staff access.
 - Historical authorship does not preserve client access.
+- Draft authorship does not preserve access after the author loses current
+  Client authorisation.
 - Staff members cannot assign themselves.
 - Export access is restricted to administrators in Version 1.
 - Reusable central permission functions should be used.
@@ -262,18 +271,51 @@ They require stronger protection than ordinary editable content.
 ### Journal Requirements
 
 - Draft and signed states must be clearly distinguished.
-- Only authorised users may create drafts for accessible clients.
-- Signing occurs on the server.
-- Signed entries are immutable.
+- An unfinished draft is visible only to its author. Administrator status does
+  not override this rule.
+- Only a currently Client-authorised user may create a draft, and Version 1
+  permits at most one open draft for each author and Client.
+- Only the draft author may read, reopen, edit, save, discard, or sign it.
+- Draft privacy must hold across lists, counts, previews, direct URLs, search
+  results, Server Actions, route handlers, and every other application surface.
+  Denials must not reveal whether another user's draft exists.
+- Saving a draft is not signing it, and ordinary draft saves must not create
+  immutable audit noise.
+- Signing is a separate explicit authenticated server action that changes the
+  author's draft from `DRAFT` to `SIGNED`. It is not a cryptographic digital
+  signature, BankID, external electronic signature, or certificate-based
+  signing.
+- Author, signer, Organisation, Client, status, and correction-link identity
+  must be resolved or validated on the server rather than trusted from the
+  browser.
+- Signing and draft updates must fail closed against stale draft overwrite,
+  simultaneous or repeated signing, and duplicate open drafts for one author
+  and Client.
+- Signed entries are immutable and cannot be edited or deleted by any user,
+  including an Administrator.
 - Signing stores a historical snapshot of signer name, title, role, and timestamp.
 - Later user-profile changes must not rewrite historical signing information.
-- Corrections are separate signed records.
-- Corrections reference the original entry.
+- Signed-entry visibility follows current Client authorisation. Administrators
+  may read signed entries for Clients in their Organisation; Staff Members may
+  read them only while active assignment rules grant Client access.
+- Historical authorship does not preserve access to a signed entry.
+- Ungdomar/Vuxna categorisation is not a Journal authorisation boundary.
+- Corrections are separate signed records with their own author, content,
+  signing action, signing information, and audit evidence.
+- A correction links directly to the original signed entry; Version 1 does not
+  create an arbitrary correction tree.
 - Original signed text remains unchanged.
+- The server must reject correction links to a draft, a correction as a new
+  root, or an entry belonging to another Client or Organisation.
+- A correction may be authored only by a currently authorised assigned Staff
+  Member or an Administrator with Organisation and Client access. Only that
+  correction's author may save, discard, or sign it.
 - Stable journal references must be preserved.
-- Signed entries are not deleted through normal user functionality.
 - Journal content must not appear in ordinary operational logs.
 - Journal content must not be placed in audit metadata.
+- Draft creation and discard may be audited. Signing an original and signing a
+  correction require immutable audit evidence through Kaul's existing
+  durable-intent and immutable-outcome architecture.
 
 Attempts to modify signed records must be rejected and tested.
 
@@ -441,6 +483,7 @@ Examples include:
 - User creation or deactivation
 - Client creation or archive
 - Assignment changes
+- Journal draft creation or discard where required by audit policy
 - Journal signing
 - Journal correction
 - Document upload or replacement
@@ -493,6 +536,14 @@ have been revalidated inside the transaction.
   audit records.
 - Audit access should be restricted.
 - Important administrative and security-relevant actions must remain attributable where possible.
+- Draft creation and discard may be audited, but ordinary draft saves do not
+  create immutable audit events.
+- Signing an original or correction must commit immutable audit evidence using
+  the existing durable-intent and immutable-outcome principles. A successful
+  signing outcome must not exist without the signed record, and a signed record
+  must not exist without its successful audit evidence.
+- Read or view events are not introduced for Journal records unless a separate
+  authoritative policy later requires them.
 - Audit retention will be defined before production use.
 
 The audit log is not a substitute for the journal or operational logs.
@@ -692,8 +743,13 @@ Automated tests should prioritise:
 - Direct URL denial
 - Organisation isolation
 - Assignment termination
+- Author-only draft access, including Administrator denial
+- One open draft per author and Client
+- Stale draft-update rejection
+- Simultaneous and repeated signing rejection
+- Current Client authorisation for signed-entry reads
 - Signed-entry immutability
-- Correction integrity
+- Same-Client and same-Organisation correction integrity
 - Document download permissions
 - Search-result permissions
 - Export permissions
