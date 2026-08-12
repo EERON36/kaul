@@ -9,6 +9,7 @@ import type {
   CreateAssignmentInput,
   CreateClientInput,
   EndAssignmentInput,
+  UpdateClientInput,
 } from "./client-input";
 import {
   ClientManagementError,
@@ -17,6 +18,7 @@ import {
   endAssignmentInternal,
   listAssignableStaffInternal,
   listClientsInternal,
+  updateClientInternal,
   type ClientListItem,
 } from "./clients-internal";
 
@@ -26,6 +28,7 @@ export {
   type CreateAssignmentInput,
   type CreateClientInput,
   type EndAssignmentInput,
+  type UpdateClientInput,
 };
 
 export async function listClients(): Promise<{
@@ -44,6 +47,11 @@ export async function listAssignableStaff() {
 export async function createClient(input: CreateClientInput) {
   const actor = await requireAdministrator();
   return createClientInternal(input, actor);
+}
+
+export async function updateClient(input: UpdateClientInput) {
+  const actor = await requireAdministrator();
+  return updateClientInternal(input, actor);
 }
 
 export async function createAssignment(input: CreateAssignmentInput) {

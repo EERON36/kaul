@@ -871,11 +871,19 @@ intents and transactionally coupled successful outcomes. PostgreSQL enforces
 organisation-safe assignment relationships, one active primary assignment, and
 one active assignment per Client and Staff Member.
 
-Later Milestone 2 work remains outstanding, including Client editing,
-archiving, basic search, and any broader home view. The completed Client
-Foundation already provides controlled `ADULT` and `YOUTH` category selection
-and separates **Vuxna** and **Ungdomar** in the interface. Journal, document,
-goal, follow-up, and report functionality remain in their later milestones.
+The Client Editing slice is implemented and verified. Active Administrators can
+edit only Client first name, last name, organisation-local person reference,
+and the controlled `ADULT`/`YOUTH` category. The operation is organisation
+scoped, uses PostgreSQL uniqueness, serialises each target Client, and commits
+`CLIENT_UPDATED` success evidence atomically with a real change. Unchanged
+normalised submissions do not create false successful update evidence.
+
+Later Milestone 2 work remains outstanding, including Client archiving, basic
+permission-aware Client search, the Staff assigned-Client home view, and
+remaining partial workspace/presentation evidence. The completed Client
+Foundation and Editing slices separate **Vuxna** and **Ungdomar** in the
+interface. Journal, document, goal, follow-up, and report functionality remain
+in their later milestones. Milestone 2 remains open.
 
 ---
 

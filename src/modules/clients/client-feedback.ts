@@ -17,6 +17,9 @@ export function getClientManagementFeedback(error: unknown): string | null {
     if (error.code === "ASSIGNMENT_CONFLICT") {
       return "Tilldelningen kan inte genomföras i klientens nuvarande läge.";
     }
+    if (error.code === "NO_CHANGES") {
+      return "Det finns inga ändringar att spara.";
+    }
   }
 
   return null;

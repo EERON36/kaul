@@ -257,6 +257,7 @@ No production deployment should depend on homelab-specific infrastructure.
 Milestone 0 is complete. Milestone 1 authentication, audit, and Staff
 management slices are implemented, with production credential-delivery and
 sole-Administrator recovery procedures still outstanding. Milestone 2 Client
-Foundation is also implemented: Administrators can create **Ungdomar** and
-**Vuxna** Clients and manage Staff assignments. Journal, document, report,
-search, export, and other later-milestone functionality remain unimplemented.
+Foundation and Client Editing are also implemented: Administrators can create
+and edit the permitted fields of **Ungdomar** and **Vuxna** Clients and manage
+Staff assignments. Journal, document, report, search, export, and other
+later-milestone functionality remain unimplemented.
