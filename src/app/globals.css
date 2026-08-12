@@ -372,6 +372,20 @@ h2 {
   border: 1px solid var(--border);
 }
 
+.client-search-form {
+  display: grid;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.client-search-form .form-field {
+  margin-bottom: 0;
+}
+
+.client-search-reset {
+  margin-top: 0.75rem;
+}
+
 .archive-section {
   border-top: 0.25rem solid #8a1c1c;
 }
@@ -532,9 +546,20 @@ h2 {
   .staff-card .secondary-button {
     width: 100%;
   }
+
+  .client-search-form,
+  .client-search-reset,
+  .client-search-form .primary-button,
+  .client-search-reset .secondary-button {
+    width: 100%;
+  }
 }
 
 @media (min-width: 48rem) {
+  .client-search-form {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .app-shell {
     display: grid;
     grid-template-columns: 16rem minmax(0, 1fr);

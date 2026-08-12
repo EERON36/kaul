@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   createAssignment: vi.fn(),
   createClient: vi.fn(),
   endAssignment: vi.fn(),
+  searchClients: vi.fn(),
   updateClient: vi.fn(),
   generateAuditOperationId: vi.fn(() => "123e4567-e89b-42d3-a456-426614174099"),
   revalidatePath: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("../../modules/clients/clients", () => ({
   createAssignment: mocks.createAssignment,
   createClient: mocks.createClient,
   endAssignment: mocks.endAssignment,
+  searchClients: mocks.searchClients,
   updateClient: mocks.updateClient,
 }));
 
@@ -32,14 +34,22 @@ import {
   createAssignmentAction,
   createClientAction,
   endAssignmentAction,
+  searchClientsAction,
   updateClientAction,
   type ClientActionState,
+  type ClientSearchActionState,
 } from "./actions";
 
 const operationId = "123e4567-e89b-42d3-a456-426614174000";
 const clientId = "123e4567-e89b-42d3-a456-426614174001";
 const assignmentId = "123e4567-e89b-42d3-a456-426614174002";
 const initialState: ClientActionState = { status: "IDLE", operationId };
+const initialSearchState: ClientSearchActionState = {
+  status: "IDLE",
+  clients: [],
+  query: "",
+  searched: false,
+};
 
 function clientForm(): FormData {
   const form = new FormData();
@@ -195,5 +205,65 @@ describe("Client Server Action audit operation lifecycle", () => {
     expect(mocks.redirect).toHaveBeenCalledWith(
       `/klienter/${trustedClientId}?arkiverad=klar`,
     );
+  });
+});
+
+describe("Client search Server Action", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("passes only the browser search text to the authenticated operation", async () => {
+    const form = new FormData();
+    form.set("query", "  Fiktiv Klient  ");
+    form.set("organisationId", "browser-controlled");
+    form.set("role", "ADMINISTRATOR");
+    mocks.searchClients.mockResolvedValueOnce({
+      clients: [{ id: clientId }],
+      query: "Fiktiv Klient",
+    });
+
+    await expect(
+      searchClientsAction(initialSearchState, form),
+    ).resolves.toMatchObject({
+      status: "SUCCESS",
+      query: "Fiktiv Klient",
+      searched: true,
+    });
+    expect(mocks.searchClients).toHaveBeenCalledWith("  Fiktiv Klient  ");
+    expect(mocks.searchClients).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the ordinary list for an empty search", async () => {
+    const form = new FormData();
+    form.set("query", "");
+    mocks.searchClients.mockResolvedValueOnce({
+      clients: [{ id: clientId }],
+      query: "",
+    });
+
+    await expect(
+      searchClientsAction(initialSearchState, form),
+    ).resolves.toMatchObject({
+      status: "SUCCESS",
+      query: "",
+      searched: false,
+    });
+  });
+
+  it("returns one generic Swedish error without exposing failure details", async () => {
+    const form = new FormData();
+    form.set("query", "Hemlig referens");
+    mocks.searchClients.mockRejectedValueOnce(
+      new Error("Database says inaccessible Client exists"),
+    );
+
+    const result = await searchClientsAction(initialSearchState, form);
+
+    expect(result).toEqual({
+      ...initialSearchState,
+      status: "ERROR",
+      message:
+        "Sökningen kunde inte genomföras. Kontrollera söktexten och försök igen.",
+    });
+    expect(JSON.stringify(result)).not.toContain("inaccessible");
   });
 });
