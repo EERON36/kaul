@@ -8,6 +8,7 @@ import {
   createAssignment,
   createClient,
   endAssignment,
+  updateClient,
 } from "@/modules/clients/clients";
 
 export type ClientActionState = Readonly<{
@@ -66,6 +67,41 @@ export async function createAssignmentAction(
       status: "SUCCESS",
       operationId: generateAuditOperationId(),
       message: "Tilldelningen har sparats.",
+    };
+  } catch (error) {
+    const message = getClientManagementFeedback(error);
+    if (!message) throw error;
+    return {
+      status: "ERROR",
+      operationId: generateAuditOperationId(),
+      message,
+    };
+  }
+}
+
+export async function updateClientAction(
+  _previousState: ClientActionState,
+  formData: FormData,
+): Promise<ClientActionState> {
+  const operationId = String(formData.get("operationId") ?? "");
+  const clientId = String(formData.get("clientId") ?? "");
+  try {
+    const result = await updateClient({
+      operationId,
+      clientId,
+      firstName: String(formData.get("firstName") ?? ""),
+      lastName: String(formData.get("lastName") ?? ""),
+      personIdentifier: String(formData.get("personIdentifier") ?? ""),
+      category: String(formData.get("category") ?? ""),
+    });
+    revalidatePath("/klienter");
+    revalidatePath(`/klienter/${result.client.id}`);
+    return {
+      status: "SUCCESS",
+      operationId: generateAuditOperationId(),
+      message: result.changed
+        ? "Klientuppgifterna har sparats."
+        : "Det finns inga ändringar att spara.",
     };
   } catch (error) {
     const message = getClientManagementFeedback(error);

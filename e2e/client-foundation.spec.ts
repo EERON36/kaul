@@ -287,3 +287,170 @@ test("Client categories remain usable on a narrow viewport", async ({
     page.locator(".client-details dd").filter({ hasText: "Vuxna" }),
   ).toBeVisible();
 });
+
+test("Administrator edits a Client while conflicts and Staff mutation remain denied", async ({
+  browser,
+  page,
+}) => {
+  await logIn(page, administratorEmail, "192.0.2.186");
+  await page.goto("/klienter");
+
+  await page.getByLabel("Förnamn").fill("Konflikt");
+  await page.getByLabel("Efternamn").fill("Klient");
+  await page.getByLabel("Personreferens").fill("e2e-edit-conflict");
+  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByRole("button", { name: "Skapa klient" }).click();
+  await expect(page.getByText("Klienten har skapats.")).toBeVisible();
+
+  await page.getByLabel("Förnamn").fill("Före");
+  await page.getByLabel("Efternamn").fill("Redigering");
+  await page.getByLabel("Personreferens").fill("e2e-edit-client");
+  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByRole("button", { name: "Skapa klient" }).click();
+  await expect(page.getByText("Klienten har skapats.")).toBeVisible();
+  await page.getByRole("link", { name: /Före Redigering/ }).click();
+
+  await page.getByRole("button", { name: "Redigera klient" }).click();
+  await page.getByLabel("Förnamn").fill("Efter");
+  await page.getByLabel("Efternamn").fill("Redigering");
+  await page.getByLabel("Personreferens").fill("e2e-edit-updated");
+  await page.getByLabel("Kategori").selectOption("YOUTH");
+  const updateRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.headerValue("next-action") !== null,
+  );
+  await page.getByRole("button", { name: "Spara ändringar" }).click();
+  const updateRequest = await updateRequestPromise;
+  const updateRequestHeaders = await updateRequest.allHeaders();
+  const directUpdateRequest = {
+    url: updateRequest.url(),
+    body: updateRequest.postData() ?? "",
+    headers: Object.fromEntries(
+      ["accept", "content-type", "next-action", "next-router-state-tree", "rsc"]
+        .map((name) => [name, updateRequestHeaders[name]] as const)
+        .filter(
+          (entry): entry is readonly [string, string] => entry[1] !== undefined,
+        ),
+    ),
+  };
+  await expect(page.getByText("Klientuppgifterna har sparats.")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Efter Redigering" }),
+  ).toBeVisible();
+  await expect(page.getByText("E2E-EDIT-UPDATED")).toBeVisible();
+  await expect(
+    page.locator(".client-details dd").filter({ hasText: "Ungdomar" }),
+  ).toBeVisible();
+
+  const editedClient = await prisma.client.findFirstOrThrow({
+    where: { personIdentifier: "E2E-EDIT-UPDATED" },
+  });
+  await page.goto("/klienter");
+  const youthGroup = page.locator(".client-category-group", {
+    has: page.getByRole("heading", { name: "Ungdomar" }),
+  });
+  await expect(
+    youthGroup.getByRole("link", { name: /Efter Redigering/ }),
+  ).toBeVisible();
+
+  await page.goto(`/klienter/${editedClient.id}`);
+  await page.getByRole("button", { name: "Redigera klient" }).click();
+  await page.getByLabel("Förnamn").fill("Får inte");
+  await page.getByLabel("Efternamn").fill("Sparas");
+  await page.getByLabel("Personreferens").fill("e2e-edit-conflict");
+  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByRole("button", { name: "Spara ändringar" }).click();
+  await expect(
+    page.getByText("Personreferensen används redan för en annan klient."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Efter Redigering" }),
+  ).toBeVisible();
+  await expect(
+    prisma.client.findUniqueOrThrow({ where: { id: editedClient.id } }),
+  ).resolves.toMatchObject({
+    firstName: "Efter",
+    lastName: "Redigering",
+    personIdentifier: "E2E-EDIT-UPDATED",
+    category: "YOUTH",
+  });
+
+  await page
+    .getByLabel("Medarbetare")
+    .selectOption({ label: "Fiktiv Primär – Fiktiv behandlare" });
+  await page.getByLabel("Ansvar", { exact: true }).selectOption("PRIMARY");
+  await page.getByRole("button", { name: "Lägg till tilldelning" }).click();
+  await expect(page.getByText("Tilldelningen har sparats.")).toBeVisible();
+
+  const staffContext = await browser.newContext();
+  const staffPage = await staffContext.newPage();
+  await logIn(staffPage, primaryEmail, "192.0.2.187");
+  await staffPage.goto(`/klienter/${editedClient.id}`);
+  await expect(
+    staffPage.getByRole("button", { name: "Redigera klient" }),
+  ).toHaveCount(0);
+
+  const directMutation = await staffPage.evaluate(async (request) => {
+    const response = await fetch(request.url, {
+      method: "POST",
+      headers: request.headers,
+      body: request.body,
+      credentials: "same-origin",
+    });
+    return { ok: response.ok, status: response.status };
+  }, directUpdateRequest);
+  expect(directMutation.ok).toBe(false);
+  await expect(
+    prisma.client.findUniqueOrThrow({ where: { id: editedClient.id } }),
+  ).resolves.toMatchObject({
+    firstName: "Efter",
+    lastName: "Redigering",
+    personIdentifier: "E2E-EDIT-UPDATED",
+    category: "YOUTH",
+  });
+  const staffUser = await prisma.user.findUniqueOrThrow({
+    where: { email: primaryEmail },
+  });
+  expect(
+    await prisma.auditOperation.count({
+      where: {
+        actorUserId: staffUser.id,
+        action: "CLIENT_UPDATED",
+        targetId: editedClient.id,
+      },
+    }),
+  ).toBe(0);
+  await staffContext.close();
+});
+
+test("Client editing remains functional at a 375px viewport", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await logIn(page, administratorEmail, "192.0.2.188");
+  const client = await prisma.client.findFirstOrThrow({
+    where: { personIdentifier: "E2E-EDIT-UPDATED" },
+  });
+  await page.goto(`/klienter/${client.id}`);
+  await page.getByRole("button", { name: "Redigera klient" }).click();
+
+  await expect(page.getByLabel("Förnamn")).toBeVisible();
+  await expect(page.getByLabel("Efternamn")).toBeVisible();
+  await expect(page.getByLabel("Personreferens")).toBeVisible();
+  await expect(page.getByLabel("Kategori")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Spara ändringar" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Avbryt" })).toBeVisible();
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
+
+  await page.getByRole("button", { name: "Avbryt" }).click();
+  await expect(
+    page.getByRole("button", { name: "Redigera klient" }),
+  ).toBeVisible();
+});

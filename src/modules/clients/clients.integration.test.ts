@@ -16,6 +16,7 @@ import {
   createAssignmentForTest,
   createClientForTest,
   endAssignmentForTest,
+  updateClientForTest,
 } from "./clients.test-support";
 import { listClientsInternal } from "./clients-internal";
 
@@ -767,6 +768,382 @@ describe("Client foundation with PostgreSQL", () => {
       ),
     ).rejects.toMatchObject({ code: "INCONSISTENT_RESULT" });
     expect(await prisma.client.count({ where: { organisationId } })).toBe(0);
+    await expect(
+      prisma.auditEvent.findUniqueOrThrow({
+        where: { operationId_type: { operationId, type: "OUTCOME" } },
+      }),
+    ).resolves.toMatchObject({ result: "FAILED" });
+  });
+
+  it("lets an Administrator edit only Client-owned editable fields with immutable audit evidence", async () => {
+    const organisationId = await createOrganisation(
+      "Fiktiva Redigeringsorganisationen",
+    );
+    const actorUser = await createUser(
+      organisationId,
+      UserRole.ADMINISTRATOR,
+      "Redigeringsadministratör",
+    );
+    const staffUser = await createUser(
+      organisationId,
+      UserRole.STAFF_MEMBER,
+      "Redigeringsmedarbetare",
+    );
+    const actor = administrator(actorUser, "Fiktiva Redigeringsorganisationen");
+    const client = await createFixtureClient(actor, "REDIGERA-01");
+    const assignment = await assign(actor, client.id, staffUser.id, "PRIMARY");
+    const before = await prisma.client.findUniqueOrThrow({
+      where: { id: client.id },
+    });
+    const operationId = generateAuditOperationId();
+
+    await expect(
+      updateClientForTest(
+        {
+          operationId,
+          clientId: client.id,
+          firstName: " Uppdaterad ",
+          lastName: " Testklient ",
+          personIdentifier: " ändrad-é-01 ",
+          category: " YOUTH ",
+        },
+        actor,
+        {},
+      ),
+    ).resolves.toMatchObject({
+      changed: true,
+      client: {
+        id: client.id,
+        firstName: "Uppdaterad",
+        lastName: "Testklient",
+        personIdentifier: "ÄNDRAD-É-01",
+        category: "YOUTH",
+        status: ClientStatus.ACTIVE,
+      },
+    });
+
+    await expect(
+      prisma.client.findUniqueOrThrow({ where: { id: client.id } }),
+    ).resolves.toMatchObject({
+      organisationId,
+      status: before.status,
+      archivedAt: before.archivedAt,
+      createdAt: before.createdAt,
+    });
+    await expect(
+      prisma.assignment.findUniqueOrThrow({ where: { id: assignment.id } }),
+    ).resolves.toMatchObject({
+      clientId: client.id,
+      staffUserId: staffUser.id,
+      responsibility: AssignmentResponsibility.PRIMARY,
+      endedAt: null,
+    });
+    await expect(
+      prisma.auditOperation.findUniqueOrThrow({ where: { id: operationId } }),
+    ).resolves.toMatchObject({
+      organisationId,
+      actorUserId: actor.userId,
+      action: "CLIENT_UPDATED",
+      targetType: "CLIENT",
+      targetId: client.id,
+    });
+    await expect(
+      prisma.auditEvent.findUniqueOrThrow({
+        where: { operationId_type: { operationId, type: "OUTCOME" } },
+      }),
+    ).resolves.toMatchObject({
+      result: "SUCCEEDED",
+      resolvedTargetId: client.id,
+    });
+    expect(
+      JSON.stringify(
+        await prisma.auditOperation.findUniqueOrThrow({
+          where: { id: operationId },
+        }),
+      ),
+    ).not.toContain("ÄNDRAD-É-01");
+  });
+
+  it("denies Staff and cross-Organisation Client edits without leaking the target", async () => {
+    const firstOrganisationId = await createOrganisation(
+      "Fiktiva Redigeringsgränsen",
+    );
+    const secondOrganisationId = await createOrganisation(
+      "Fiktiva Främmande Redigeringsgränsen",
+    );
+    const firstAdminUser = await createUser(
+      firstOrganisationId,
+      UserRole.ADMINISTRATOR,
+      "Första redigeringsadministratör",
+    );
+    const secondAdminUser = await createUser(
+      secondOrganisationId,
+      UserRole.ADMINISTRATOR,
+      "Andra redigeringsadministratör",
+    );
+    const staffUser = await createUser(
+      firstOrganisationId,
+      UserRole.STAFF_MEMBER,
+      "Otillåten redigeringsmedarbetare",
+    );
+    const firstActor = administrator(
+      firstAdminUser,
+      "Fiktiva Redigeringsgränsen",
+    );
+    const secondActor = administrator(
+      secondAdminUser,
+      "Fiktiva Främmande Redigeringsgränsen",
+    );
+    const foreignClient = await createFixtureClient(secondActor, "HEMLIG-01");
+    const staffActor = applicationUser(
+      staffUser,
+      firstActor.organisationName,
+    ) as AdministratorUser;
+    const original = await prisma.client.findUniqueOrThrow({
+      where: { id: foreignClient.id },
+    });
+
+    for (const [attemptActor, clientId] of [
+      [firstActor, foreignClient.id],
+      [staffActor, foreignClient.id],
+      [firstActor, randomUUID()],
+    ] as const) {
+      const operationId = generateAuditOperationId();
+      await expect(
+        updateClientForTest(
+          {
+            operationId,
+            clientId,
+            firstName: "Otillåten",
+            lastName: "Ändring",
+            personIdentifier: "OTILLÅTEN-01",
+            category: "YOUTH",
+          },
+          attemptActor,
+          {},
+        ),
+      ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+      expect(
+        await prisma.auditOperation.findUnique({ where: { id: operationId } }),
+      ).toBeNull();
+    }
+    await expect(
+      prisma.client.findUniqueOrThrow({ where: { id: foreignClient.id } }),
+    ).resolves.toEqual(original);
+  });
+
+  it("rejects a same-Organisation reference conflict without partial mutation or false success", async () => {
+    const organisationId = await createOrganisation(
+      "Fiktiva Referenskonfliktorganisationen",
+    );
+    const actorUser = await createUser(
+      organisationId,
+      UserRole.ADMINISTRATOR,
+      "Referenskonfliktadministratör",
+    );
+    const actor = administrator(
+      actorUser,
+      "Fiktiva Referenskonfliktorganisationen",
+    );
+    const firstClient = await createFixtureClient(actor, "REFERENS-A");
+    const secondClient = await createFixtureClient(actor, "REFERENS-B");
+    const operationId = generateAuditOperationId();
+
+    await expect(
+      updateClientForTest(
+        {
+          operationId,
+          clientId: secondClient.id,
+          firstName: "Får inte",
+          lastName: "Sparas",
+          personIdentifier: " referens-a ",
+          category: "YOUTH",
+        },
+        actor,
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "DUPLICATE_IDENTIFIER" });
+    await expect(
+      prisma.client.findUniqueOrThrow({ where: { id: secondClient.id } }),
+    ).resolves.toMatchObject(secondClient);
+    await expect(
+      prisma.client.findUniqueOrThrow({ where: { id: firstClient.id } }),
+    ).resolves.toMatchObject(firstClient);
+    await expect(
+      prisma.auditEvent.findUniqueOrThrow({
+        where: { operationId_type: { operationId, type: "OUTCOME" } },
+      }),
+    ).resolves.toMatchObject({ result: "FAILED" });
+  });
+
+  it("allows equivalent references in different Organisations and avoids no-op audit evidence", async () => {
+    const firstOrganisationId = await createOrganisation(
+      "Fiktiva Första Referensorganisationen",
+    );
+    const secondOrganisationId = await createOrganisation(
+      "Fiktiva Andra Referensorganisationen",
+    );
+    const firstAdminUser = await createUser(
+      firstOrganisationId,
+      UserRole.ADMINISTRATOR,
+      "Första referensadministratör",
+    );
+    const secondAdminUser = await createUser(
+      secondOrganisationId,
+      UserRole.ADMINISTRATOR,
+      "Andra referensadministratör",
+    );
+    const firstActor = administrator(
+      firstAdminUser,
+      "Fiktiva Första Referensorganisationen",
+    );
+    const secondActor = administrator(
+      secondAdminUser,
+      "Fiktiva Andra Referensorganisationen",
+    );
+    await createFixtureClient(firstActor, "DELAD-REFERENS");
+    const secondClient = await createFixtureClient(
+      secondActor,
+      "ANNAN-REFERENS",
+    );
+    const updateOperationId = generateAuditOperationId();
+
+    await expect(
+      updateClientForTest(
+        {
+          operationId: updateOperationId,
+          clientId: secondClient.id,
+          firstName: secondClient.firstName,
+          lastName: secondClient.lastName,
+          personIdentifier: "delad-referens",
+          category: secondClient.category,
+        },
+        secondActor,
+        {},
+      ),
+    ).resolves.toMatchObject({ changed: true });
+
+    const noOpOperationId = generateAuditOperationId();
+    await expect(
+      updateClientForTest(
+        {
+          operationId: noOpOperationId,
+          clientId: secondClient.id,
+          firstName: secondClient.firstName,
+          lastName: secondClient.lastName,
+          personIdentifier: " delad-referens ",
+          category: secondClient.category,
+        },
+        secondActor,
+        {},
+      ),
+    ).resolves.toMatchObject({ changed: false });
+    expect(
+      await prisma.auditOperation.findUnique({
+        where: { id: noOpOperationId },
+      }),
+    ).toBeNull();
+  });
+
+  it("preserves database uniqueness and truthful audit outcomes for concurrent conflicting edits", async () => {
+    const organisationId = await createOrganisation(
+      "Fiktiva Samtidiga Redigeringsorganisationen",
+    );
+    const actorUser = await createUser(
+      organisationId,
+      UserRole.ADMINISTRATOR,
+      "Samtidig redigeringsadministratör",
+    );
+    const actor = administrator(
+      actorUser,
+      "Fiktiva Samtidiga Redigeringsorganisationen",
+    );
+    const clients = await Promise.all([
+      createFixtureClient(actor, "SAMTIDIG-REDIGERA-A"),
+      createFixtureClient(actor, "SAMTIDIG-REDIGERA-B"),
+    ]);
+    const operationIds = [
+      generateAuditOperationId(),
+      generateAuditOperationId(),
+    ];
+
+    const attempts = await Promise.allSettled(
+      clients.map((client, index) =>
+        updateClientForTest(
+          {
+            operationId: operationIds[index],
+            clientId: client.id,
+            firstName: `Samtidig ${index + 1}`,
+            lastName: "Klient",
+            personIdentifier: "GEMENSAM-REFERENS",
+            category: index === 0 ? "ADULT" : "YOUTH",
+          },
+          actor,
+          {},
+        ),
+      ),
+    );
+
+    expect(
+      attempts.filter(({ status }) => status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      await prisma.client.count({
+        where: { organisationId, personIdentifier: "GEMENSAM-REFERENS" },
+      }),
+    ).toBe(1);
+    const outcomes = await prisma.auditEvent.findMany({
+      where: {
+        operationId: { in: operationIds },
+        type: "OUTCOME",
+      },
+      select: { result: true },
+    });
+    expect(
+      outcomes.filter(({ result }) => result === "SUCCEEDED"),
+    ).toHaveLength(1);
+    expect(outcomes.filter(({ result }) => result === "FAILED")).toHaveLength(
+      1,
+    );
+  });
+
+  it("rolls back a Client edit when audit-coupled mutation work fails", async () => {
+    const organisationId = await createOrganisation(
+      "Fiktiva Redigeringsåterställningsorganisationen",
+    );
+    const actorUser = await createUser(
+      organisationId,
+      UserRole.ADMINISTRATOR,
+      "Redigeringsåterställningsadministratör",
+    );
+    const actor = administrator(
+      actorUser,
+      "Fiktiva Redigeringsåterställningsorganisationen",
+    );
+    const client = await createFixtureClient(actor, "REDIGERINGSÅTERSTÄLL-01");
+    const operationId = generateAuditOperationId();
+
+    await expect(
+      updateClientForTest(
+        {
+          operationId,
+          clientId: client.id,
+          firstName: "Ska",
+          lastName: "Återställas",
+          personIdentifier: "REDIGERINGSÅTERSTÄLL-02",
+          category: "YOUTH",
+        },
+        actor,
+        {
+          afterBusinessMutation: () => {
+            throw new Error("Fictional forced update rollback");
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: "INCONSISTENT_RESULT" });
+    await expect(
+      prisma.client.findUniqueOrThrow({ where: { id: client.id } }),
+    ).resolves.toMatchObject(client);
     await expect(
       prisma.auditEvent.findUniqueOrThrow({
         where: { operationId_type: { operationId, type: "OUTCOME" } },

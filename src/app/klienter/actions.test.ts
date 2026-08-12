@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   createAssignment: vi.fn(),
   createClient: vi.fn(),
   endAssignment: vi.fn(),
+  updateClient: vi.fn(),
   generateAuditOperationId: vi.fn(() => "123e4567-e89b-42d3-a456-426614174099"),
   revalidatePath: vi.fn(),
 }));
@@ -17,6 +18,7 @@ vi.mock("../../modules/clients/clients", () => ({
   createAssignment: mocks.createAssignment,
   createClient: mocks.createClient,
   endAssignment: mocks.endAssignment,
+  updateClient: mocks.updateClient,
 }));
 
 import { AuditError } from "../../modules/audit/audit";
@@ -25,6 +27,7 @@ import {
   createAssignmentAction,
   createClientAction,
   endAssignmentAction,
+  updateClientAction,
   type ClientActionState,
 } from "./actions";
 
@@ -52,6 +55,12 @@ function assignmentForm(): FormData {
   return form;
 }
 
+function updateForm(): FormData {
+  const form = clientForm();
+  form.set("clientId", clientId);
+  return form;
+}
+
 function endForm(): FormData {
   const form = new FormData();
   form.set("operationId", operationId);
@@ -71,6 +80,7 @@ describe("Client Server Action audit operation lifecycle", () => {
       assignmentForm,
     ],
     ["Assignment ending", endAssignmentAction, mocks.endAssignment, endForm],
+    ["Client update", updateClientAction, mocks.updateClient, updateForm],
   ] as const;
 
   for (const [label, action, service, form] of cases) {
@@ -109,5 +119,46 @@ describe("Client Server Action audit operation lifecycle", () => {
     expect(mocks.revalidatePath).not.toHaveBeenCalledWith(
       "/klienter/123e4567-e89b-42d3-a456-426614174011",
     );
+  });
+
+  it("uses the server-derived Client ID when an update succeeds", async () => {
+    const trustedClientId = "123e4567-e89b-42d3-a456-426614174010";
+    mocks.updateClient.mockResolvedValueOnce({
+      changed: true,
+      client: { id: trustedClientId },
+    });
+
+    await expect(
+      updateClientAction(initialState, updateForm()),
+    ).resolves.toMatchObject({
+      status: "SUCCESS",
+      message: "Klientuppgifterna har sparats.",
+    });
+    expect(mocks.updateClient).toHaveBeenCalledWith({
+      operationId,
+      clientId,
+      firstName: "Fiktiv",
+      lastName: "Klient",
+      personIdentifier: "FIKTIV-01",
+      category: "ADULT",
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/klienter");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith(
+      `/klienter/${trustedClientId}`,
+    );
+  });
+
+  it("does not claim a mutation when unchanged Client values are submitted", async () => {
+    mocks.updateClient.mockResolvedValueOnce({
+      changed: false,
+      client: { id: clientId },
+    });
+
+    await expect(
+      updateClientAction(initialState, updateForm()),
+    ).resolves.toMatchObject({
+      status: "SUCCESS",
+      message: "Det finns inga ändringar att spara.",
+    });
   });
 });

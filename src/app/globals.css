@@ -438,6 +438,16 @@ h2 {
   margin: 0;
 }
 
+.client-edit-trigger {
+  margin-top: 1rem;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
 .assignment-list > li {
   display: grid;
   gap: 1rem;
@@ -511,6 +521,8 @@ h2 {
   }
 
   form .primary-button,
+  .form-actions .secondary-button,
+  .client-edit-trigger,
   .assignment-list .secondary-button,
   .staff-card .secondary-button {
     width: 100%;

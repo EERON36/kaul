@@ -3,11 +3,13 @@ import type {
   CreateAssignmentInput,
   CreateClientInput,
   EndAssignmentInput,
+  UpdateClientInput,
 } from "./client-input";
 import {
   createAssignmentInternal,
   createClientInternal,
   endAssignmentInternal,
+  updateClientInternal,
   type ClientManagementTestDependencies,
 } from "./clients-internal";
 
@@ -33,6 +35,15 @@ export function createAssignmentForTest(
 ) {
   assertTestEnvironment();
   return createAssignmentInternal(input, actor, dependencies);
+}
+
+export function updateClientForTest(
+  input: UpdateClientInput,
+  actor: AdministratorUser,
+  dependencies: ClientManagementTestDependencies,
+) {
+  assertTestEnvironment();
+  return updateClientInternal(input, actor, dependencies);
 }
 
 export function endAssignmentForTest(

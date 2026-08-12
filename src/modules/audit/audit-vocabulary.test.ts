@@ -31,6 +31,12 @@ describe("audit vocabulary", () => {
       targetType: "CLIENT",
       targetId: "REQUIRED",
     });
+    expect(AUDIT_ACTION_POLICY.CLIENT_UPDATED).toEqual({
+      actorKinds: ["USER"],
+      organisation: "REQUIRED",
+      targetType: "CLIENT",
+      targetId: "REQUIRED",
+    });
     expect(AUDIT_ACTION_POLICY.ASSIGNMENT_CREATED.targetType).toBe(
       "ASSIGNMENT",
     );
@@ -50,6 +56,7 @@ describe("audit vocabulary", () => {
       "USER_ROLE_CHANGED",
       "USER_SESSIONS_REVOKED",
       "CLIENT_CREATED",
+      "CLIENT_UPDATED",
       "ASSIGNMENT_CREATED",
       "ASSIGNMENT_ENDED",
     ]);

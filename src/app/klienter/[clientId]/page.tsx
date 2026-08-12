@@ -13,6 +13,7 @@ import { getClientStatusLabel } from "@/modules/clients/client-presentation";
 import { listAssignableStaff } from "@/modules/clients/clients";
 
 import { AssignmentManagement } from "./assignment-management-client";
+import { ClientEdit } from "./client-edit-client";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,13 @@ export default async function ClientPage({
             <dd>{getClientStatusLabel(result.client.status)}</dd>
           </div>
         </dl>
+
+        {result.user.role === "ADMINISTRATOR" ? (
+          <ClientEdit
+            client={result.client}
+            operationId={generateAuditOperationId()}
+          />
+        ) : null}
 
         {result.user.role === "ADMINISTRATOR" ? (
           <AssignmentManagement

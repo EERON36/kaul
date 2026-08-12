@@ -5,6 +5,7 @@ import {
   createAssignmentInputSchema,
   createClientInputSchema,
   endAssignmentInputSchema,
+  updateClientInputSchema,
 } from "./client-input";
 
 const operationId = "123e4567-e89b-42d3-a456-426614174000";
@@ -64,6 +65,65 @@ describe("Client input", () => {
           personIdentifier: "TEST-42",
           category,
         }),
+      ).toThrow();
+    }
+  });
+
+  it("accepts exactly the editable Client fields for updates", () => {
+    const input = {
+      operationId,
+      clientId: "123e4567-e89b-42d3-a456-426614174001",
+      firstName: " Uppdaterad ",
+      lastName: " Klient ",
+      personIdentifier: " ändrad-é-01 ",
+      category: " YOUTH ",
+    };
+
+    expect(updateClientInputSchema.parse(input)).toEqual({
+      operationId,
+      clientId: input.clientId,
+      firstName: "Uppdaterad",
+      lastName: "Klient",
+      personIdentifier: "ÄNDRAD-É-01",
+      category: "YOUTH",
+    });
+
+    for (const protectedField of [
+      "organisationId",
+      "status",
+      "archivedAt",
+      "assignments",
+      "createdAt",
+    ]) {
+      expect(() =>
+        updateClientInputSchema.parse({
+          ...input,
+          [protectedField]: "browser-controlled",
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("rejects invalid editable Client values during updates", () => {
+    const valid = {
+      operationId,
+      clientId: "123e4567-e89b-42d3-a456-426614174001",
+      firstName: "Fiktiv",
+      lastName: "Klient",
+      personIdentifier: "FIKTIV-01",
+      category: "ADULT",
+    };
+
+    for (const invalid of [
+      { firstName: "" },
+      { lastName: " ".repeat(2) },
+      { personIdentifier: "" },
+      { personIdentifier: "X".repeat(65) },
+      { category: "Vuxna" },
+      { category: "ARBITRARY" },
+    ]) {
+      expect(() =>
+        updateClientInputSchema.parse({ ...valid, ...invalid }),
       ).toThrow();
     }
   });

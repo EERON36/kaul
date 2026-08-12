@@ -23,9 +23,11 @@ import {
   createAssignmentInputSchema,
   createClientInputSchema,
   endAssignmentInputSchema,
+  updateClientInputSchema,
   type CreateAssignmentInput,
   type CreateClientInput,
   type EndAssignmentInput,
+  type UpdateClientInput,
 } from "./client-input";
 
 const CLIENT_MUTATION_LOCK_NAMESPACE = 1_129_607_912;
@@ -43,6 +45,7 @@ export type ClientManagementErrorCode =
   | "DUPLICATE_IDENTIFIER"
   | "TARGET_UNAVAILABLE"
   | "ASSIGNMENT_CONFLICT"
+  | "NO_CHANGES"
   | "INCONSISTENT_RESULT"
   | "OPERATION_AMBIGUOUS";
 
@@ -117,6 +120,14 @@ function isDuplicateClientIdentifierError(error: unknown): boolean {
   );
 }
 
+function isUpdateDuplicateClientIdentifierError(error: unknown): boolean {
+  // This update does not alter either Client identifier. The organisation-local
+  // person-reference constraint is the only Client unique constraint reachable
+  // from its editable fields. Prisma's reported constraint name varies by
+  // adapter and PostgreSQL version, so it is not safe to depend on here.
+  return isUniqueConstraintError(error);
+}
+
 async function assertCurrentAdministrator(
   transaction: Pick<Prisma.TransactionClient, "user">,
   actor: AdministratorUser,
@@ -146,6 +157,25 @@ async function lockClient(
       hashtext(${clientId})
     )::text AS "lockResult"
   `;
+}
+
+type EditableClientFields = Readonly<{
+  firstName: string;
+  lastName: string;
+  personIdentifier: string;
+  category: string;
+}>;
+
+function clientEditableFieldsEqual(
+  current: EditableClientFields,
+  next: EditableClientFields,
+): boolean {
+  return (
+    current.firstName === next.firstName &&
+    current.lastName === next.lastName &&
+    current.personIdentifier === next.personIdentifier &&
+    current.category === next.category
+  );
 }
 
 async function finishFailed(
@@ -299,6 +329,121 @@ export async function createClientInternal(
     });
 
     return created;
+  } catch (error) {
+    return transactionCompleted
+      ? finishAmbiguous(intent)
+      : finishFailed(intent, error);
+  }
+}
+
+export async function updateClientInternal(
+  input: UpdateClientInput,
+  actor: AdministratorUser,
+  testDependencies?: ClientManagementTestDependencies,
+): Promise<Readonly<{ changed: boolean; client: ClientListItem }>> {
+  const parsed = updateClientInputSchema.parse(input);
+  const dependencies = getTestDependencies(testDependencies);
+  const nextFields: EditableClientFields = {
+    firstName: parsed.firstName,
+    lastName: parsed.lastName,
+    personIdentifier: parsed.personIdentifier,
+    category: parsed.category,
+  };
+  const preflightClient = await prisma.client.findFirst({
+    where: {
+      id: parsed.clientId,
+      organisationId: actor.organisationId,
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      personIdentifier: true,
+      category: true,
+      status: true,
+    },
+  });
+
+  if (!preflightClient) {
+    throw new ClientManagementError("TARGET_UNAVAILABLE");
+  }
+  if (clientEditableFieldsEqual(preflightClient, nextFields)) {
+    return { changed: false, client: preflightClient };
+  }
+
+  const intent = await createUserAuditIntent({
+    operationId: parsed.operationId,
+    actor,
+    action: "CLIENT_UPDATED",
+    target: { targetId: parsed.clientId },
+  });
+  let transactionCompleted = false;
+
+  try {
+    const updated = await prisma.$transaction(async (transaction) => {
+      await lockClient(transaction, parsed.clientId);
+      await assertCurrentAdministrator(transaction, actor);
+      const current = await transaction.client.findFirst({
+        where: {
+          id: parsed.clientId,
+          organisationId: actor.organisationId,
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          personIdentifier: true,
+          category: true,
+          status: true,
+        },
+      });
+
+      if (!current) {
+        throw new DefinitiveMutationError("TARGET_UNAVAILABLE");
+      }
+      if (clientEditableFieldsEqual(current, nextFields)) {
+        throw new DefinitiveMutationError("NO_CHANGES");
+      }
+
+      let client: ClientListItem;
+      try {
+        client = await transaction.client.update({
+          where: {
+            organisationId_id: {
+              organisationId: actor.organisationId,
+              id: parsed.clientId,
+            },
+          },
+          data: nextFields,
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            personIdentifier: true,
+            category: true,
+            status: true,
+          },
+        });
+      } catch (error) {
+        throw new DefinitiveMutationError(
+          isUpdateDuplicateClientIdentifierError(error)
+            ? "DUPLICATE_IDENTIFIER"
+            : undefined,
+        );
+      }
+
+      await dependencies.afterBusinessMutation?.();
+      await appendAuditOutcomeInTransaction(
+        transaction,
+        intent,
+        "SUCCEEDED",
+        client.id,
+      );
+      transactionCompleted = true;
+      return client;
+    });
+
+    return { changed: true, client: updated };
   } catch (error) {
     return transactionCompleted
       ? finishAmbiguous(intent)

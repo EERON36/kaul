@@ -23,6 +23,20 @@ export const createClientInputSchema = z
   })
   .strict();
 
+export const updateClientInputSchema = z
+  .object({
+    operationId: auditOperationIdSchema,
+    clientId: internalUuidSchema,
+    firstName: z.string().trim().min(1).max(100),
+    lastName: z.string().trim().min(1).max(100),
+    personIdentifier: z
+      .string()
+      .transform(canonicalizePersonIdentifier)
+      .pipe(z.string().min(1).max(64)),
+    category: z.string().trim().pipe(z.enum(CLIENT_CATEGORY_VALUES)),
+  })
+  .strict();
+
 export const createAssignmentInputSchema = z
   .object({
     operationId: auditOperationIdSchema,
@@ -40,5 +54,6 @@ export const endAssignmentInputSchema = z
   .strict();
 
 export type CreateClientInput = z.input<typeof createClientInputSchema>;
+export type UpdateClientInput = z.input<typeof updateClientInputSchema>;
 export type CreateAssignmentInput = z.input<typeof createAssignmentInputSchema>;
 export type EndAssignmentInput = z.input<typeof endAssignmentInputSchema>;
