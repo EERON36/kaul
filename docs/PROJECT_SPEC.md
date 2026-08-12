@@ -130,7 +130,9 @@ Can:
 - Manage clients
 - Assign clients
 - Manage document templates
-- View all documentation
+- View signed documentation for clients in their organisation
+- Create and manage only their own unfinished Anteckning drafts for authorised
+  clients
 - Export organisation data
 - Archive clients
 
@@ -142,7 +144,9 @@ Can:
 
 - Log in
 - View assigned clients
-- Create journal entries
+- Create and manage only their own unfinished Anteckning drafts for currently
+  assigned clients
+- View signed journal entries for currently assigned clients
 - Upload documents
 - Generate reports
 - Search assigned documentation
@@ -153,6 +157,33 @@ Cannot:
 - Manage users
 - Change permissions
 - Delete signed documentation
+
+---
+
+# Anteckningar and Signed Records
+
+An unfinished Anteckning draft is private to its author. No other user may
+read, list, preview, edit, discard, or sign it, including an Administrator.
+Normal current Client authorisation still applies to the author, so writing a
+draft does not preserve access after the author loses Client access.
+
+Version 1 permits at most one open draft for each author and Client. Saving a
+draft is not signing it. Signing is a separate authenticated Kaul action that
+changes the author's draft from `DRAFT` to `SIGNED`; it is not a cryptographic,
+BankID, certificate-based, or external electronic signature.
+
+Once signed, an entry follows normal current Client authorisation rather than
+draft privacy. Administrators may read signed entries for Clients in their
+Organisation, while Staff Members may read them only for Clients they are
+currently authorised to access through active assignments. Historical
+authorship alone does not preserve access. The Ungdomar/Vuxna category is not a
+Journal authorisation boundary.
+
+A signed original cannot be edited or deleted by any user, including an
+Administrator. A mistake is corrected through a separate signed correction
+linked to the original. The correction has its own author, content, signing
+action, signing information, and audit evidence; the original remains
+unchanged.
 
 ---
 

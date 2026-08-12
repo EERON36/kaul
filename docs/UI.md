@@ -365,9 +365,9 @@ A staff member may see:
 - Upcoming follow-ups
 - Assigned clients
 - Recent authorised activity
-- Draft notes where applicable
+- The current user's own draft notes where applicable
 
-The home view must not show organisation-wide information that the staff member cannot access.
+The home view must not show organisation-wide information that the staff member cannot access. No home view may reveal another user's unfinished draft through a row, preview, count, or activity item, including to an Administrator.
 
 ### Administrator Home View
 
@@ -501,20 +501,35 @@ The primary documentation action is:
 
 - Ny anteckning
 
-Users should not be forced to choose a complex workflow before beginning.
+The Version 1 workflow is:
 
-A journal-entry form may include:
+1. Open the Client workspace and choose **Anteckningar**.
+2. Open the current user's draft when one exists, or choose **Ny
+   anteckning** to create one.
+3. Write the Anteckning and choose **Spara utkast** when it should remain a
+   draft.
+4. Choose **Signera** as a separate explicit action when the record is ready.
+5. Return to the signed history or start a visibly separate correction when a
+   signed entry needs correction.
 
-- Client
+Version 1 permits at most one open draft for each author and Client. Only that
+author may see, reopen, edit, save, discard, or sign the draft. Another Staff
+Member or Administrator must not see the draft or learn that it exists through
+lists, counts, previews, direct links, or other interface surfaces.
+
+The author must still have current Client access. A draft does not preserve
+access after an Assignment or other Client authorisation ends.
+
+A journal-entry form includes:
+
+- Clear Client context
 - Anteckningstyp
 - Datum
 - Tid
 - Anteckning
-- Optional structured sections
-- Related goals
-- Incident indicator
-- Save draft
-- Sign
+- Spara utkast
+- Signera
+- Discard action for the author's own draft
 
 ### Form Layout
 
@@ -524,11 +539,9 @@ Suggested order:
 
 1. Client context
 2. Event date and time
-3. Note type
+3. Entry type
 4. Main text
-5. Optional related goals
-6. Incident indicator
-7. Save or sign actions
+5. Save-draft, sign, and discard actions
 
 The form may open:
 
@@ -542,8 +555,9 @@ The final decision should prioritise accessibility and preservation of user inpu
 
 - The client must always be obvious.
 - Important text areas should be large.
-- Optional sections should not make the form feel mandatory or crowded.
-- The incident control must be clear and serious.
+- Opening **Ny anteckning** must reopen the author's existing draft for that
+  Client rather than creating a parallel draft.
+- Saving must be a deliberate action; Version 1 does not imply autosave.
 - Signing must be distinct from saving a draft.
 - Users must understand when a record becomes immutable.
 - Significant unsaved work requires a warning before dismissal.
@@ -563,8 +577,9 @@ Before signing, show:
 
 - Client
 - Event date and time
-- Note type
+- Entry type
 - Author
+- Anteckning content
 - Confirmation that the record cannot be edited after signing
 - Correction workflow explanation where appropriate
 
@@ -587,6 +602,8 @@ Avoid vague labels such as:
 A signed record should visibly show:
 
 - Signerad
+- Event date and time
+- Entry type
 - Signer's name
 - Professional title
 - Role
@@ -596,15 +613,21 @@ A signed record should visibly show:
 Example:
 
 ```text
+Händelse
+1 augusti 2026 13:30
+
+Anteckningstyp
+Samtal
+
 Signerad av
 
 Anna Lindberg
 Pedagog
-2026-08-01 14:22
+1 augusti 2026 14:22
 LOG-2026-000143
 ```
 
-Signing information should resemble an official record rather than a social-media author footer.
+Signing information should resemble an official record rather than a social-media author footer. In Version 1 the draft author performs the signing action and becomes the signer. **Signera** is an authenticated Kaul action, not a cryptographic signature, BankID, or external electronic signature.
 
 ---
 
@@ -616,8 +639,6 @@ Each entry should clearly separate:
 
 - Metadata
 - Record content
-- Related goals
-- Incident status
 - Correction relationship
 - Signature information
 - Stable reference
@@ -626,14 +647,24 @@ Avoid card designs that resemble social feeds.
 
 ### Journal List
 
-A journal list should show:
+A Client's **Anteckningar** view should separate:
+
+- The current user's own open draft, when one exists
+- Signed entries available through current Client authorisation
+
+Another user's draft must not appear as a row, status, preview, count, empty
+state, or search result. This applies equally to Administrators. Once signed,
+an entry may appear for currently authorised users according to normal Client
+access rules; historical authorship does not preserve access.
+
+A signed-entry row may show:
 
 - Event date and time
 - Entry type
-- Short preview where appropriate
+- Signing date and time
 - Author
-- Signed or draft status
-- Incident status
+- Short preview where appropriate
+- Signed status
 - Stable reference
 
 ### Journal Detail
@@ -648,38 +679,22 @@ Journal text should:
 - Remain printable
 - Remain understandable outside its original screen
 
-Signed entries should not display edit actions.
+Signed entries must not display edit or delete actions, including for an Administrator.
 
 Correction actions should be clearly labelled:
 
 - Skapa rättelse
 
----
+A correction is displayed as a separate signed record linked to the original.
+The original remains visible and unchanged. The correction has its own author,
+content, signing information, and stable reference; the interface must not
+suggest that it replaced or rewrote the original.
 
-## Incident Presentation
-
-An incident is a journal entry with elevated visibility.
-
-Incident presentation may use:
-
-- Red border or marker
-- Incident label
-- Warning icon
-- Clear explanatory text
-
-It must not use red alone.
-
-Suggested label:
-
-- Incident
-
-Suggested notice:
-
-> En incident har dokumenterats för klienten.
-
-Incident styling should remain serious but not visually overwhelming.
-
-The interface must not imply that an incident is unresolved unless the domain contains an actual resolution workflow.
+**Skapa rättelse** is available only to a currently authorised assigned Staff
+Member or an Administrator with Organisation and Client access. The correction
+author saves or signs their own correction draft through the same explicit
+draft and signing actions. Version 1 links corrections directly to the
+original signed entry rather than presenting an arbitrary correction tree.
 
 ---
 
@@ -906,6 +921,8 @@ The interface should show only actions relevant to the current user's authority.
 May see:
 
 - All clients
+- Signed journal entries for Clients in their Organisation
+- Only their own unfinished Anteckning drafts
 - Personnel
 - Assignment controls
 - Organisation export
@@ -917,7 +934,8 @@ May see:
 May see:
 
 - Assigned clients
-- Their authorised journal records
+- Signed journal entries for currently assigned Clients
+- Only their own unfinished Anteckning draft for each assigned Client
 - Their authorised documents
 - Their authorised follow-ups
 - Their authorised reports
@@ -1534,5 +1552,9 @@ horizontal overflow. Only implemented workspace sections are shown.
 
 Milestone 3 Journal and Signed Records is the next product milestone. Later
 workspace sections remain unimplemented and must not be presented as active UI.
+Journal search, attachments, autosave, rich text, templates, incident
+classification, notifications, offline/PWA behaviour, and external or
+cryptographic signing remain deferred and must not appear as Milestone 3
+functionality.
 
 The interface should be reviewed with the initial users during pilot preparation and adjusted based on real workflow feedback without abandoning the principles in this document.
