@@ -1523,7 +1523,16 @@ The following interface patterns are not approved for Version 1:
 ## Current Status
 
 The user-interface direction is approved. Milestone 0 established the initial
-reusable components and visual foundation; current authenticated Staff and
-Client workflows are laptop-first and mobile-functional.
+reusable components and visual foundation. Milestone 2 Client workflows are
+complete: Staff Home provides an immediate assigned-Client overview with clear
+Primär/Sekundär responsibility, Administrator Client rows show current primary
+responsibility, and Client workspaces show compact current primary and secondary
+responsibility before management controls. Focused desktop and 375×812 browser
+evidence confirms that the current authenticated Client workflows are
+laptop-first, mobile-functional, keyboard-operable, and free from page-wide
+horizontal overflow. Only implemented workspace sections are shown.
+
+Milestone 3 Journal and Signed Records is the next product milestone. Later
+workspace sections remain unimplemented and must not be presented as active UI.
 
 The interface should be reviewed with the initial users during pilot preparation and adjusted based on real workflow feedback without abandoning the principles in this document.

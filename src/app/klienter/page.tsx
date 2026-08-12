@@ -40,6 +40,7 @@ export default async function ClientsPage() {
           canCreate={result.user.role === "ADMINISTRATOR"}
           clients={result.clients}
           operationId={generateAuditOperationId()}
+          showPrimaryStaff={result.user.role === "ADMINISTRATOR"}
         />
       </div>
     </ApplicationShell>

@@ -22,10 +22,12 @@ export function ClientList({
   clients,
   canCreate,
   operationId,
+  showPrimaryStaff,
 }: Readonly<{
   clients: readonly ClientListItem[];
   canCreate: boolean;
   operationId: string;
+  showPrimaryStaff: boolean;
 }>) {
   const initialState: ClientActionState = { status: "IDLE", operationId };
   const [state, action, pending] = useActionState(
@@ -202,6 +204,14 @@ export function ClientList({
                         <span>
                           Status: {getClientStatusLabel(client.status)}
                         </span>
+                        {showPrimaryStaff ? (
+                          <span>
+                            <strong>Primäransvarig:</strong>{" "}
+                            {client.primaryStaff
+                              ? `${client.primaryStaff.name} – ${client.primaryStaff.professionalTitle}`
+                              : "Ingen aktiv primär ansvarig"}
+                          </span>
+                        ) : null}
                       </Link>
                     </li>
                   ))}

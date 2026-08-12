@@ -16,13 +16,19 @@ Implemented now:
   management, and a maximum 12-hour session lifetime.
 - Persistent, immutable audit operations for the implemented authentication,
   staff, client, and assignment mutations.
-- Client creation with separate **Ungdomar** and **Vuxna** areas, plus primary
-  and secondary Staff assignments with server-side access control.
-- A laptop-first, mobile-functional authenticated application foundation.
+- Complete Milestone 2 Client management: separate **Ungdomar** and **Vuxna**
+  areas, Client creation and editing, read-only archiving, primary and secondary
+  Staff assignments, and central assignment-based server access.
+- Permission-aware basic Client search, a Staff Home showing currently assigned
+  Clients, and clear primary/secondary responsibility context in Client lists
+  and workspaces.
+- Laptop-first, mobile-functional authenticated Client workflows.
 
-Planned work includes the remaining client management features, journal entries
-and signing, documents, reports, search, exports, pilot readiness, and a later
-production-readiness decision. Kaul is not production-ready.
+Milestone 3 Journal and Signed Records is the next product milestone. Later work
+also includes documents, reports, global search, exports, pilot readiness, and a
+separate production-readiness decision. Production credential-delivery and
+sole-Administrator recovery procedures also remain unresolved. Kaul is not
+production-ready.
 
 ## Core stack
 

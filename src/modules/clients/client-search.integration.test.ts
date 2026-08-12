@@ -226,9 +226,11 @@ describe("permission-aware Client search with PostgreSQL", () => {
         "id",
         "lastName",
         "personIdentifier",
+        "primaryStaff",
         "status",
       ].sort(),
     );
+    expect(result[0]?.primaryStaff).toBeNull();
     expect(JSON.stringify(result)).not.toContain("assignments");
     expect(JSON.stringify(result)).not.toContain("count");
   });

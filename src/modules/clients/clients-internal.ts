@@ -19,6 +19,7 @@ import {
 } from "../audit/audit";
 import type { ApplicationUser } from "../authentication/guards";
 import type { AdministratorUser } from "../users/authorization";
+import { getOrdinaryClientAccessWhere } from "./client-access";
 import {
   archiveClientInputSchema,
   canonicalizePersonIdentifier,
@@ -50,6 +51,19 @@ export type ClientListItem = Readonly<{
   personIdentifier: string;
   category: string;
   status: ClientStatus;
+  primaryStaff?: Readonly<{
+    name: string;
+    professionalTitle: string;
+  }> | null;
+}>;
+
+export type AssignedClientHomeItem = Readonly<{
+  id: string;
+  firstName: string;
+  lastName: string;
+  personIdentifier: string;
+  category: string;
+  responsibility: AssignmentResponsibility;
 }>;
 
 export type ClientManagementErrorCode =
@@ -108,26 +122,6 @@ const clientListOrder = [
   { firstName: "asc" },
   { personIdentifier: "asc" },
 ] satisfies Prisma.ClientOrderByWithRelationInput[];
-
-function getOrdinaryClientAccessWhere(
-  user: ApplicationUser,
-): Prisma.ClientWhereInput {
-  return {
-    organisationId: user.organisationId,
-    ...(user.role === UserRole.STAFF_MEMBER
-      ? {
-          status: ClientStatus.ACTIVE,
-          assignments: {
-            some: { staffUserId: user.userId, endedAt: null },
-          },
-        }
-      : {
-          status: {
-            in: [ClientStatus.ACTIVE, ClientStatus.INACTIVE],
-          },
-        }),
-  };
-}
 
 function getTestDependencies(
   dependencies?: ClientManagementTestDependencies,
@@ -252,10 +246,82 @@ async function finishAmbiguous(intent: AuditIntentHandle): Promise<never> {
 export async function listClientsInternal(
   user: ApplicationUser,
 ): Promise<readonly ClientListItem[]> {
+  return findClientListItems(user, getOrdinaryClientAccessWhere(user));
+}
+
+async function findClientListItems(
+  user: ApplicationUser,
+  where: Prisma.ClientWhereInput,
+  take?: number,
+): Promise<readonly ClientListItem[]> {
+  if (user.role === UserRole.ADMINISTRATOR) {
+    const clients = await prisma.client.findMany({
+      where,
+      orderBy: clientListOrder,
+      take,
+      select: {
+        ...clientListSelection,
+        assignments: {
+          where: {
+            organisationId: user.organisationId,
+            responsibility: AssignmentResponsibility.PRIMARY,
+            endedAt: null,
+          },
+          take: 1,
+          select: {
+            staffUser: {
+              select: { name: true, professionalTitle: true },
+            },
+          },
+        },
+      },
+    });
+
+    return clients.map(({ assignments, ...client }) => ({
+      ...client,
+      primaryStaff: assignments[0]?.staffUser ?? null,
+    }));
+  }
+
   return prisma.client.findMany({
+    where,
+    orderBy: clientListOrder,
+    take,
+    select: clientListSelection,
+  });
+}
+
+export async function listAssignedClientsForHomeInternal(
+  user: ApplicationUser,
+): Promise<readonly AssignedClientHomeItem[]> {
+  if (user.role !== UserRole.STAFF_MEMBER) return [];
+
+  const clients = await prisma.client.findMany({
     where: getOrdinaryClientAccessWhere(user),
     orderBy: clientListOrder,
-    select: clientListSelection,
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      personIdentifier: true,
+      category: true,
+      assignments: {
+        where: {
+          organisationId: user.organisationId,
+          staffUserId: user.userId,
+          endedAt: null,
+        },
+        take: 1,
+        select: { responsibility: true },
+      },
+    },
+  });
+
+  return clients.flatMap(({ assignments, ...client }) => {
+    const assignment = assignments[0];
+    return assignment
+      ? [{ ...client, responsibility: assignment.responsibility }]
+      : [];
   });
 }
 
@@ -267,8 +333,9 @@ export async function searchClientsInternal(
 
   const nameTokens = query.split(/\s+/u);
 
-  return prisma.client.findMany({
-    where: {
+  return findClientListItems(
+    user,
+    {
       ...getOrdinaryClientAccessWhere(user),
       OR: [
         { personIdentifier: canonicalizePersonIdentifier(query) },
@@ -295,10 +362,8 @@ export async function searchClientsInternal(
         },
       ],
     },
-    orderBy: clientListOrder,
-    select: clientListSelection,
-    take: 50,
-  });
+    50,
+  );
 }
 
 export async function listArchivedClientsInternal(

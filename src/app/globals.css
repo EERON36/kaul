@@ -456,6 +456,39 @@ h2 {
   margin: 0;
 }
 
+.responsibility-summary {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+}
+
+.responsibility-summary > div {
+  padding: 1rem;
+  border: 1px solid var(--border);
+}
+
+.responsibility-summary dt {
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+}
+
+.responsibility-summary dd,
+.responsibility-name-list {
+  margin: 0;
+}
+
+.responsibility-summary dd,
+.responsibility-name-list li {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.responsibility-name-list {
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
 .client-edit-trigger {
   margin-top: 1rem;
 }
@@ -556,6 +589,10 @@ h2 {
 }
 
 @media (min-width: 48rem) {
+  .responsibility-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .client-search-form {
     grid-template-columns: minmax(0, 1fr) auto;
   }

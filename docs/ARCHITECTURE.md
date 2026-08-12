@@ -277,8 +277,15 @@ These features should be additive rather than requiring major redesign.
 
 Architecture approved.
 
-Milestone 0 is complete. Implemented modules now cover Better Auth-backed
-authentication and session guards, immutable audit operations, Administrator
-and Staff management, and Client management with assignment-based access and
-permission-aware basic Client search. Journal, document, report, global search,
-export, and other later-milestone modules remain unimplemented.
+Milestone 0 and Milestone 2 are complete. Implemented modules now cover Better
+Auth-backed authentication and session guards, immutable audit operations,
+Administrator and Staff management, and Client management with one central
+organisation-, lifecycle-, and Assignment-aware access scope for ordinary
+lists, permission-aware basic search, direct detail, and Staff Home. Role-aware
+Client-list projections provide current primary-responsibility context only to
+Administrators, while Staff Home returns only the current user's assigned
+Client overview and responsibility. Client workspaces present current primary
+and secondary responsibility without introducing future feature sections.
+Milestone 3 Journal and Signed Records is the next product milestone. Journal,
+document, report, global search, export, and other later-milestone modules remain
+unimplemented.

@@ -88,8 +88,11 @@ export function AssignmentManagement({
   );
 
   return (
-    <section aria-labelledby="assignment-heading" className="client-section">
-      <h2 id="assignment-heading">Ansvarig personal</h2>
+    <section
+      aria-labelledby="assignment-management-heading"
+      className="client-section"
+    >
+      <h2 id="assignment-management-heading">Hantera tilldelningar</h2>
       <form action={action}>
         <input name="operationId" type="hidden" value={state.operationId} />
         <input name="clientId" type="hidden" value={clientId} />

@@ -256,11 +256,15 @@ No production deployment should depend on homelab-specific infrastructure.
 
 Milestone 0 is complete. Milestone 1 authentication, audit, and Staff
 management slices are implemented, with production credential-delivery and
-sole-Administrator recovery procedures still outstanding. Milestone 2 Client
-Foundation, Client Editing, and Client Archiving are also implemented:
-Administrators can create and edit the permitted fields of **Ungdomar** and
-**Vuxna** Clients, manage Staff assignments, and archive eligible Clients into
-a separate read-only historical workflow. The ordinary Client workflow also
-supports permission-aware basic name and Personreferens search. Journal,
-document, report, global search, export, and other later-milestone functionality
-remain unimplemented.
+sole-Administrator recovery procedures still outstanding. Milestone 2 Clients
+and Assignments is complete: Administrators can create and edit the permitted
+fields of **Ungdomar** and **Vuxna** Clients, manage primary and secondary Staff
+assignments, see current primary responsibility in ordinary discovery, and
+archive eligible Clients into a separate read-only historical workflow. Staff
+Home shows currently assigned active Clients with the current user's
+responsibility, the Client workspace presents current primary and secondary
+responsibility, and permission-aware basic name and Personreferens search uses
+the same assignment-based access semantics. Milestone 3 Journal and Signed
+Records is the next product milestone. Journal, document, report, global search,
+export, and other later-milestone functionality remain unimplemented; Kaul is
+not production-ready.
