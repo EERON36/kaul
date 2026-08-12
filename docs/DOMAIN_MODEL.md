@@ -222,6 +222,13 @@ A client may have:
   grant access. If a new primary assignment later reactivates the client, those
   still-active secondary assignments grant access again.
 - An archived client has an archive date. Active and inactive clients do not.
+- A client may be archived only while `INACTIVE`, without an archive date, and
+  after every Assignment has been manually ended. Archiving never ends an
+  Assignment automatically.
+- Archived clients are read-only in Version 1. Administrators retain historical
+  access, but ordinary Client editing and Assignment management are unavailable.
+  Staff access and ordinary Staff Client discovery remain denied.
+- Restoring or unarchiving a Client is not part of Version 1.
 - Every active client must have at least one active primary assignment before ordinary staff access is granted.
 - Administrators may access all clients in their organisation.
 - Staff members may only access clients through an active assignment.

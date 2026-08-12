@@ -17,6 +17,12 @@ export function getClientManagementFeedback(error: unknown): string | null {
     if (error.code === "ASSIGNMENT_CONFLICT") {
       return "Tilldelningen kan inte genomföras i klientens nuvarande läge.";
     }
+    if (
+      error.code === "ARCHIVE_STATE_CONFLICT" ||
+      error.code === "ACTIVE_ASSIGNMENTS"
+    ) {
+      return "Klienten kan inte arkiveras i sitt nuvarande läge. Ladda om sidan och kontrollera tilldelningarna.";
+    }
     if (error.code === "NO_CHANGES") {
       return "Det finns inga ändringar att spara.";
     }

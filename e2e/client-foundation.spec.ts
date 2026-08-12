@@ -454,3 +454,204 @@ test("Client editing remains functional at a 375px viewport", async ({
     page.getByRole("button", { name: "Redigera klient" }),
   ).toBeVisible();
 });
+
+test("Administrator archives only after ending all Assignments while Staff remains denied", async ({
+  browser,
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await logIn(page, administratorEmail, "192.0.2.189");
+  await page.goto("/klienter");
+  await page.getByLabel("Förnamn").fill("Arkiverbar");
+  await page.getByLabel("Efternamn").fill("Klient");
+  await page.getByLabel("Personreferens").fill("e2e-archive-client");
+  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByRole("button", { name: "Skapa klient" }).click();
+  await page.getByRole("link", { name: /Arkiverbar Klient/ }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Arkivera klient" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Arkivera klient" }),
+  ).toBeEnabled();
+
+  await page
+    .getByLabel("Medarbetare")
+    .selectOption({ label: "Fiktiv Primär – Fiktiv behandlare" });
+  await page.getByLabel("Ansvar", { exact: true }).selectOption("PRIMARY");
+  await page.getByRole("button", { name: "Lägg till tilldelning" }).click();
+  await expect(page.getByText("Tilldelningen har sparats.")).toBeVisible();
+  await page
+    .getByLabel("Medarbetare")
+    .selectOption({ label: "Fiktiv Sekundär – Fiktiv behandlare" });
+  await page.getByLabel("Ansvar", { exact: true }).selectOption("SECONDARY");
+  await page.getByRole("button", { name: "Lägg till tilldelning" }).click();
+  await expect(page.getByText("Tilldelningen har sparats.")).toBeVisible();
+
+  await expect(
+    page.getByText(
+      "Klienten kan inte arkiveras förrän alla aktiva tilldelningar har avslutats.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Arkivera klient" }),
+  ).toBeDisabled();
+
+  for (const staffName of ["Fiktiv Primär", "Fiktiv Sekundär"]) {
+    page.once("dialog", (dialog) => dialog.accept());
+    await page
+      .locator("li", { hasText: staffName })
+      .getByRole("button", { name: "Avsluta tilldelning" })
+      .click();
+    await expect(
+      page.locator("li", { hasText: staffName }).getByText("Avslutad"),
+    ).toBeVisible();
+  }
+  await expect(
+    page.getByRole("button", { name: "Arkivera klient" }),
+  ).toBeEnabled();
+
+  const client = await prisma.client.findFirstOrThrow({
+    where: { personIdentifier: "E2E-ARCHIVE-CLIENT" },
+  });
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "Arkivera klient" }).click();
+  await expect(
+    prisma.client.findUniqueOrThrow({ where: { id: client.id } }),
+  ).resolves.toMatchObject({
+    status: "INACTIVE",
+    archivedAt: null,
+  });
+
+  page.once("dialog", (dialog) => dialog.accept());
+  const archiveRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.headerValue("next-action") !== null,
+  );
+  await page.getByRole("button", { name: "Arkivera klient" }).click();
+  const archiveRequest = await archiveRequestPromise;
+  const archiveRequestHeaders = await archiveRequest.allHeaders();
+  const directArchiveRequest = {
+    url: archiveRequest.url(),
+    body: archiveRequest.postData() ?? "",
+    headers: Object.fromEntries(
+      ["accept", "content-type", "next-action", "next-router-state-tree", "rsc"]
+        .map((name) => [name, archiveRequestHeaders[name]] as const)
+        .filter(
+          (entry): entry is readonly [string, string] => entry[1] !== undefined,
+        ),
+    ),
+  };
+
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}?arkiverad=klar`,
+  );
+  await expect(page.getByText("Klienten har arkiverats.")).toBeVisible();
+  await expect(
+    page.locator(".client-details dd").filter({ hasText: "Arkiverad" }),
+  ).toBeVisible();
+  await expect(page.getByText("Fiktiv Primär")).toBeVisible();
+  await expect(page.getByText("Fiktiv Sekundär")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Redigera klient" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Lägg till tilldelning" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Avsluta tilldelning" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Arkivera klient" }),
+  ).toHaveCount(0);
+
+  await page.goto("/klienter");
+  await expect(page.getByText("E2E-ARCHIVE-CLIENT")).toHaveCount(0);
+  await page.getByRole("link", { name: "Visa arkiverade klienter" }).click();
+  await expect(page.getByText("E2E-ARCHIVE-CLIENT")).toBeVisible();
+  await page.getByRole("link", { name: /Arkiverbar Klient/ }).click();
+  await expect(
+    page.getByRole("link", { name: "Till Arkiverade klienter" }),
+  ).toBeVisible();
+
+  const staffContext = await browser.newContext();
+  const staffPage = await staffContext.newPage();
+  await logIn(staffPage, primaryEmail, "192.0.2.190");
+  await staffPage.goto("/klienter");
+  await expect(staffPage.getByText("E2E-ARCHIVE-CLIENT")).toHaveCount(0);
+  await expect(
+    staffPage.getByRole("link", { name: "Visa arkiverade klienter" }),
+  ).toHaveCount(0);
+  await staffPage.goto(`/klienter/${client.id}`);
+  await expect(
+    staffPage.getByText("This page could not be found"),
+  ).toBeVisible();
+  await staffPage.goto("/klienter/arkiverade");
+  await expect(
+    staffPage.getByText("This page could not be found"),
+  ).toBeVisible();
+
+  const directMutation = await staffPage.evaluate(async (request) => {
+    const response = await fetch(request.url, {
+      method: "POST",
+      headers: request.headers,
+      body: request.body,
+      credentials: "same-origin",
+    });
+    return { ok: response.ok, status: response.status };
+  }, directArchiveRequest);
+  expect(directMutation.ok).toBe(false);
+  await expect(
+    prisma.client.findUniqueOrThrow({ where: { id: client.id } }),
+  ).resolves.toMatchObject({ status: "ARCHIVED" });
+  await staffContext.close();
+});
+
+test("Client archive list, confirmation, and detail remain usable at 375px", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await logIn(page, administratorEmail, "192.0.2.191");
+  await page.goto("/klienter");
+  await page.getByLabel("Förnamn").fill("Mobilarkiv");
+  await page.getByLabel("Efternamn").fill("Klient");
+  await page.getByLabel("Personreferens").fill("e2e-mobile-archive");
+  await page.getByLabel("Kategori").selectOption("YOUTH");
+  await page.getByRole("button", { name: "Skapa klient" }).click();
+  await page.getByRole("link", { name: /Mobilarkiv Klient/ }).click();
+
+  await expect(
+    page.getByText("Åtgärden kan inte ångras i Kaul.", { exact: false }),
+  ).toHaveCount(0);
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("Åtgärden kan inte ångras i Kaul.");
+    await dialog.accept();
+  });
+  await page.getByRole("button", { name: "Arkivera klient" }).click();
+  await expect(page.getByText("Klienten har arkiverats.")).toBeVisible();
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
+
+  await page.getByRole("link", { name: "Till Arkiverade klienter" }).click();
+  await expect(page.getByText("E2E-MOBILE-ARCHIVE")).toBeVisible();
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
+  await page.getByRole("link", { name: /Mobilarkiv Klient/ }).click();
+  await expect(
+    page.locator(".client-details dd").filter({ hasText: "Arkiverad" }),
+  ).toBeVisible();
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
+});

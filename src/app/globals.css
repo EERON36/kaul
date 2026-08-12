@@ -372,6 +372,10 @@ h2 {
   border: 1px solid var(--border);
 }
 
+.archive-section {
+  border-top: 0.25rem solid #8a1c1c;
+}
+
 .client-list,
 .assignment-list {
   display: grid;
@@ -524,6 +528,7 @@ h2 {
   .form-actions .secondary-button,
   .client-edit-trigger,
   .assignment-list .secondary-button,
+  .archive-section .secondary-button,
   .staff-card .secondary-button {
     width: 100%;
   }

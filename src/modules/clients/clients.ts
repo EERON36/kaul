@@ -6,6 +6,7 @@ import {
 } from "../authentication/guards";
 import { requireAdministrator } from "../users/authorization";
 import type {
+  ArchiveClientInput,
   CreateAssignmentInput,
   CreateClientInput,
   EndAssignmentInput,
@@ -13,10 +14,12 @@ import type {
 } from "./client-input";
 import {
   ClientManagementError,
+  archiveClientInternal,
   createAssignmentInternal,
   createClientInternal,
   endAssignmentInternal,
   listAssignableStaffInternal,
+  listArchivedClientsInternal,
   listClientsInternal,
   updateClientInternal,
   type ClientListItem,
@@ -24,6 +27,7 @@ import {
 
 export {
   ClientManagementError,
+  type ArchiveClientInput,
   type ClientListItem,
   type CreateAssignmentInput,
   type CreateClientInput,
@@ -44,6 +48,11 @@ export async function listAssignableStaff() {
   return listAssignableStaffInternal(actor);
 }
 
+export async function listArchivedClients() {
+  const actor = await requireAdministrator();
+  return { user: actor, clients: await listArchivedClientsInternal(actor) };
+}
+
 export async function createClient(input: CreateClientInput) {
   const actor = await requireAdministrator();
   return createClientInternal(input, actor);
@@ -52,6 +61,11 @@ export async function createClient(input: CreateClientInput) {
 export async function updateClient(input: UpdateClientInput) {
   const actor = await requireAdministrator();
   return updateClientInternal(input, actor);
+}
+
+export async function archiveClient(input: ArchiveClientInput) {
+  const actor = await requireAdministrator();
+  return archiveClientInternal(input, actor);
 }
 
 export async function createAssignment(input: CreateAssignmentInput) {

@@ -20,10 +20,12 @@ import {
 import type { ApplicationUser } from "../authentication/guards";
 import type { AdministratorUser } from "../users/authorization";
 import {
+  archiveClientInputSchema,
   createAssignmentInputSchema,
   createClientInputSchema,
   endAssignmentInputSchema,
   updateClientInputSchema,
+  type ArchiveClientInput,
   type CreateAssignmentInput,
   type CreateClientInput,
   type EndAssignmentInput,
@@ -45,6 +47,8 @@ export type ClientManagementErrorCode =
   | "DUPLICATE_IDENTIFIER"
   | "TARGET_UNAVAILABLE"
   | "ASSIGNMENT_CONFLICT"
+  | "ARCHIVE_STATE_CONFLICT"
+  | "ACTIVE_ASSIGNMENTS"
   | "NO_CHANGES"
   | "INCONSISTENT_RESULT"
   | "OPERATION_AMBIGUOUS";
@@ -77,6 +81,7 @@ class DefinitiveMutationError extends Error {
 }
 
 export type ClientManagementTestDependencies = Readonly<{
+  beforeBusinessTransaction?: () => void | Promise<void>;
   afterBusinessMutation?: () => void | Promise<void>;
 }>;
 
@@ -213,7 +218,36 @@ export async function listClientsInternal(
               some: { staffUserId: user.userId, endedAt: null },
             },
           }
-        : {}),
+        : {
+            status: {
+              in: [ClientStatus.ACTIVE, ClientStatus.INACTIVE],
+            },
+          }),
+    },
+    orderBy: [
+      { lastName: "asc" },
+      { firstName: "asc" },
+      { personIdentifier: "asc" },
+    ],
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      personIdentifier: true,
+      category: true,
+      status: true,
+    },
+  });
+}
+
+export async function listArchivedClientsInternal(
+  actor: AdministratorUser,
+): Promise<readonly ClientListItem[]> {
+  return prisma.client.findMany({
+    where: {
+      organisationId: actor.organisationId,
+      status: ClientStatus.ARCHIVED,
+      archivedAt: { not: null },
     },
     orderBy: [
       { lastName: "asc" },
@@ -367,6 +401,9 @@ export async function updateClientInternal(
   if (!preflightClient) {
     throw new ClientManagementError("TARGET_UNAVAILABLE");
   }
+  if (preflightClient.status === ClientStatus.ARCHIVED) {
+    throw new ClientManagementError("TARGET_UNAVAILABLE");
+  }
   if (clientEditableFieldsEqual(preflightClient, nextFields)) {
     return { changed: false, client: preflightClient };
   }
@@ -399,6 +436,9 @@ export async function updateClientInternal(
       });
 
       if (!current) {
+        throw new DefinitiveMutationError("TARGET_UNAVAILABLE");
+      }
+      if (current.status === ClientStatus.ARCHIVED) {
         throw new DefinitiveMutationError("TARGET_UNAVAILABLE");
       }
       if (clientEditableFieldsEqual(current, nextFields)) {
@@ -444,6 +484,120 @@ export async function updateClientInternal(
     });
 
     return { changed: true, client: updated };
+  } catch (error) {
+    return transactionCompleted
+      ? finishAmbiguous(intent)
+      : finishFailed(intent, error);
+  }
+}
+
+export async function archiveClientInternal(
+  input: ArchiveClientInput,
+  actor: AdministratorUser,
+  testDependencies?: ClientManagementTestDependencies,
+): Promise<Readonly<{ clientId: string; archivedAt: Date }>> {
+  const parsed = archiveClientInputSchema.parse(input);
+  const dependencies = getTestDependencies(testDependencies);
+  const [currentAdministrator, preflightClient] = await Promise.all([
+    prisma.user.findFirst({
+      where: {
+        id: actor.userId,
+        organisationId: actor.organisationId,
+        role: UserRole.ADMINISTRATOR,
+        banned: { not: true },
+      },
+      select: { id: true },
+    }),
+    prisma.client.findFirst({
+      where: {
+        id: parsed.clientId,
+        organisationId: actor.organisationId,
+      },
+      select: {
+        id: true,
+        status: true,
+        archivedAt: true,
+        _count: { select: { assignments: { where: { endedAt: null } } } },
+      },
+    }),
+  ]);
+
+  if (!currentAdministrator || !preflightClient) {
+    throw new ClientManagementError("TARGET_UNAVAILABLE");
+  }
+  if (preflightClient._count.assignments > 0) {
+    throw new ClientManagementError("ACTIVE_ASSIGNMENTS");
+  }
+  if (
+    preflightClient.status !== ClientStatus.INACTIVE ||
+    preflightClient.archivedAt !== null
+  ) {
+    throw new ClientManagementError("ARCHIVE_STATE_CONFLICT");
+  }
+
+  const intent = await createUserAuditIntent({
+    operationId: parsed.operationId,
+    actor,
+    action: "CLIENT_ARCHIVED",
+    target: { targetId: parsed.clientId },
+  });
+  let transactionCompleted = false;
+
+  try {
+    await dependencies.beforeBusinessTransaction?.();
+    return await prisma.$transaction(async (transaction) => {
+      await lockClient(transaction, parsed.clientId);
+      await assertCurrentAdministrator(transaction, actor);
+      const current = await transaction.client.findFirst({
+        where: {
+          id: parsed.clientId,
+          organisationId: actor.organisationId,
+        },
+        select: {
+          id: true,
+          status: true,
+          archivedAt: true,
+          _count: { select: { assignments: { where: { endedAt: null } } } },
+        },
+      });
+
+      if (!current) {
+        throw new DefinitiveMutationError("TARGET_UNAVAILABLE");
+      }
+      if (current._count.assignments > 0) {
+        throw new DefinitiveMutationError("ACTIVE_ASSIGNMENTS");
+      }
+      if (
+        current.status !== ClientStatus.INACTIVE ||
+        current.archivedAt !== null
+      ) {
+        throw new DefinitiveMutationError("ARCHIVE_STATE_CONFLICT");
+      }
+
+      const archivedAt = new Date();
+      const archived = await transaction.client.updateMany({
+        where: {
+          id: current.id,
+          organisationId: actor.organisationId,
+          status: ClientStatus.INACTIVE,
+          archivedAt: null,
+        },
+        data: { status: ClientStatus.ARCHIVED, archivedAt },
+      });
+      if (archived.count !== 1) {
+        throw new DefinitiveMutationError("ARCHIVE_STATE_CONFLICT");
+      }
+
+      await dependencies.afterBusinessMutation?.();
+      await appendAuditOutcomeInTransaction(
+        transaction,
+        intent,
+        "SUCCEEDED",
+        current.id,
+      );
+      transactionCompleted = true;
+      return { clientId: current.id, archivedAt };
+    });
   } catch (error) {
     return transactionCompleted
       ? finishAmbiguous(intent)

@@ -27,6 +27,7 @@ const clientDetailSelection = {
   personIdentifier: true,
   category: true,
   status: true,
+  archivedAt: true,
   assignments: {
     orderBy: [{ endedAt: "asc" }, { startedAt: "desc" }],
     select: {
