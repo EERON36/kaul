@@ -24,6 +24,8 @@ Kaul consists of the following systems:
 - User Management
 - Client Management
 - Journal System
+- Goal System
+- Follow-up System
 - Document System
 - Search
 - Reporting
@@ -153,6 +155,86 @@ architecture and its durable-intent and immutable-outcome principles. Ordinary
 draft saves do not create immutable audit noise. The foundation does not audit
 draft creation or discard, and it does not introduce read/view audit events.
 
+While a Journal entry remains the author's draft, the Journal System accepts
+zero or more Goal selections validated against the same Client and
+Organisation. Signing freezes immutable reference rows containing each Goal
+identifier and signing-time title. The signed record, not the current Goal,
+owns that historical display context. Later Goal edits or lifecycle changes
+cannot rewrite it, and retrospective Goal linking to signed entries is not
+permitted.
+
+---
+
+# Goal System
+
+Responsible for:
+
+- Shared Client Goals
+- `ACTIVE` and `PAUSED` editing
+- Terminal completion and archival
+- Retained Goal history
+- Goal eligibility for Follow-up and Journal references
+
+Goals have no responsible owner in Version 1. They remain ordinary editable
+planning records rather than signed records. The Goal System remains a module
+inside Kaul's modular monolith and uses the central Client-access boundary and
+existing Audit Log without introducing a service or workflow engine.
+
+Every mutation revalidates current Client access. Access-sensitive mutations
+share the existing per-Client transaction lock with Client lifecycle,
+Assignment, Journal, and Follow-up changes where those operations can race.
+Editable states use an integer optimistic version so stale submissions cannot
+overwrite newer content. Goal records in every lifecycle state are retained and
+cannot be hard-deleted or cascade-deleted through ordinary application
+behaviour. Terminal Goal records also cannot be edited or reopened.
+
+---
+
+# Follow-up System
+
+Responsible for:
+
+- Shared concrete future Client actions and checks
+- One stored responsible user, with eligibility checked when selected
+- Optional same-Client Goal context
+- Due-date and optional due-time semantics
+- Completion and cancellation
+- Derived overdue, due-today, and upcoming queries
+- Narrow immutable responsibility-change history
+- The current user's authorised **Att göra** Home projection
+
+The Follow-up System persists only `PLANNED`, `COMPLETED`, and `CANCELLED`.
+Overdue, due-today, and upcoming are calculated using `Europe/Stockholm`; they
+are not stored lifecycle states. Ambiguous or nonexistent local clock times are
+rejected rather than guessed.
+
+The Follow-up System remains a module inside Kaul's modular monolith. It is a
+bounded Client-planning module rather than a generic task-management service.
+
+Responsibility routes attention but grants no access. Assignment and
+reassignment resolve the responsible user server-side and revalidate active
+same-Organisation current Client access. If that access later ends, the record
+and stored responsible user remain until explicit reassignment, responsibility
+history remains, the item disappears immediately from the former user's Home,
+Assignment or account/access changes continue, and currently authorised users
+see that reassignment is required.
+
+Follow-up mutations use the central Client-access boundary, the shared
+per-Client transaction lock where access changes can race, optimistic versions,
+and expected-state updates. Database relationships preserve Organisation and
+Client scope for the Client, optional Goal, creator, responsible user, lifecycle
+actors, and responsibility history. Goal lifecycle changes never cascade to a
+Follow-up.
+
+Follow-up records in every lifecycle state are retained and cannot be
+hard-deleted or cascade-deleted through ordinary application behaviour.
+`COMPLETED` and `CANCELLED` records also cannot be edited, reassigned, or
+reopened.
+
+The Follow-up System uses the Audit Log only for reassignment, completion, and
+cancellation. It does not create Journal records, notifications, calendar
+events, recurrence, subtasks, or workflow automation.
+
 ---
 
 # Document System
@@ -247,10 +329,22 @@ Examples:
 - Client creation
 - Client assignment
 - Journal creation
+- Goal completion and archive
+- Follow-up reassignment, completion, and cancellation
 - Document upload
 - Export generation
 
-The audit log exists for traceability.
+The audit log exists for traceability. Milestone 4 audited transitions use the
+existing durable intent and immutable outcome architecture, with the business
+transition and successful outcome coupled where the existing audit guarantees
+require it. Expected-state updates and operation identity prevent repeated
+requests from producing duplicate business outcomes or success evidence.
+
+Ordinary planning creation, edits, Goal pause/resume, reads, calculated due
+states, and no-op submissions are represented by retained domain records and do
+not create immutable audit noise. Audit records contain stable identifiers, not
+Client names, Goal or Follow-up descriptions, Journal text, request bodies, or
+exception text.
 
 ---
 
@@ -268,7 +362,7 @@ Client Management determines which clients are accessible.
 
 ↓
 
-Journal, Documents, Search and Reports use those permissions.
+Journal, Goals, Follow-ups, Documents, Search and Reports use those permissions.
 
 ↓
 

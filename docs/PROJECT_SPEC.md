@@ -133,6 +133,8 @@ Can:
 - View signed documentation for clients in their organisation
 - Create and manage only their own unfinished Anteckning drafts for authorised
   clients
+- View and manage shared Goals and Follow-ups for non-archived clients in their
+  organisation; archived planning information is read-only
 - Export organisation data
 - Archive clients
 
@@ -147,6 +149,8 @@ Can:
 - Create and manage only their own unfinished Anteckning drafts for currently
   assigned clients
 - View signed journal entries for currently assigned clients
+- View and manage shared Goals and Follow-ups for currently assigned active
+  clients
 - Upload documents
 - Generate reports
 - Search assigned documentation
@@ -187,6 +191,36 @@ unchanged.
 
 ---
 
+# Goals and Follow-ups
+
+Goals describe what a Client is working toward. Follow-ups describe what needs
+to happen next. They are shared Client planning information, not private user
+records, signed Journal records, or a generic task-management system.
+
+Every Goal and Follow-up read or mutation requires normal current Client
+authorisation. Historical creation, activity, or responsibility does not grant
+or preserve access. Goals have no responsible owner in Version 1. Every
+Follow-up stores one responsible user. When responsibility is assigned or
+reassigned, the selected user must be active, belong to the same Organisation,
+and currently have normal Client access. Responsibility is an attention and
+accountability concept rather than an access boundary. If that access later
+ends, the stored responsible user remains until an authorised user explicitly
+reassigns the Follow-up, while the former responsible user immediately loses
+visibility.
+
+Goals and Follow-ups cannot be hard-deleted in any lifecycle state in Version
+1. Terminal Goals cannot be edited or reopened; terminal Follow-ups cannot be
+edited, reassigned, or reopened. Goal selection is optional during Journal
+drafting. Signing preserves the selected Goal identifiers and their signing-time
+titles as immutable Journal context; later Goal changes do not rewrite a signed
+entry.
+
+Completing a Follow-up never automatically creates or signs a Journal entry.
+Notifications, calendar integration, recurrence, subtasks, workflow automation,
+productivity metrics, and automatic documentation remain outside Version 1.
+
+---
+
 # Client Categories
 
 The system supports two client categories that must remain clearly separated in
@@ -211,6 +245,8 @@ Version 1 must include:
 - Client assignment
 - Journal entries
 - Signed records
+- Client Goals
+- Client Follow-ups
 - Document uploads
 - Weekly reports
 - Search
@@ -247,6 +283,8 @@ The system must support complete export of:
 - Staff
 - Assignments
 - Journal entries
+- Goals
+- Follow-ups
 - Documents
 - Uploaded files
 - Reports

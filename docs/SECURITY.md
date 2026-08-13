@@ -201,6 +201,10 @@ Organisation. An unfinished Anteckning draft is the explicit exception:
 Administrators may access only their own draft and only while normal Client
 authorisation remains valid.
 
+Administrators may view and manage shared Goals and Follow-ups for
+non-archived Clients in their Organisation. They may view archived Client
+planning information read-only.
+
 Administrative access must still remain auditable.
 
 ### Staff Access
@@ -209,6 +213,9 @@ Staff members may access only clients connected to them through an active primar
 
 Within an authorised Client, a Staff Member may read signed journal entries but
 may access only their own unfinished Anteckning draft.
+
+While the Client remains active and assigned, the Staff Member may view and
+manage its shared Goals and Follow-ups.
 
 ### Authorisation Requirements
 
@@ -231,14 +238,31 @@ The server must enforce access for:
 ### Authorisation Rules
 
 - Hidden navigation is not access control.
-- Client, user, role, assignment, author, signer, and Organisation identifiers
-  supplied by the browser are untrusted.
+- Client, user, role, assignment, author, signer, responsible-user, Goal,
+  Follow-up, and Organisation identifiers supplied by the browser are
+  untrusted.
 - Permission checks must occur immediately before protected reads or mutations.
 - Ending an assignment removes future staff access.
-- Historical authorship does not preserve client access.
+- Historical creation, authorship, Goal activity, or Follow-up responsibility
+  does not grant or preserve Client access.
 - Draft authorship does not preserve access after the author loses current
   Client authorisation.
-- Staff members cannot assign themselves.
+- Goals and Follow-ups are shared Client planning information rather than
+  private user records. Follow-up responsibility is not an authorisation
+  boundary.
+- Rows, links, counts, Home items, and future badges must reapply current Client
+  access and must not disclose inaccessible Client information.
+- Every Follow-up assignment or reassignment must resolve the responsible user
+  server-side and revalidate that the user is active, belongs to the same
+  Organisation, and currently has normal Client access. Eligible users are
+  currently assigned Staff Members and Administrators with Organisation Client
+  access.
+- Later access loss does not block Assignment removal or automatically reassign
+  a Follow-up. The former responsible user loses all read and mutation access,
+  and the item must disappear immediately from that user's Home.
+- Staff Members cannot create or grant Client Assignments for themselves. This
+  does not prevent an already authorised user from selecting themselves as the
+  responsible user for a Follow-up.
 - Export access is restricted to administrators in Version 1.
 - Reusable central permission functions should be used.
 - Permission behaviour must include automated denied-access tests.
@@ -311,6 +335,15 @@ They require stronger protection than ordinary editable content.
   Member or an Administrator with Organisation and Client access. Only that
   correction's author may save, discard, or sign it.
 - Stable journal references must be preserved.
+- While the author's entry is a draft, the author may select zero or more Goals
+  from that same Client and Organisation. Goal selection remains optional and
+  must not reveal inaccessible Clients or Goals.
+- Signing must atomically freeze every selected Goal identifier and its
+  signing-time title as immutable Journal context. Signed Goal-reference rows
+  cannot later be added, removed, changed, or retrospectively created.
+- Later Goal edits, completion, or archiving must not alter signed Journal
+  presentation. A Goal reference does not grant Journal or Client access and
+  does not mutate the Goal.
 - Journal content must not appear in ordinary operational logs.
 - Journal content must not be placed in audit metadata.
 - Draft creation and discard may be audited. Signing an original and signing a
@@ -318,6 +351,44 @@ They require stronger protection than ordinary editable content.
   durable-intent and immutable-outcome architecture.
 
 Attempts to modify signed records must be rejected and tested.
+
+---
+
+## Planning Integrity
+
+Goals and Follow-ups are ordinary editable planning records rather than signed
+professional records. Their integrity controls must remain proportionate while
+preserving access, history, and audited terminal actions.
+
+### Planning Requirements
+
+- Every read and mutation requires current Organisation and Client
+  authorisation. Protected mutations must revalidate that access while holding
+  the existing Client mutation serialisation when Assignment or Client
+  lifecycle changes can race.
+- Goal and Follow-up editable states use optimistic versions. A stale edit must
+  fail without silently overwriting newer content.
+- Goal, Follow-up, optional Goal link, creator, lifecycle actor, responsible
+  user, and responsibility-history relationships must structurally preserve
+  the same Organisation and Client scope where applicable.
+- Responsible-user eligibility must be revalidated during creation and
+  reassignment. Responsibility never grants access.
+- Duplicate completion, cancellation, archival, and reassignment requests must
+  not create two business outcomes or duplicate successful audit evidence.
+- Goals and Follow-ups in every lifecycle state remain retained and cannot be
+  hard-deleted or cascade-deleted through ordinary application behaviour.
+  Terminal records also cannot be edited, reassigned where applicable, or
+  reopened.
+- Narrow immutable Follow-up responsibility history preserves the previous
+  responsible user, new responsible user, actor, and timestamp without copying
+  Client names or planning text.
+- Goal and Follow-up descriptions, Journal text, Client names, request bodies,
+  exception text, and other sensitive free text must not enter audit records or
+  ordinary operational logs.
+- Journal's stronger signing and recovery machinery applies to immutable signed
+  Goal-reference context and the approved audited planning transitions. It must
+  not be copied onto ordinary planning edits, reads, or calculated due-state
+  changes.
 
 ---
 
@@ -486,6 +557,8 @@ Examples include:
 - Journal draft creation or discard where required by audit policy
 - Journal signing
 - Journal correction
+- Goal completion or archive
+- Follow-up reassignment, completion, or cancellation
 - Document upload or replacement
 - Report finalisation
 - Organisation export
@@ -505,10 +578,21 @@ with the `ARCHIVED` status and server-owned archive timestamp after the
 Administrator, Organisation, lifecycle state, and absence of active Assignments
 have been revalidated inside the transaction.
 
+The accepted Milestone 4 planning action identifiers are
+`GOAL_COMPLETED`, `GOAL_ARCHIVED`, `FOLLOW_UP_REASSIGNED`,
+`FOLLOW_UP_COMPLETED`, and `FOLLOW_UP_CANCELLED`. They use the existing
+immutable audit-operation and outcome guarantees for the specific transition.
+Creation is represented sufficiently in Version 1 by each retained record's
+creator and creation timestamp.
+
 ### Audit Rules
 
 - Protected Administrator mutations must first commit an immutable durable audit
   intent. If the intent cannot be persisted, the mutation must not begin.
+- The approved Goal and Follow-up audited transitions use the same durable
+  intent and immutable outcome guarantees whether the authorised actor is an
+  Administrator or Staff Member. If the intent cannot be persisted, the
+  transition must not begin.
 - Mutation outcomes and reviewed recoveries are separate append-only records. An
   intent is never updated to represent success or failure.
 - `FAILED` is used only after a definitive rollback or failed deletion.
@@ -544,6 +628,14 @@ have been revalidated inside the transaction.
   must not exist without its successful audit evidence.
 - Read or view events are not introduced for Journal records unless a separate
   authoritative policy later requires them.
+- Goal and Follow-up reads, creation, ordinary title, description, due-date or
+  target-date edits, Goal pause or resume, calculated overdue or upcoming
+  changes, and no-op submissions do not create immutable audit events in
+  Version 1.
+- Planning audit records contain only the approved stable action and historical
+  identifiers needed for attribution. They must not contain Goal or Follow-up
+  descriptions, Journal text, Client names, other sensitive free text, request
+  bodies, or exception text.
 - Audit retention will be defined before production use.
 
 The audit log is not a substitute for the journal or operational logs.
@@ -749,7 +841,14 @@ Automated tests should prioritise:
 - Simultaneous and repeated signing rejection
 - Current Client authorisation for signed-entry reads
 - Signed-entry immutability
+- Same-Client and same-Organisation Journal Goal-reference integrity
+- Signed Goal-reference immutability and signing-time title preservation
 - Same-Client and same-Organisation correction integrity
+- Current Client access for Goal and Follow-up reads and mutations
+- Goal and Follow-up stale-write and terminal-state rejection
+- Responsible-user eligibility and access-loss Home removal
+- Same-Client and same-Organisation Follow-up Goal-link integrity
+- Duplicate planning transition and audit-evidence rejection
 - Document download permissions
 - Search-result permissions
 - Export permissions

@@ -125,6 +125,9 @@ A user may have:
 - Many client assignments
 - Many created journal entries
 - Many signed journal entries
+- Many created goals
+- Many created follow-ups
+- Many responsible follow-ups
 - Many uploaded documents
 - Many created reports
 - Many audit events
@@ -378,42 +381,74 @@ entry-type vocabulary.
 - The Journal lifecycle must prevent stale draft overwrites, simultaneous or
   repeated signing, duplicate open drafts for one author and Client, signed
   record mutation or deletion, and invalid or cross-boundary correction links.
+- While the author's entry remains a draft, the author may select zero or more
+  Goals belonging to that same Client and Organisation. Goal selection remains
+  optional.
+- Signing freezes each selected Goal identifier and the Goal title displayed at
+  signing time as immutable signed-record context. Signed Goal-reference rows
+  cannot later be added, removed, or changed, and later Goal edits or lifecycle
+  changes do not alter the signed display.
+- Signed entries cannot receive retrospective Goal links. A Goal reference does
+  not mutate the Goal or grant Journal or Client access.
 - A journal entry should remain understandable when exported independently of the Kaul interface.
 
 ---
 
 ## Goal
 
-A goal represents an agreed area of focus for a client.
+A goal represents an agreed area of focus for a Client: what the Client is
+working toward.
 
 Goals may be used to connect daily documentation with longer-term support work.
+They are ordinary shared planning objects, not signed records, and have no
+responsible owner in Version 1.
 
 A goal has:
 
+- Organisation
 - Client
-- Title
-- Description
+- Required concise title
+- Optional description
 - Status
-- Start date
+- Required explicit start date
 - Optional target or review date
+- Creator
 - Created date
 - Updated date
-- Archived date where applicable
+- Completion date and actor where applicable
+- Archive date and actor where applicable
+- Version for optimistic stale-write protection
 
-Possible statuses include:
+Version 1 statuses are:
 
-- Active
-- Paused
-- Completed
-- Archived
+- `ACTIVE`
+- `PAUSED`
+- `COMPLETED`
+- `ARCHIVED`
 
 A goal may be referenced by many journal entries.
 
 ### Goal Rules
 
+- Every goal belongs to exactly one organisation.
 - Every goal belongs to exactly one client.
-- Goals should not be represented as artificial percentage progress unless the organisation defines a meaningful measurement.
-- Changing a goal must not alter the historical meaning of journal entries that previously referenced it.
+- New Goals are `ACTIVE`.
+- The create form initially prefills the current `Europe/Stockholm` calendar
+  date, and the user may change it before saving. The submitted start date must
+  still be explicit and server-validated; product policy does not require a
+  database default.
+- `ACTIVE` and `PAUSED` Goals may be edited and may transition between those
+  two states.
+- An `ACTIVE` or `PAUSED` Goal may transition to `COMPLETED` when the desired
+  outcome was concluded as achieved, or to `ARCHIVED` when it was retired
+  without claiming completion.
+- Goals cannot be hard-deleted in any lifecycle state in Version 1.
+- `COMPLETED` and `ARCHIVED` are terminal in Version 1. A terminal Goal cannot
+  be edited or reopened. Further work requires a new Goal.
+- Goals use no artificial percentage progress.
+- Changing a Goal must not alter the historical meaning of signed Journal
+  entries that previously referenced it. Signing preserves the referenced Goal
+  identifier and signing-time title independently of later Goal changes.
 - Completed and archived goals remain visible in client history.
 - A journal entry may relate to zero or more goals.
 - Goal management should remain optional in Version 1 and must not block ordinary documentation.
@@ -422,7 +457,9 @@ A goal may be referenced by many journal entries.
 
 ## Follow-up
 
-A follow-up represents a planned future action concerning a client.
+A follow-up represents a concrete planned future action or check concerning a
+Client: what needs to happen next. It is shared Client planning information,
+not a private task or Journal record.
 
 Examples include:
 
@@ -435,31 +472,75 @@ Examples include:
 
 A follow-up has:
 
+- Organisation
 - Client
-- Title
-- Description
-- Due date and optional time
-- Responsible user
+- Required concise title
+- Optional description
+- Required due date
+- Optional due time
+- Exactly one responsible user
+- Optional link to one Goal
 - Status
+- Creator
 - Created date
-- Completed date where applicable
+- Updated date
+- Completion date and actor where applicable
+- Cancellation date and actor where applicable
+- Version for optimistic stale-write protection
 
-Possible statuses include:
+Persisted Version 1 statuses are exactly:
 
-- Planned
-- Completed
-- Cancelled
-- Overdue
+- `PLANNED`
+- `COMPLETED`
+- `CANCELLED`
 
 ### Follow-up Rules
 
+- Every follow-up belongs to exactly one organisation.
 - Every follow-up belongs to exactly one client.
-- Every follow-up has one responsible user.
+- Every Follow-up stores exactly one responsible user.
+- When a Follow-up is created or reassigned, the selected responsible user must
+  be active, belong to the same Organisation, and currently have normal Client
+  access. Eligible selections are currently assigned Staff Members and
+  Administrators with normal Organisation Client access.
+- An authorised user may assign or reassign a Follow-up to another eligible
+  user. Creator and responsible user are separate concepts.
+- Responsibility is not an authorisation boundary and never grants Client
+  access.
+- Each reassignment preserves narrow immutable history containing the previous
+  responsible user, new responsible user, acting user, and timestamp.
+- If a responsible user later loses Client access, the Follow-up, its stored
+  responsible user, and historical responsibility remain until an authorised
+  user explicitly reassigns it. The item disappears immediately from that
+  former user's Home. Assignment or account/access changes are not blocked,
+  responsibility is not changed automatically, and currently authorised users
+  must be shown that reassignment is needed. The former responsible user can no
+  longer read or mutate it.
 - A follow-up is a planning item, not a journal record.
+- Only `PLANNED` Follow-ups are editable or reassignable. A `PLANNED` item may
+  transition to `COMPLETED` or `CANCELLED`; both are terminal in Version 1.
+- Follow-ups cannot be hard-deleted in any lifecycle state in Version 1.
+- `COMPLETED` and `CANCELLED` Follow-ups cannot be edited, reassigned, or
+  reopened.
+- A Follow-up may reference zero or one Goal. The Goal must belong to the same
+  Client and Organisation and must be non-terminal when a new link is made.
+  Goal-free Follow-ups remain valid.
+- An existing Goal link survives Goal completion or archiving. Goal lifecycle
+  actions never complete, cancel, or otherwise mutate linked Follow-ups.
 - Completing a follow-up does not automatically create a journal entry.
-- The user may choose to create a journal entry after completing a follow-up.
-- Follow-ups visible to a staff member must only concern clients they can access.
-- Upcoming follow-ups appear on the home view.
+- Goal or Follow-up actions never automatically create or sign Journal entries.
+- `OVERDUE`, due today, and `UPCOMING` are derived presentation states rather
+  than stored lifecycle statuses.
+- Due dates and optional times use `Europe/Stockholm`. A timed Follow-up becomes
+  overdue when its specified Stockholm-local time has passed. A date-only
+  Follow-up becomes overdue on the following Stockholm calendar day. Ambiguous
+  or nonexistent local times are rejected rather than guessed.
+- Follow-ups visible to any user must concern Clients they can currently
+  access. Historical creation or responsibility does not preserve access.
+- Home shows only the current user's responsible `PLANNED` Follow-ups for
+  currently accessible Clients. Its non-overdue window covers today plus the
+  next seven calendar days, grouped as overdue, due today, then future upcoming,
+  with nearest due date and time first within each group.
 - Advanced calendar synchronisation is not part of Version 1.
 
 ---
@@ -580,6 +661,8 @@ Examples include:
 - Journal signing
 - Journal draft creation or discard where required by audit policy
 - Journal correction
+- Goal completion or archive
+- Follow-up reassignment, completion, or cancellation
 - Document upload
 - Report finalisation
 - Data export
@@ -608,6 +691,9 @@ An audit event has:
 - Audit operations are immutable and audit events are append-only.
 - An operation intent is committed before a protected Administrator mutation
   starts.
+- Approved Goal and Follow-up audited transitions performed by an authorised
+  Administrator or Staff Member also require the existing durable intent and
+  immutable outcome guarantees.
 - Outcomes and recoveries are added as separate records; an intent is never
   updated into a result.
 - Ordinary users cannot edit or delete audit operations or events.
@@ -620,6 +706,14 @@ An audit event has:
   not create immutable audit noise.
 - Signing an original or a correction requires immutable audit evidence and
   follows the existing durable-intent and immutable-outcome principles.
+- Version 1 planning audit actions are exactly `GOAL_COMPLETED`,
+  `GOAL_ARCHIVED`, `FOLLOW_UP_REASSIGNED`, `FOLLOW_UP_COMPLETED`, and
+  `FOLLOW_UP_CANCELLED`. Creation, reads, ordinary edits, Goal pause/resume,
+  derived due-state changes, and no-op submissions do not create immutable
+  audit events.
+- Planning audit records do not contain Goal or Follow-up descriptions, Journal
+  text, Client names, other sensitive free text, request bodies, or exception
+  text.
 - Actor, Organisation, and target identifiers are immutable historical scalar
   references rather than lifecycle foreign keys. This permits a bootstrap intent
   before Organisation creation and prevents lifecycle cascades from removing
@@ -649,6 +743,9 @@ User
 ├── Assignments
 ├── Authored Journal Entries
 ├── Signed Journal Entries
+├── Created Goals
+├── Created Follow-ups
+├── Responsible Follow-ups
 ├── Uploaded Documents
 ├── Generated Reports
 └── Audit Events
@@ -669,7 +766,22 @@ Journal Entry
 ├── One Client
 ├── One Author
 ├── Historical Signing Information when Signed
+├── Zero or More Immutable Signed Goal References
 └── Optional Original Signed Journal Entry for a Correction
+
+Goal
+├── One Client
+├── One Creator
+├── Optional Completion or Archive Actor
+├── Many Referencing Follow-ups
+└── Many Journal Entries through Goal References
+
+Follow-up
+├── One Client
+├── One Creator
+├── One Responsible User
+├── Optional Goal
+└── Immutable Responsibility-change History
 
 Weekly Report
 ├── One Client
@@ -689,22 +801,32 @@ Access is determined using both role and assignment.
 An administrator may access all clients and signed records belonging to their
 organisation. An unfinished Anteckning draft is the explicit exception: an
 Administrator may access only their own draft and only while they retain
-normal Client authorisation.
+normal Client authorisation. Administrators may view and manage shared Goals
+and Follow-ups for non-archived Organisation Clients and may view archived
+Client planning information read-only.
 
 ### Staff Member
 
 A staff member may access a Client only when they have an active primary or
 secondary assignment to that Client. Within an accessible Client, they may see
-signed journal entries but only their own unfinished draft.
+signed journal entries but only their own unfinished draft. While the Client
+remains active and assigned, they may view and manage its shared Goals and
+Follow-ups.
 
 ### Domain Access Rules
 
 - Permission checks must be enforced by the application backend.
 - Hiding links or navigation items is not sufficient access control.
-- Search, reports, documents, exports, and direct URLs must apply the same access rules.
+- Search, Goals, Follow-ups, reports, documents, exports, and direct URLs must
+  apply the same access rules.
 - Draft lists, counts, previews, direct URLs, search results, and mutations must
   not disclose another user's unfinished Anteckning draft.
-- Historical authorship does not automatically grant continued access after an assignment ends.
+- Historical creation, authorship, Goal activity, or Follow-up responsibility
+  does not grant or preserve access after an Assignment ends.
+- Goals and Follow-ups are shared Client planning information. Responsibility
+  routes attention and accountability but is not an access boundary.
+- Archived Client planning information is read-only and follows the existing
+  Administrator-only archived Client access.
 - Organisation boundaries apply before role or assignment checks.
 - Ungdomar/Vuxna categorisation does not create a Journal access boundary.
 - Export permissions are restricted to administrators in Version 1.
