@@ -1,12 +1,13 @@
 import { z } from "zod";
 
 import { auditOperationIdSchema } from "../audit/audit-vocabulary";
-import { JOURNAL_ENTRY_TYPE_VALUES } from "./journal-entry-type";
+import {
+  JOURNAL_CONTENT_MAX_LENGTH,
+  JOURNAL_ENTRY_TYPE_VALUES,
+} from "./journal-entry-type";
 
 const internalUuidSchema = z.uuid();
 const expectedVersionSchema = z.number().int().positive();
-
-export const JOURNAL_CONTENT_MAX_LENGTH = 100_000;
 
 const journalContentSchema = z
   .string()

@@ -1,5 +1,7 @@
 import type { JournalEntryType } from "../../generated/prisma/enums";
 
+export const JOURNAL_CONTENT_MAX_LENGTH = 100_000;
+
 export const JOURNAL_ENTRY_TYPE_VALUES = [
   "DAILY_NOTE",
   "CONVERSATION",

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { ApplicationShell } from "@/components/application-shell";
@@ -9,16 +8,13 @@ import {
   ClientAccessError,
   requireClientAccess,
 } from "@/modules/clients/client-access";
-import { getClientCategoryLabel } from "@/modules/clients/client-category";
-import {
-  getAssignmentResponsibilityLabel,
-  getClientStatusLabel,
-} from "@/modules/clients/client-presentation";
+import { getAssignmentResponsibilityLabel } from "@/modules/clients/client-presentation";
 import { listAssignableStaff } from "@/modules/clients/clients";
 
 import { AssignmentManagement } from "./assignment-management-client";
 import { ClientArchive } from "./client-archive-client";
 import { ClientEdit } from "./client-edit-client";
+import { ClientWorkspaceHeader } from "./client-workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -122,41 +118,10 @@ export default async function ClientPage({
   return (
     <ApplicationShell currentPath="/klienter" user={result.user}>
       <div className="page-content">
-        <p className="eyebrow">Klient</p>
-        {isArchived ? (
-          <p>
-            <Link href="/klienter/arkiverade">Till Arkiverade klienter</Link>
-          </p>
-        ) : null}
-        <h1>
-          {result.client.firstName} {result.client.lastName}
-        </h1>
-        <dl className="client-details">
-          <div>
-            <dt>Personreferens</dt>
-            <dd className="client-identifier">
-              {result.client.personIdentifier}
-            </dd>
-          </div>
-          <div>
-            <dt>Kategori</dt>
-            <dd>{getClientCategoryLabel(result.client.category)}</dd>
-          </div>
-          <div>
-            <dt>Status</dt>
-            <dd>{getClientStatusLabel(result.client.status)}</dd>
-          </div>
-          {result.client.archivedAt ? (
-            <div>
-              <dt>Arkiverad</dt>
-              <dd>
-                <time dateTime={result.client.archivedAt.toISOString()}>
-                  {formatDate(result.client.archivedAt)}
-                </time>
-              </dd>
-            </div>
-          ) : null}
-        </dl>
+        <ClientWorkspaceHeader
+          client={result.client}
+          currentSection="overview"
+        />
 
         {isArchived && query.arkiverad === "klar" ? (
           <p aria-live="polite" className="form-status" role="status">

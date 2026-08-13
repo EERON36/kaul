@@ -322,7 +322,6 @@ This milestone includes:
 - Separate signed correction entries linked to signed originals
 - Stale-update and concurrent-signing protection
 - Journal history within the Client workspace
-- Printable journal-entry view
 - Relevant audit events
 
 ## Journal Entry Types
@@ -427,6 +426,7 @@ This milestone does not include:
 - PWA and offline drafts
 - Search across Journal records
 - Exports
+- Printable Journal views
 - Client Documents and Final Reports, which remain in later milestones
 - Retention or deletion policy
 - Multi-factor authentication
@@ -465,7 +465,6 @@ Milestone 3 is complete when:
 - Direct journal URLs and every server-side read and mutation enforce the same
   permissions.
 - Journal text is absent from ordinary operational logs.
-- Journal records can be printed clearly.
 - The complete **Anteckningar** workflow passes the 2 AM Test and remains
   laptop-first, mobile-functional, keyboard usable, and narrow-screen usable.
 
@@ -993,10 +992,21 @@ atomic audited signing, immutable signed rows, signed history queries, and
 flat same-scope corrections. PostgreSQL integration tests cover the access,
 concurrency, audit, correction, and lower-level integrity boundaries.
 
-The Anteckningar user interface, printable Journal views, and complete
-end-user workflow remain unimplemented. Milestone 3 is therefore not complete.
-Kaul is not production-ready, and the production credential-delivery,
-sole-Administrator recovery, pilot, and production-readiness gates remain open.
+The interactive **Anteckningar** Client-workspace workflow is implemented. It
+provides own-draft create/reopen/save/discard, the exact eight approved types,
+Swedish-local event date/time input, a dedicated signing review, explicit
+signing, stacked signed history without body previews, immutable signed detail,
+and separate flat corrections. Server Actions use only the Journal module's
+authenticated public operations, and focused browser evidence covers draft
+non-disclosure for Administrators and other Staff Members, access loss,
+archived read-only presentation, stale saves, repeated signing, 375×812 use,
+and high-text reflow.
+
+Printable Journal views are deferred work and are not a Milestone 3 completion
+criterion. The implementation awaits final independent review and CI before
+Milestone 3 can be marked complete. Kaul is not production-ready, and the
+production credential-delivery, sole-Administrator recovery, pilot, and
+production-readiness gates remain open.
 
 ---
 

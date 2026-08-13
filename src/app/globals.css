@@ -38,7 +38,8 @@ a {
 
 button,
 input,
-select {
+select,
+textarea {
   max-width: 100%;
 }
 
@@ -46,6 +47,7 @@ a:focus-visible,
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
+textarea:focus-visible,
 main:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
@@ -308,6 +310,25 @@ h2 {
   font: inherit;
 }
 
+.form-field textarea {
+  width: 100%;
+  min-height: 16rem;
+  padding: 0.75rem;
+  resize: vertical;
+  background: var(--surface);
+  border: 1px solid #667680;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.6;
+}
+
+.field-error {
+  margin: 0.35rem 0 0;
+  color: #8a1c1c;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
 .form-help,
 .form-error,
 .form-status {
@@ -493,6 +514,166 @@ h2 {
   margin-top: 1rem;
 }
 
+.client-workspace-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.client-workspace-navigation a {
+  min-height: 2.75rem;
+  padding: 0.65rem 0.9rem;
+  border-bottom: 0.25rem solid transparent;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.client-workspace-navigation a[aria-current="page"] {
+  border-bottom-color: var(--navigation);
+  background: var(--surface);
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.journal-own-draft p:last-of-type {
+  margin-bottom: 1rem;
+}
+
+.journal-history-list {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.journal-history-link {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  text-decoration: none;
+}
+
+.journal-history-link:hover {
+  border-color: var(--navigation);
+  background: var(--surface-muted);
+}
+
+.journal-history-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  font-size: 1.1rem;
+}
+
+.journal-reference {
+  overflow-wrap: anywhere;
+  font-family: var(--font-plex-mono), Consolas, monospace;
+}
+
+.journal-editor {
+  max-width: 44rem;
+}
+
+.journal-event-fields {
+  display: grid;
+  min-width: 0;
+  margin: 0 0 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+}
+
+.journal-event-fields legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+}
+
+.journal-discard-form {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.status-action {
+  display: block;
+  margin-top: 0.5rem;
+}
+
+.journal-record {
+  margin-top: 2rem;
+  padding: clamp(1rem, 4vw, 1.75rem);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.journal-metadata {
+  display: grid;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.journal-metadata > div {
+  min-width: 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.journal-metadata dt {
+  font-weight: 600;
+}
+
+.journal-metadata dd {
+  margin: 0.15rem 0 0;
+}
+
+.journal-content-section,
+.journal-signature,
+.journal-corrections {
+  margin-top: 2rem;
+}
+
+.journal-content {
+  max-width: 44rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.journal-signing-warning,
+.journal-immutability-notice {
+  margin-top: 2rem;
+  padding: 1rem;
+  background: var(--notice-background);
+  border: 1px solid var(--notice-border);
+  font-weight: 600;
+}
+
+.journal-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: start;
+  margin-top: 1.5rem;
+}
+
+.journal-review-actions form,
+.journal-review-actions .form-error {
+  margin-bottom: 0;
+}
+
+.journal-correction-action {
+  margin-top: 2rem;
+}
+
 .form-actions {
   display: flex;
   flex-wrap: wrap;
@@ -580,6 +761,19 @@ h2 {
     width: 100%;
   }
 
+  .journal-form-actions,
+  .journal-form-actions .primary-button,
+  .journal-form-actions .secondary-button,
+  .journal-discard-form .secondary-button,
+  .journal-own-draft .button-link,
+  .journal-review-actions,
+  .journal-review-actions form,
+  .journal-review-actions .primary-button,
+  .journal-review-actions .button-link,
+  .journal-correction-action .secondary-button {
+    width: 100%;
+  }
+
   .client-search-form,
   .client-search-reset,
   .client-search-form .primary-button,
@@ -589,6 +783,15 @@ h2 {
 }
 
 @media (min-width: 48rem) {
+  .journal-event-fields,
+  .journal-metadata {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .journal-event-fields .form-help {
+    grid-column: 1 / -1;
+  }
+
   .responsibility-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
