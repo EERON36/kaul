@@ -295,7 +295,10 @@ archive eligible Clients into a separate read-only historical workflow. Staff
 Home shows currently assigned active Clients with the current user's
 responsibility, the Client workspace presents current primary and secondary
 responsibility, and permission-aware basic name and Personreferens search uses
-the same assignment-based access semantics. Milestone 3 Journal and Signed
-Records is the next product milestone. Journal, document, report, global search,
-export, and other later-milestone functionality remain unimplemented; Kaul is
-not production-ready.
+the same assignment-based access semantics. The Milestone 3 Journal
+domain/database foundation is implemented, including private drafts, current
+Client access, explicit audited signing, immutable signed records, and flat
+corrections. The Journal interface and complete end-user workflow remain
+unimplemented, so Milestone 3 is not complete. Document, report, global search,
+export, and other later-milestone functionality also remain unimplemented;
+Kaul is not production-ready.

@@ -75,7 +75,7 @@ export function getOrdinaryClientAccessWhere(
   };
 }
 
-function getClientDetailAccessWhere(
+export function getClientDetailAccessWhere(
   user: ApplicationUser,
 ): Prisma.ClientWhereInput {
   return user.role === "STAFF_MEMBER"

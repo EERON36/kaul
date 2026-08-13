@@ -47,6 +47,18 @@ describe("audit vocabulary", () => {
       "ASSIGNMENT",
     );
     expect(AUDIT_ACTION_POLICY.ASSIGNMENT_ENDED.targetType).toBe("ASSIGNMENT");
+    expect(AUDIT_ACTION_POLICY.JOURNAL_ENTRY_SIGNED).toEqual({
+      actorKinds: ["USER"],
+      organisation: "REQUIRED",
+      targetType: "JOURNAL_ENTRY",
+      targetId: "REQUIRED",
+    });
+    expect(AUDIT_ACTION_POLICY.JOURNAL_CORRECTION_SIGNED).toEqual({
+      actorKinds: ["USER"],
+      organisation: "REQUIRED",
+      targetType: "JOURNAL_ENTRY",
+      targetId: "REQUIRED",
+    });
   });
   it("contains only the accepted UPPER_SNAKE_CASE actions", () => {
     expect(AUDIT_ACTIONS).toEqual([
@@ -66,6 +78,8 @@ describe("audit vocabulary", () => {
       "CLIENT_ARCHIVED",
       "ASSIGNMENT_CREATED",
       "ASSIGNMENT_ENDED",
+      "JOURNAL_ENTRY_SIGNED",
+      "JOURNAL_CORRECTION_SIGNED",
     ]);
     expect(
       AUDIT_ACTIONS.every((action) => /^[A-Z][A-Z0-9_]*$/.test(action)),
@@ -79,6 +93,7 @@ describe("audit vocabulary", () => {
       "USER",
       "CLIENT",
       "ASSIGNMENT",
+      "JOURNAL_ENTRY",
     ]);
     expect(
       auditIntentContextSchema.safeParse(

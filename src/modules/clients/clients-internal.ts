@@ -20,6 +20,7 @@ import {
 import type { ApplicationUser } from "../authentication/guards";
 import type { AdministratorUser } from "../users/authorization";
 import { getOrdinaryClientAccessWhere } from "./client-access";
+import { lockClientForMutation } from "./client-mutation-lock";
 import {
   archiveClientInputSchema,
   canonicalizePersonIdentifier,
@@ -34,8 +35,6 @@ import {
   type NormalizedClientSearchQuery,
   type UpdateClientInput,
 } from "./client-input";
-
-const CLIENT_MUTATION_LOCK_NAMESPACE = 1_129_607_912;
 
 function escapePrismaContainsPattern(value: string): string {
   return value
@@ -188,18 +187,6 @@ async function assertCurrentAdministrator(
   if (!current) {
     throw new DefinitiveMutationError("TARGET_UNAVAILABLE");
   }
-}
-
-async function lockClient(
-  transaction: Prisma.TransactionClient,
-  clientId: string,
-): Promise<void> {
-  await transaction.$queryRaw`
-    SELECT pg_advisory_xact_lock(
-      ${CLIENT_MUTATION_LOCK_NAMESPACE},
-      hashtext(${clientId})
-    )::text AS "lockResult"
-  `;
 }
 
 type EditableClientFields = Readonly<{
@@ -544,7 +531,7 @@ export async function updateClientInternal(
 
   try {
     const updated = await prisma.$transaction(async (transaction) => {
-      await lockClient(transaction, parsed.clientId);
+      await lockClientForMutation(transaction, parsed.clientId);
       await assertCurrentAdministrator(transaction, actor);
       const current = await transaction.client.findFirst({
         where: {
@@ -672,7 +659,7 @@ export async function archiveClientInternal(
   try {
     await dependencies.beforeBusinessTransaction?.();
     return await prisma.$transaction(async (transaction) => {
-      await lockClient(transaction, parsed.clientId);
+      await lockClientForMutation(transaction, parsed.clientId);
       await assertCurrentAdministrator(transaction, actor);
       const current = await transaction.client.findFirst({
         where: {
@@ -771,7 +758,7 @@ export async function createAssignmentInternal(
 
   try {
     await prisma.$transaction(async (transaction) => {
-      await lockClient(transaction, parsed.clientId);
+      await lockClientForMutation(transaction, parsed.clientId);
       await assertCurrentAdministrator(transaction, actor);
       const client = await transaction.client.findFirst({
         where: {
@@ -916,7 +903,7 @@ export async function endAssignmentInternal(
         throw new DefinitiveMutationError("TARGET_UNAVAILABLE");
       }
 
-      await lockClient(transaction, initial.clientId);
+      await lockClientForMutation(transaction, initial.clientId);
       const assignment = await transaction.assignment.findFirst({
         where: {
           id: parsed.assignmentId,

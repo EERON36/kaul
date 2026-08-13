@@ -100,6 +100,18 @@ export const AUDIT_ACTION_POLICY = {
     targetType: "ASSIGNMENT",
     targetId: "REQUIRED",
   },
+  JOURNAL_ENTRY_SIGNED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "JOURNAL_ENTRY",
+    targetId: "REQUIRED",
+  },
+  JOURNAL_CORRECTION_SIGNED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "JOURNAL_ENTRY",
+    targetId: "REQUIRED",
+  },
 } as const;
 
 export const AUDIT_ACTIONS = [
@@ -119,6 +131,8 @@ export const AUDIT_ACTIONS = [
   "CLIENT_ARCHIVED",
   "ASSIGNMENT_CREATED",
   "ASSIGNMENT_ENDED",
+  "JOURNAL_ENTRY_SIGNED",
+  "JOURNAL_CORRECTION_SIGNED",
 ] as const satisfies readonly (keyof typeof AUDIT_ACTION_POLICY)[];
 
 export const AUDIT_TARGET_TYPES = [
@@ -127,6 +141,7 @@ export const AUDIT_TARGET_TYPES = [
   "USER",
   "CLIENT",
   "ASSIGNMENT",
+  "JOURNAL_ENTRY",
 ] as const;
 
 export const auditActionSchema = z.enum(AUDIT_ACTIONS);
