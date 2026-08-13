@@ -312,7 +312,7 @@ These features should be additive rather than requiring major redesign.
 
 Architecture approved.
 
-Milestone 0 and Milestone 2 are complete. Implemented modules now cover Better
+Milestone 0, Milestone 2, and Milestone 3 are complete. Implemented modules now cover Better
 Auth-backed authentication and session guards, immutable audit operations,
 Administrator and Staff management, and Client management with one central
 organisation-, lifecycle-, and Assignment-aware access scope for ordinary
@@ -327,7 +327,8 @@ authorisation, Server Action mutations, Server Component history/detail reads,
 flat corrections, optimistic concurrency, atomic audited signing, and durable
 PostgreSQL integrity controls. Client Components are limited to the draft form,
 pending states, and destructive confirmation. Printable Journal views are
-deferred work and do not block Milestone 3. The implementation awaits final
-independent review and CI before the milestone can be marked complete. Document,
-report, global search, export, and other later-milestone modules also remain
-unimplemented.
+deferred work and do not block Milestone 3. Security and domain reviews, final
+focused race and UI reviews, and pull-request CI passed; the final UI was
+squash-merged to main in #34. Milestone 4 — Goals and Follow-ups is the next
+implementation focus. Document, report, global search, export, and other
+later-milestone modules also remain unimplemented.

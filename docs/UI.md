@@ -1558,9 +1558,10 @@ flat correction workflow. The form uses the exact eight approved types and
 separate Swedish-local event date/time fields. Focused browser evidence covers
 keyboard-labelled controls, 375×812 use, high-text reflow, private-draft
 non-disclosure, stale saves, and repeated signing. Printable Journal views are
-deferred work and do not block Milestone 3. The implementation awaits final
-independent review and CI before the milestone can be marked complete. Later
-workspace sections remain unimplemented and must not be presented as active UI. Journal search,
+deferred work and do not block Milestone 3. Milestone 3 is complete: security
+and domain reviews, final focused race and UI reviews, and pull-request CI
+passed; the final UI was squash-merged to main in #34. Later workspace sections
+remain unimplemented and must not be presented as active UI. Journal search,
 attachments, autosave, rich text, templates, incident classification,
 notifications, offline/PWA behaviour, and external or cryptographic signing
 remain deferred.

@@ -23,9 +23,12 @@ Implemented now:
   Clients, and clear primary/secondary responsibility context in Client lists
   and workspaces.
 - Laptop-first, mobile-functional authenticated Client workflows.
+- Complete Milestone 3 Journal and Signed Records: author-private drafts,
+  explicit signing, immutable signed records, signed history and detail, and
+  separate flat corrections.
 
-Milestone 3 Journal and Signed Records is the next product milestone. Later work
-also includes documents, reports, global search, exports, pilot readiness, and a
+Milestone 4 Goals and Follow-ups is the next product milestone. Later work also
+includes documents, reports, global search, exports, pilot readiness, and a
 separate production-readiness decision. Production credential-delivery and
 sole-Administrator recovery procedures also remain unresolved. Kaul is not
 production-ready.

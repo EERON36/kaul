@@ -317,18 +317,8 @@ A journal entry has:
 - Stable reference identifier
 - Optional original signed entry, for a correction
 
-Possible entry types include:
-
-- Daily note
-- Conversation
-- Phone call
-- Meeting
-- Home visit
-- School contact
-- Observation
-- Other
-
-The Swedish interface may display these as:
+Version 1 has exactly these eight allowed journal-entry types, displayed in
+Swedish as:
 
 - Daganteckning
 - Samtal
