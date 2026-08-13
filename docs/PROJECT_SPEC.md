@@ -296,9 +296,13 @@ Home shows currently assigned active Clients with the current user's
 responsibility, the Client workspace presents current primary and secondary
 responsibility, and permission-aware basic name and Personreferens search uses
 the same assignment-based access semantics. The Milestone 3 Journal
-domain/database foundation is implemented, including private drafts, current
-Client access, explicit audited signing, immutable signed records, and flat
-corrections. The Journal interface and complete end-user workflow remain
-unimplemented, so Milestone 3 is not complete. Document, report, global search,
-export, and other later-milestone functionality also remain unimplemented;
-Kaul is not production-ready.
+domain/database foundation and interactive **Anteckningar** workflow are
+implemented. Authorised users can manage only their own drafts, review and
+explicitly sign records, read signed history and detail, and create separate
+flat corrections. Current Client access, audited signing, immutable signed
+records, historical signer snapshots, and draft privacy remain server-
+authoritative. Printable Journal views are deferred work and do not block
+Milestone 3. The implementation awaits final independent review and CI before
+the milestone can be marked complete. Document, report, global search, export,
+and other later-milestone functionality also remain unimplemented; Kaul is not
+production-ready.

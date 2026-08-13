@@ -1550,11 +1550,19 @@ evidence confirms that the current authenticated Client workflows are
 laptop-first, mobile-functional, keyboard-operable, and free from page-wide
 horizontal overflow. Only implemented workspace sections are shown.
 
-Milestone 3 Journal and Signed Records is the next product milestone. Later
-workspace sections remain unimplemented and must not be presented as active UI.
-Journal search, attachments, autosave, rich text, templates, incident
-classification, notifications, offline/PWA behaviour, and external or
-cryptographic signing remain deferred and must not appear as Milestone 3
-functionality.
+The Milestone 3 interactive **Anteckningar** workflow is implemented in the
+Client workspace. It includes **Översikt**/**Anteckningar** navigation, the
+current actor's own draft, explicit save/discard, dedicated signing review,
+signed stacked history without body previews, immutable signed detail, and
+flat correction workflow. The form uses the exact eight approved types and
+separate Swedish-local event date/time fields. Focused browser evidence covers
+keyboard-labelled controls, 375×812 use, high-text reflow, private-draft
+non-disclosure, stale saves, and repeated signing. Printable Journal views are
+deferred work and do not block Milestone 3. The implementation awaits final
+independent review and CI before the milestone can be marked complete. Later
+workspace sections remain unimplemented and must not be presented as active UI. Journal search,
+attachments, autosave, rich text, templates, incident classification,
+notifications, offline/PWA behaviour, and external or cryptographic signing
+remain deferred.
 
 The interface should be reviewed with the initial users during pilot preparation and adjusted based on real workflow feedback without abandoning the principles in this document.

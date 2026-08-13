@@ -1,0 +1,250 @@
+"use client";
+
+import { useActionState, useEffect, useRef, type FormEvent } from "react";
+
+import {
+  JOURNAL_CONTENT_MAX_LENGTH,
+  JOURNAL_ENTRY_TYPE_LABELS,
+  JOURNAL_ENTRY_TYPE_VALUES,
+} from "@/modules/journal/journal-entry-type";
+
+import {
+  discardJournalDraftAction,
+  saveJournalDraftAction,
+  type JournalDraftActionState,
+  type JournalMutationActionState,
+} from "./actions";
+
+export function JournalDraftForm({
+  clientId,
+  initialState,
+}: Readonly<{
+  clientId: string;
+  initialState: JournalDraftActionState;
+}>) {
+  const [state, saveAction, saving] = useActionState(
+    saveJournalDraftAction,
+    initialState,
+  );
+  const discardInitialState: JournalMutationActionState = { status: "IDLE" };
+  const [discardState, discardAction, discarding] = useActionState(
+    discardJournalDraftAction,
+    discardInitialState,
+  );
+  const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    if (state.status === "SUCCESS") dirtyRef.current = false;
+  }, [state.status]);
+
+  useEffect(() => {
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, []);
+
+  function confirmDiscard(event: FormEvent<HTMLFormElement>) {
+    if (!window.confirm("Vill du kasta utkastet? Dina ändringar försvinner.")) {
+      event.preventDefault();
+    }
+  }
+
+  const fieldErrors = state.fieldErrors ?? {};
+  const disabled = saving || discarding;
+
+  return (
+    <div className="journal-editor">
+      <form
+        action={saveAction}
+        onChange={() => {
+          dirtyRef.current = true;
+        }}
+      >
+        <input name="clientId" type="hidden" value={clientId} />
+        <input
+          name="journalEntryId"
+          type="hidden"
+          value={state.journalEntryId ?? ""}
+        />
+        <input
+          name="expectedVersion"
+          type="hidden"
+          value={state.version ?? ""}
+        />
+
+        <div className="form-field">
+          <label htmlFor="journal-entry-type">Typ av anteckning</label>
+          <select
+            aria-describedby={
+              fieldErrors.entryType ? "journal-entry-type-error" : undefined
+            }
+            aria-invalid={fieldErrors.entryType ? true : undefined}
+            defaultValue={state.values.entryType}
+            id="journal-entry-type"
+            name="entryType"
+            required
+          >
+            {JOURNAL_ENTRY_TYPE_VALUES.map((entryType) => (
+              <option key={entryType} value={entryType}>
+                {JOURNAL_ENTRY_TYPE_LABELS[entryType]}
+              </option>
+            ))}
+          </select>
+          {fieldErrors.entryType ? (
+            <p className="field-error" id="journal-entry-type-error">
+              {fieldErrors.entryType}
+            </p>
+          ) : null}
+        </div>
+
+        <fieldset className="journal-event-fields">
+          <legend>Händelsetid</legend>
+          <p className="form-help" id="journal-event-time-help">
+            Ange när händelsen inträffade.
+          </p>
+          <div className="form-field">
+            <label htmlFor="journal-event-date">Datum för händelsen</label>
+            <input
+              aria-describedby={
+                fieldErrors.eventDate
+                  ? "journal-event-time-help journal-event-date-error"
+                  : "journal-event-time-help"
+              }
+              aria-invalid={fieldErrors.eventDate ? true : undefined}
+              defaultValue={state.values.eventDate}
+              id="journal-event-date"
+              name="eventDate"
+              required
+              type="date"
+            />
+            {fieldErrors.eventDate ? (
+              <p className="field-error" id="journal-event-date-error">
+                {fieldErrors.eventDate}
+              </p>
+            ) : null}
+          </div>
+          <div className="form-field">
+            <label htmlFor="journal-event-time">Tid för händelsen</label>
+            <input
+              aria-describedby={
+                fieldErrors.eventTime
+                  ? "journal-event-time-help journal-event-time-error"
+                  : "journal-event-time-help"
+              }
+              aria-invalid={fieldErrors.eventTime ? true : undefined}
+              defaultValue={state.values.eventTime}
+              id="journal-event-time"
+              name="eventTime"
+              required
+              type="time"
+            />
+            {fieldErrors.eventTime ? (
+              <p className="field-error" id="journal-event-time-error">
+                {fieldErrors.eventTime}
+              </p>
+            ) : null}
+          </div>
+        </fieldset>
+
+        <div className="form-field">
+          <label htmlFor="journal-content">Anteckning</label>
+          <textarea
+            aria-describedby={
+              fieldErrors.content ? "journal-content-error" : undefined
+            }
+            aria-invalid={fieldErrors.content ? true : undefined}
+            defaultValue={state.values.content}
+            id="journal-content"
+            maxLength={JOURNAL_CONTENT_MAX_LENGTH}
+            name="content"
+            required
+            rows={14}
+          />
+          {fieldErrors.content ? (
+            <p className="field-error" id="journal-content-error">
+              {fieldErrors.content}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="form-actions journal-form-actions">
+          <button
+            className="secondary-button"
+            disabled={disabled}
+            name="submitIntent"
+            type="submit"
+            value="save"
+          >
+            {saving ? "Sparar…" : "Spara utkast"}
+          </button>
+          <button
+            className="primary-button"
+            disabled={disabled}
+            name="submitIntent"
+            type="submit"
+            value="review"
+          >
+            {saving ? "Sparar…" : "Granska inför signering"}
+          </button>
+        </div>
+
+        <div
+          aria-live="polite"
+          className={state.status === "SUCCESS" ? "form-status" : "form-error"}
+          role={state.status === "SUCCESS" ? "status" : "alert"}
+        >
+          {state.message}
+          {state.status === "STALE" ? (
+            <span className="status-action">
+              <a href={`/klienter/${clientId}/anteckningar/utkast`}>
+                Ladda om utkastet
+              </a>
+            </span>
+          ) : null}
+        </div>
+      </form>
+
+      <form
+        action={discardAction}
+        className="journal-discard-form"
+        onSubmit={confirmDiscard}
+      >
+        <input name="clientId" type="hidden" value={clientId} />
+        <input
+          name="journalEntryId"
+          type="hidden"
+          value={state.journalEntryId ?? ""}
+        />
+        <input
+          name="expectedVersion"
+          type="hidden"
+          value={state.version ?? ""}
+        />
+        <button
+          className="secondary-button danger-button"
+          disabled={disabled}
+          type="submit"
+        >
+          {discarding ? "Kastar…" : "Kasta utkast"}
+        </button>
+        <p
+          aria-live="polite"
+          className="form-error"
+          role={discardState.message ? "alert" : undefined}
+        >
+          {discardState.message}
+          {discardState.status === "CONFLICT" ? (
+            <span className="status-action">
+              <a href={`/klienter/${clientId}/anteckningar/utkast`}>
+                Ladda om utkastet
+              </a>
+            </span>
+          ) : null}
+        </p>
+      </form>
+    </div>
+  );
+}

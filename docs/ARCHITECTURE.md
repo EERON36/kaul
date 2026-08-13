@@ -321,10 +321,13 @@ Client-list projections provide current primary-responsibility context only to
 Administrators, while Staff Home returns only the current user's assigned
 Client overview and responsibility. Client workspaces present current primary
 and secondary responsibility without introducing future feature sections.
-The Milestone 3 Journal domain/database foundation is implemented with
-author-private drafts, current Client authorisation, signed history queries,
+The Milestone 3 Journal domain/database foundation and interactive Client-
+workspace interface are implemented with author-private drafts, current Client
+authorisation, Server Action mutations, Server Component history/detail reads,
 flat corrections, optimistic concurrency, atomic audited signing, and durable
-PostgreSQL integrity controls. The Journal user interface, printable views, and
-complete end-user workflow remain unimplemented, so Milestone 3 is not
-complete. Document, report, global search, export, and other later-milestone
-modules also remain unimplemented.
+PostgreSQL integrity controls. Client Components are limited to the draft form,
+pending states, and destructive confirmation. Printable Journal views are
+deferred work and do not block Milestone 3. The implementation awaits final
+independent review and CI before the milestone can be marked complete. Document,
+report, global search, export, and other later-milestone modules also remain
+unimplemented.

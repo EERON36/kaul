@@ -25,11 +25,11 @@ import type {
 } from "./journal-input";
 
 export {
+  JOURNAL_CONTENT_MAX_LENGTH,
   JOURNAL_ENTRY_TYPE_LABELS,
   JOURNAL_ENTRY_TYPE_VALUES,
 } from "./journal-entry-type";
 export {
-  JOURNAL_CONTENT_MAX_LENGTH,
   type BeginJournalCorrectionInput,
   type ClientJournalQueryInput,
   type CreateJournalDraftInput,
