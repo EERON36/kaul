@@ -981,14 +981,22 @@ mobile-functional completion criteria. Milestone 2 is complete.
 
 Administrator filtering by responsible Staff, Assignment dates in every active
 Client view, secondary Staff names in every Client-list row, and unimplemented
-future workspace sections remain deferred non-blocking work. Journal, document,
-goal, follow-up, and report functionality remain in their later milestones.
+future workspace sections remain deferred non-blocking work. Document, goal,
+follow-up, and report functionality remain in their later milestones.
 
 ### Next product milestone — Milestone 3: Journal and Signed Records
 
-Milestone 3 is the next product milestone. Kaul is not production-ready, and
-the production credential-delivery, sole-Administrator recovery, pilot, and
-production-readiness gates remain open.
+The Milestone 3 Journal domain/database foundation is implemented. It provides
+the exact entry-type vocabulary, event time, author-private drafts, one open
+draft per author and Client, optimistic versions, current Client access,
+atomic audited signing, immutable signed rows, signed history queries, and
+flat same-scope corrections. PostgreSQL integration tests cover the access,
+concurrency, audit, correction, and lower-level integrity boundaries.
+
+The Anteckningar user interface, printable Journal views, and complete
+end-user workflow remain unimplemented. Milestone 3 is therefore not complete.
+Kaul is not production-ready, and the production credential-delivery,
+sole-Administrator recovery, pilot, and production-readiness gates remain open.
 
 ---
 

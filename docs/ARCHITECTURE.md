@@ -134,16 +134,24 @@ updated or deleted through ordinary application or Administrator behaviour.
 
 Corrections are separate signed entries linked directly to a valid signed
 original in the same Client and Organisation. The original remains unchanged.
-The Journal boundary must also prevent stale draft overwrite, simultaneous or
-repeated signing, duplicate open drafts, and invalid correction links. The
-Journal foundation slice will choose the smallest transaction, constraint, and
-locking mechanics that enforce these invariants.
+The implemented Journal foundation uses an integer draft version for
+compare-and-update stale-write protection and a PostgreSQL partial unique index
+for the one-open-draft-per-author-and-Client rule. Journal mutations share the
+existing per-Client transaction lock with Client lifecycle and Assignment
+changes, then revalidate the current actor and Client access while holding that
+lock. PostgreSQL correction validation permits only a fixed direct link to a
+signed, non-correction original in the same Client and Organisation.
+
+PostgreSQL triggers reject update, delete, and truncate paths that could alter
+or remove a signed Journal row while still permitting the legitimate
+`DRAFT`-to-`SIGNED` transition. A deferred database constraint also requires
+that transition to commit with the matching successful immutable audit outcome
+for the same entry, author, Organisation, and original/correction action.
 
 Signing an original or correction uses the existing immutable audit
 architecture and its durable-intent and immutable-outcome principles. Ordinary
-draft saves do not create immutable audit noise; draft creation and discard may
-be auditable. The Journal module does not introduce read/view audit events
-without a separate authoritative requirement.
+draft saves do not create immutable audit noise. The foundation does not audit
+draft creation or discard, and it does not introduce read/view audit events.
 
 ---
 
@@ -313,6 +321,10 @@ Client-list projections provide current primary-responsibility context only to
 Administrators, while Staff Home returns only the current user's assigned
 Client overview and responsibility. Client workspaces present current primary
 and secondary responsibility without introducing future feature sections.
-Milestone 3 Journal and Signed Records is the next product milestone. Journal,
-document, report, global search, export, and other later-milestone modules remain
-unimplemented.
+The Milestone 3 Journal domain/database foundation is implemented with
+author-private drafts, current Client authorisation, signed history queries,
+flat corrections, optimistic concurrency, atomic audited signing, and durable
+PostgreSQL integrity controls. The Journal user interface, printable views, and
+complete end-user workflow remain unimplemented, so Milestone 3 is not
+complete. Document, report, global search, export, and other later-milestone
+modules also remain unimplemented.
