@@ -326,7 +326,7 @@ This milestone includes:
 
 ## Journal Entry Types
 
-Initial types may include:
+Version 1 has exactly these eight allowed Journal-entry types:
 
 - Daganteckning
 - Samtal
@@ -983,7 +983,7 @@ Client view, secondary Staff names in every Client-list row, and unimplemented
 future workspace sections remain deferred non-blocking work. Document, goal,
 follow-up, and report functionality remain in their later milestones.
 
-### Next product milestone — Milestone 3: Journal and Signed Records
+### Milestone 3 — Journal and Signed Records: Complete
 
 The Milestone 3 Journal domain/database foundation is implemented. It provides
 the exact entry-type vocabulary, event time, author-private drafts, one open
@@ -1003,10 +1003,16 @@ archived read-only presentation, stale saves, repeated signing, 375×812 use,
 and high-text reflow.
 
 Printable Journal views are deferred work and are not a Milestone 3 completion
-criterion. The implementation awaits final independent review and CI before
-Milestone 3 can be marked complete. Kaul is not production-ready, and the
-production credential-delivery, sole-Administrator recovery, pilot, and
+criterion. Milestone 3 is complete: security and domain reviews, final focused
+race and UI reviews, and pull-request CI passed; the final UI was squash-merged
+to main in #34. Kaul is not production-ready, and the production
+credential-delivery, sole-Administrator recovery, pilot, and
 production-readiness gates remain open.
+
+### Next product milestone — Milestone 4: Goals and Follow-ups
+
+Milestone 4 is the current implementation focus; its approved scope and
+completion criteria are defined above.
 
 ---
 

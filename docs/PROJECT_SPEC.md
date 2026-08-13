@@ -302,7 +302,9 @@ explicitly sign records, read signed history and detail, and create separate
 flat corrections. Current Client access, audited signing, immutable signed
 records, historical signer snapshots, and draft privacy remain server-
 authoritative. Printable Journal views are deferred work and do not block
-Milestone 3. The implementation awaits final independent review and CI before
-the milestone can be marked complete. Document, report, global search, export,
-and other later-milestone functionality also remain unimplemented; Kaul is not
+Milestone 3. Milestone 3 is complete: security and domain reviews, final
+focused race and UI reviews, and pull-request CI passed; the final UI was
+squash-merged to main in #34. Milestone 4 — Goals and Follow-ups is the next
+implementation focus. Document, report, global search, export, and other
+later-milestone functionality also remain unimplemented; Kaul is not
 production-ready.
