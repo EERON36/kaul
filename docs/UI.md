@@ -357,24 +357,47 @@ It should not be a statistical dashboard.
 
 ### Staff Home View
 
-A staff member may see:
+Milestone 4 adds a restrained section in this order:
+
+1. **Att göra**
+2. **Mina klienter**
+
+**Att göra** shows only `PLANNED` Follow-ups for which the signed-in user is
+responsible and still has current Client access. It groups them as:
+
+1. **Försenade**
+2. **Idag**
+3. **Kommande**, after today through the seventh following calendar day
+
+The non-overdue Home window therefore covers today plus the next seven calendar
+days. Within each group, the nearest due date and time appears first. Each row
+shows only the Follow-up title, Client, due state and date/time, and optional
+concise Goal context when it helps orientation. Rows, links, counts, and future
+badges must not expose inaccessible Client information.
+
+A staff member may otherwise see:
 
 - Greeting or simple page title
 - Today's date
 - Weekly activity overview
-- Upcoming follow-ups
 - Assigned clients
 - Recent authorised activity
 - The current user's own draft notes where applicable
 
-The home view must not show organisation-wide information that the staff member cannot access. No home view may reveal another user's unfinished draft through a row, preview, count, or activity item, including to an Administrator.
+The home view must not show organisation-wide information that the staff member
+cannot access. Losing Client access removes a responsible Follow-up from Home
+immediately; responsibility does not preserve visibility. No home view may
+reveal another user's unfinished draft through a row, preview, count, or
+activity item, including to an Administrator. Adding own unfinished Journal
+drafts to Home is not part of Milestone 4.
 
 ### Administrator Home View
 
-An administrator may see:
+An Administrator who is responsible for Follow-ups uses the same **Att göra**
+own-items concept and current Client re-authorisation. An administrator may
+otherwise see:
 
 - Today's date
-- Upcoming follow-ups
 - Recent organisation activity
 - Items requiring administrative attention
 - Quick access to clients and personnel
@@ -462,6 +485,15 @@ Possible sections:
 
 Only implemented sections should be displayed as active navigation.
 
+Milestone 4 implements separate, real workspace destinations in this order:
+
+- Översikt
+- Anteckningar
+- Mål
+- Uppföljningar
+
+Mål and Uppföljningar must not be hidden inside a generic **Planering** area.
+
 ### Client Overview
 
 The overview may contain:
@@ -479,6 +511,9 @@ The overview should not duplicate every detail from the other sections.
 
 Its purpose is orientation.
 
+A **Nästa för klienten** planning summary is possible future polish and is not
+required for Milestone 4 completion.
+
 ### Client Header Rules
 
 - The client name must remain prominent.
@@ -491,7 +526,8 @@ Its purpose is orientation.
 Archived Client detail is an Administrator-only historical view. It clearly
 shows archive status and date, identity, category, and Assignment history. It
 does not show Client editing, Assignment management, archive, or restore
-controls.
+controls. **Mål** and **Uppföljningar** remain available as read-only planning
+history and show no create, edit, assignment, or lifecycle controls.
 
 ---
 
@@ -527,6 +563,7 @@ A journal-entry form includes:
 - Datum
 - Tid
 - Anteckning
+- Mål (valfritt)
 - Spara utkast
 - Signera
 - Discard action for the author's own draft
@@ -541,7 +578,8 @@ Suggested order:
 2. Event date and time
 3. Entry type
 4. Main text
-5. Save-draft, sign, and discard actions
+5. Optional Goal selection
+6. Save-draft, sign, and discard actions
 
 The form may open:
 
@@ -562,6 +600,8 @@ The final decision should prioritise accessibility and preservation of user inpu
 - Users must understand when a record becomes immutable.
 - Significant unsaved work requires a warning before dismissal.
 - Sensitive drafts must not be stored in browser storage.
+- Goal selection remains optional and is editable only while the entry remains
+  the author's draft. It must list only Goals from the same Client.
 - Validation errors must appear near the relevant field.
 - Keyboard navigation must follow the visual order.
 
@@ -580,6 +620,7 @@ Before signing, show:
 - Entry type
 - Author
 - Anteckning content
+- Selected Goal titles, when any
 - Confirmation that the record cannot be edited after signing
 - Correction workflow explanation where appropriate
 
@@ -681,6 +722,11 @@ Journal text should:
 
 Signed entries must not display edit or delete actions, including for an Administrator.
 
+Signed entries display each selected Goal using the title frozen at signing
+time. The UI must not suggest that later Goal edits, completion, or archiving
+changed the signed record. Signed entries have no action for adding, removing,
+or replacing Goal references retrospectively.
+
 Correction actions should be clearly labelled:
 
 - Skapa rättelse
@@ -702,18 +748,27 @@ original signed entry rather than presenting an arbitrary correction tree.
 
 Goals should be presented as meaningful areas of focus.
 
-Possible information:
+The **Mål** destination contains:
+
+- Current active and paused Goals
+- Historical completed and archived Goals
+- Create, detail, edit, pause/resume, complete, and archive workflows
+
+Each Goal shows:
 
 - Title
-- Description
+- Optional description
 - Status
 - Start date
-- Review date
-- Related journal entries
+- Optional target or review date
 
-Avoid artificial progress bars or percentages unless the organisation has a genuine measurement method.
+The new-Goal form initially prefills **Startdatum** with the current
+`Europe/Stockholm` calendar date. The user may change it before saving, and the
+form submits an explicit required value for server validation.
 
-Preferred statuses:
+Do not use progress bars or percentage progress for Goals in Version 1.
+
+Status labels are:
 
 - Aktivt
 - Pausat
@@ -721,12 +776,23 @@ Preferred statuses:
 - Arkiverat
 
 Goals should remain optional and should not block ordinary documentation.
+Goals have no responsible owner in Version 1. Active and paused Goals are
+editable. No Goal in any state shows a delete action. **Slutfört** and
+**Arkiverat** are terminal historical states and must not show edit or reopen
+actions.
 
 ---
 
 ## Follow-ups
 
-Follow-ups are planning items.
+Follow-ups are concrete future Client actions or checks. They are shared Client
+planning items rather than private tasks or Journal records.
+
+The **Uppföljningar** destination contains:
+
+- Overdue and current planned Follow-ups
+- Completed and cancelled history
+- Create, detail, edit, assign, reassign, complete, and cancel workflows
 
 Each follow-up should show:
 
@@ -734,24 +800,42 @@ Each follow-up should show:
 - Client
 - Due date
 - Optional time
-- Responsible staff member
+- Responsible user
+- Optional related Goal
 - Status
 
-Preferred statuses:
+Persisted status labels are:
 
 - Planerad
 - Slutförd
 - Avbruten
-- Försenad
+
+**Försenad**, **Idag**, and **Kommande** are text presentation states derived
+from the Planerad item's due date and optional time; they are not stored
+lifecycle statuses. A timed Follow-up becomes overdue after its stated
+Stockholm-local time. A date-only item becomes overdue on the following
+Stockholm calendar day.
 
 Actions may include:
 
 - Markera som slutförd
 - Redigera
+- Byt ansvarig
 - Avbryt
-- Skriv anteckning
 
-Completing a follow-up must not imply that documentation has automatically been created.
+Completing a Follow-up never implies that documentation was created
+automatically.
+
+Only planned Follow-ups show edit, reassignment, completion, or cancellation
+actions. No Follow-up in any state shows a delete action. Completed and
+cancelled items are terminal and show no edit, reassignment, or reopen action.
+When the recorded responsible user no longer has Client access, currently
+authorised users receive clear text that responsibility must be reassigned; the
+stored responsible user remains until explicit reassignment and the item is not
+reassigned automatically.
+
+A post-completion **Skapa/Skriv anteckning** shortcut is future usability
+polish and is not required for Milestone 4.
 
 ---
 

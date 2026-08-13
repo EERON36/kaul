@@ -474,68 +474,225 @@ Milestone 3 is complete when:
 
 ## Goal
 
-Support straightforward planning around client goals and future actions without creating a complex workflow system.
+Help an authorised user answer both:
+
+- What is the Client working toward?
+- What needs to happen next?
+
+The workflow remains Client-centred. It must not become a generic project- or
+task-management system.
+
+The detailed entity rules are defined in `docs/DOMAIN_MODEL.md`, access and
+audit rules in `docs/SECURITY.md`, interaction requirements in `docs/UI.md`,
+and implementation boundaries in `docs/ARCHITECTURE.md`.
 
 ## Scope
 
 This milestone includes:
 
-- Create client goals
-- Edit active goals
-- Pause goals
-- Complete goals
-- Archive goals
-- Reference goals from journal entries
-- Create follow-ups
-- Assign responsibility for follow-ups
-- Follow-up due date and optional time
-- Complete follow-ups
-- Cancel follow-ups
-- Overdue status
-- Upcoming follow-ups on the home view
-- Audit events where appropriate
+- Shared Client Goals with create, detail, edit, pause, complete, archive, and
+  historical views
+- Shared Client Follow-ups with create, detail, edit, assign, reassign,
+  complete, cancel, and historical views
+- One required responsible user for each Follow-up
+- Required Follow-up due date and optional due time
+- Derived overdue, due-today, and upcoming presentation
+- A restrained **Att göra** Home section for the current user's own responsible
+  planned Follow-ups
+- Optional Goal references from author-private Journal drafts
+- Immutable signing-time Goal-reference context on signed Journal entries
+- Narrow immutable Follow-up responsibility-change history
+- Immutable audit evidence only for the approved terminal and reassignment
+  actions
+
+## Authorisation Rules
+
+- Every Goal and Follow-up read or mutation begins with the existing current
+  Client authorisation boundary.
+- Administrators may view and manage planning information for non-archived
+  Clients in their Organisation and may view archived Client planning
+  information read-only.
+- Staff Members require a current active Assignment to an active Client. While
+  authorised, they may view and manage that Client's shared Goals and
+  Follow-ups.
+- Goals and Follow-ups are shared Client planning information, not private
+  per-user records.
+- Follow-up responsibility is not an authorisation boundary.
+- Creation, authorship, Goal activity, and Follow-up responsibility never grant
+  or preserve Client access.
 
 ## Goal Rules
 
-- Goals remain optional.
-- Goals must not block journal creation.
-- Goals should not use artificial percentage progress.
-- Historical journal references must remain understandable after goals change.
-- Completed goals remain visible in history.
+- A Goal is an ordinary editable planning object, not a signed record.
+- Goals have no responsible owner in Version 1.
+- A Goal requires an explicit start date. The create form initially prefills
+  the current `Europe/Stockholm` calendar date, but the user may change it
+  before saving. The server validates the submitted value; no database default
+  is required by product policy.
+- New Goals are `ACTIVE`. `ACTIVE` and `PAUSED` Goals may be edited and may
+  transition between those two states.
+- An `ACTIVE` or `PAUSED` Goal may become `COMPLETED` when the desired outcome
+  was concluded as achieved, or `ARCHIVED` when retired without claiming
+  completion.
+- Goals cannot be hard-deleted in any lifecycle state in Version 1.
+- `COMPLETED` and `ARCHIVED` are terminal in Version 1 and cannot be edited or
+  reopened.
+- Completed and archived Goals remain visible as Client history. Further work
+  after a terminal Goal requires a new Goal.
+- Goals remain optional, do not block Journal work, and do not use artificial
+  percentage progress.
 
 ## Follow-up Rules
 
-- Follow-ups are planning items, not journal records.
-- Completing a follow-up does not automatically create documentation.
-- Users may create a journal entry after a follow-up.
-- Users only see follow-ups for accessible clients.
+- A Follow-up is a concrete future Client action or check, not a Journal
+  record.
+- Persisted states are exactly `PLANNED`, `COMPLETED`, and `CANCELLED`.
+- Only a `PLANNED` Follow-up may be edited or reassigned. It may transition to
+  `COMPLETED` or `CANCELLED`; both states are terminal in Version 1.
+- Follow-ups cannot be hard-deleted in any lifecycle state in Version 1.
+- `COMPLETED` and `CANCELLED` Follow-ups cannot be edited, reassigned, or
+  reopened.
+- `OVERDUE`, due today, and `UPCOMING` are derived presentation states, not
+  persisted lifecycle states.
+- A Follow-up may reference zero or one non-terminal Goal from the same Client
+  and Organisation. Goal-free Follow-ups remain valid.
+- An existing Goal link survives Goal completion or archiving. Goal lifecycle
+  actions do not cascade to Follow-ups.
+- Completing a Follow-up never automatically creates or signs a Journal entry.
+
+## Responsibility and Access-Loss Rules
+
+- Every Follow-up stores exactly one responsible user.
+- When a Follow-up is created or reassigned, the selected responsible user must
+  be active, belong to the same Organisation, and currently have normal Client
+  access. Eligible selections include currently assigned Staff Members and
+  Administrators with normal Organisation Client access.
+- An authorised user may assign or reassign a Follow-up to another eligible
+  user. Creator and responsible user are separate concepts.
+- A responsibility change preserves the previous user, new user, actor, and
+  timestamp in narrow immutable history.
+- If the responsible user later loses Client access, the Follow-up, its stored
+  responsible user, and its history remain until an authorised user explicitly
+  reassigns it. It is removed immediately from that user's Home, is not
+  automatically reassigned, and does not block Assignment or account/access
+  changes.
+- Currently authorised users must be shown that the responsibility needs
+  resolution and may reassign it. The former responsible user cannot read or
+  mutate it.
+
+## Journal Goal-Reference Rules
+
+- While an author-private Journal entry is a `DRAFT`, its author may select zero
+  or more Goals from the same Client.
+- Signing freezes each selected Goal identifier and the Goal title displayed at
+  signing time as immutable signed-record context.
+- After signing, Goal-reference rows cannot be added, removed, or changed.
+  Later Goal edits or lifecycle changes do not alter the signed display.
+- Signed Journal entries cannot receive retrospective Goal links.
+- A Goal reference does not mutate the Goal or grant Journal or Client access.
+
+## Due-Date and Home Rules
+
+- Follow-up dates and times use `Europe/Stockholm` operational semantics.
+- A timed Follow-up becomes overdue after its specified Stockholm-local time.
+  A date-only Follow-up becomes overdue on the following Stockholm calendar
+  day.
+- Ambiguous or nonexistent local times are rejected rather than guessed.
+- **Att göra** contains only the signed-in user's responsible `PLANNED`
+  Follow-ups for Clients they can currently access.
+- Its non-overdue window covers today plus the next seven calendar days. It
+  orders overdue items first, then items due today, then future upcoming items
+  in that window. Within each group, the nearest due date and time appears
+  first.
+- Administrators who are responsible for Follow-ups use the same own-items
+  concept.
+- Rows, links, counts, and any future badges must not disclose inaccessible
+  Client information. Own unfinished Journal drafts are outside Milestone 4
+  Home scope.
+
+## Audit and Integrity Rules
+
+- The approved immutable audit actions are `GOAL_COMPLETED`, `GOAL_ARCHIVED`,
+  `FOLLOW_UP_REASSIGNED`, `FOLLOW_UP_COMPLETED`, and `FOLLOW_UP_CANCELLED`.
+- Reads, ordinary edits, Goal pause/resume, derived due-state changes, creation,
+  and no-op submissions do not require immutable audit events in Version 1.
+- Ordinary history is preserved through retained domain records, lifecycle
+  actors and timestamps, and responsibility-change history rather than full
+  edit revision history.
+- Planning mutations use optimistic versions, reject stale writes, revalidate
+  current Client access, and serialise with Client or Assignment changes where
+  those changes can race.
+- Responsible-user eligibility is revalidated during assignment and
+  reassignment. Same-Organisation and same-Client relationships are enforced
+  structurally, and historical planning records are not cascade-deleted.
+- Journal's stronger signing integrity applies to signed Goal-reference context,
+  but must not be copied onto every ordinary planning edit.
 
 ## Explicitly Excluded
 
 This milestone does not include:
 
+- Client Documents or uploads
 - Calendar synchronisation
 - Email reminders
 - SMS reminders
-- Recurring scheduling engines
-- Complex task management
-- Staff workload analytics
+- Other notifications
+- Recurring Follow-ups
+- AI summaries or prioritisation
+- Automatic Journal entries
+- Follow-up-to-Journal links
+- Goal owners
+- Multiple Follow-up owners
+- Subtasks, checklists, or dependencies
+- Reopening terminal items
+- Full revision history for every edit
+- Workflow configuration
+- Staff workload or productivity metrics
+- Charts
 - Kanban boards
-- Notifications outside Kaul
+- External integrations
+- PWA or offline behaviour
+- A **Nästa för klienten** overview summary
+- A post-completion **Skapa/Skriv anteckning** shortcut
 
 ## Completion Criteria
 
 Milestone 4 is complete when:
 
-- Authorised users can manage client goals.
-- Goal history remains understandable.
-- Goals can be referenced from journal entries.
-- Authorised users can create and complete follow-ups.
-- The responsible user is clear.
-- Upcoming and overdue follow-ups appear appropriately.
-- Staff members cannot see follow-ups for inaccessible clients.
+- Authorised users can manage shared Goals and Follow-ups within the approved
+  current Client access boundary.
+- Goal and Follow-up fields, lifecycles, terminal-state rules, and history match
+  the approved domain model.
+- Responsibility is always clear, eligibility is revalidated, responsibility
+  changes are preserved, and access loss does not leak or silently reassign
+  work.
+- Journal drafts can optionally select same-Client Goals, and signing preserves
+  immutable Goal identifiers and title snapshots without retrospective changes.
+- **Att göra** shows only the current user's authorised responsible planned
+  Follow-ups with the approved overdue, due-today, and seven-day ordering.
+- The approved audited transitions use Kaul's immutable audit guarantees without
+  creating audit noise for ordinary planning edits.
+- Stale writes, duplicate terminal actions, cross-Organisation links,
+  cross-Client links, and Assignment/access races are denied and tested.
+- Archived Client planning information is read-only and visible only through
+  existing archived-Client access.
+- The Client workspace provides separate **Mål** and **Uppföljningar**
+  destinations alongside **Översikt** and **Anteckningar**.
 - Goals and follow-ups remain simple enough for the 2 AM Test.
-- No calendar or notification infrastructure has been introduced.
+- Laptop, 375×812, 200% zoom/reflow, keyboard, focus, Swedish-copy, and
+  text-not-colour status requirements are verified for the implemented flows.
+- No deferred workflow, notification, calendar, document, analytics, or
+  Journal-automation infrastructure has been introduced.
+
+## Post-Milestone 4 Direction
+
+Milestone 4 does not automatically start another feature milestone. After M4,
+the priority is to make Kaul usable and safely deployable for a controlled pilot
+before expanding the feature set without validated need. The first pilot uses
+fictional or sanitised data until every production and security blocker required
+for real sensitive information is resolved. Existing production-readiness,
+credential-delivery, account-recovery, legal, operational, backup, and security
+gates remain in force.
 
 ---
 
