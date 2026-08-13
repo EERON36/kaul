@@ -27,6 +27,7 @@ import {
   journalEntryQueryInputSchema,
   saveJournalDraftInputSchema,
   signJournalDraftInputSchema,
+  replaceJournalDraftGoalsInputSchema,
   type BeginJournalCorrectionInput,
   type ClientJournalQueryInput,
   type CreateJournalDraftInput,
@@ -34,6 +35,7 @@ import {
   type JournalEntryQueryInput,
   type SaveJournalDraftInput,
   type SignJournalDraftInput,
+  type ReplaceJournalDraftGoalsInput,
 } from "./journal-input";
 import {
   runJournalSigningTransaction,
@@ -78,6 +80,7 @@ class DefinitiveJournalMutationError extends Error {
 }
 
 export type JournalTestDependencies = Readonly<{
+  afterDraftGoalMutation?: () => void | Promise<void>;
   beforeSigningTransaction?: () => void | Promise<void>;
   afterSigningMutation?: () => void | Promise<void>;
   afterSigningAuditOutcome?: (
@@ -110,6 +113,13 @@ const journalEntrySelection = {
   signerRole: true,
   correctionOfId: true,
   correctionOf: { select: correctionReferenceSelection },
+  goalReferences: {
+    orderBy: [{ createdAt: "asc" }, { goalId: "asc" }],
+    select: {
+      goalId: true,
+      titleSnapshot: true,
+    },
+  },
 } satisfies Prisma.JournalEntrySelect;
 
 const signedJournalEntryDetailSelection = {
@@ -133,8 +143,14 @@ export type SignedJournalEntryDetail = Readonly<
 
 type JournalDatabase = Pick<
   Prisma.TransactionClient,
-  "user" | "client" | "journalEntry"
+  "user" | "client" | "journalEntry" | "goal" | "journalGoalReference"
 >;
+
+export type AvailableJournalGoal = Readonly<{
+  id: string;
+  title: string;
+  status: "ACTIVE" | "PAUSED" | "COMPLETED" | "ARCHIVED";
+}>;
 
 function getTestDependencies(
   dependencies?: JournalTestDependencies,
@@ -530,6 +546,136 @@ export async function saveJournalDraftInternal(
   }
 }
 
+export async function listAvailableJournalGoalsInternal(
+  input: ClientJournalQueryInput,
+  actor: ApplicationUser,
+): Promise<readonly AvailableJournalGoal[]> {
+  const parsed = clientJournalQueryInputSchema.parse(input);
+  try {
+    return await prisma.$transaction(async (transaction) => {
+      const currentActor = await requireClientForWork(
+        transaction,
+        actor,
+        parsed.clientId,
+      );
+      return transaction.goal.findMany({
+        where: {
+          organisationId: currentActor.organisationId,
+          clientId: parsed.clientId,
+          client: { is: getOrdinaryClientAccessWhere(currentActor) },
+        },
+        orderBy: [{ status: "asc" }, { startDate: "desc" }, { id: "asc" }],
+        select: { id: true, title: true, status: true },
+      });
+    });
+  } catch (error) {
+    return throwPublicJournalError(error);
+  }
+}
+
+export async function replaceJournalDraftGoalsInternal(
+  input: ReplaceJournalDraftGoalsInput,
+  actor: ApplicationUser,
+  testDependencies?: JournalTestDependencies,
+): Promise<Readonly<{ changed: boolean; draft: JournalEntryRecord }>> {
+  const parsed = replaceJournalDraftGoalsInputSchema.parse(input);
+  const dependencies = getTestDependencies(testDependencies);
+  try {
+    return await prisma.$transaction(async (transaction) => {
+      const identity = await findOwnedEntryIdentity(
+        transaction,
+        actor,
+        parsed.journalEntryId,
+      );
+      if (!identity) {
+        throw new DefinitiveJournalMutationError("TARGET_UNAVAILABLE");
+      }
+      await lockClientForMutation(transaction, identity.clientId);
+      const currentActor = await requireCurrentActor(transaction, actor);
+      const current = await findOwnedAccessibleEntry(
+        transaction,
+        currentActor,
+        parsed.journalEntryId,
+      );
+      if (!current || current.status !== JournalEntryStatus.DRAFT) {
+        throw new DefinitiveJournalMutationError("TARGET_UNAVAILABLE");
+      }
+      if (current.version !== parsed.expectedVersion) {
+        throw new DefinitiveJournalMutationError("STALE_VERSION");
+      }
+
+      const goals = await transaction.goal.findMany({
+        where: {
+          id: { in: parsed.goalIds },
+          organisationId: currentActor.organisationId,
+          clientId: current.clientId,
+        },
+        select: { id: true },
+      });
+      if (goals.length !== parsed.goalIds.length) {
+        throw new DefinitiveJournalMutationError("TARGET_UNAVAILABLE");
+      }
+
+      const existing = await transaction.journalGoalReference.findMany({
+        where: { journalEntryId: current.id },
+        orderBy: { goalId: "asc" },
+        select: { goalId: true },
+      });
+      const nextIds = [...parsed.goalIds].sort();
+      if (
+        existing.length === nextIds.length &&
+        existing.every(({ goalId }, index) => goalId === nextIds[index])
+      ) {
+        const draft = await transaction.journalEntry.findUnique({
+          where: { id: current.id },
+          select: journalEntrySelection,
+        });
+        if (!draft) throw new DefinitiveJournalMutationError();
+        return { changed: false, draft };
+      }
+
+      await transaction.journalGoalReference.deleteMany({
+        where: { journalEntryId: current.id },
+      });
+      if (nextIds.length > 0) {
+        await transaction.journalGoalReference.createMany({
+          data: nextIds.map((goalId) => ({
+            organisationId: currentActor.organisationId,
+            clientId: current.clientId,
+            journalEntryId: current.id,
+            goalId,
+            titleSnapshot: null,
+          })),
+        });
+      }
+      const updated = await transaction.journalEntry.updateMany({
+        where: {
+          id: current.id,
+          organisationId: currentActor.organisationId,
+          authorUserId: currentActor.userId,
+          status: JournalEntryStatus.DRAFT,
+          version: parsed.expectedVersion,
+        },
+        data: { version: { increment: 1 } },
+      });
+      if (updated.count !== 1) {
+        throw new DefinitiveJournalMutationError("STALE_VERSION");
+      }
+      await dependencies.afterDraftGoalMutation?.();
+      const draft = await transaction.journalEntry.findUnique({
+        where: { id: current.id },
+        select: journalEntrySelection,
+      });
+      if (!draft || draft.status !== JournalEntryStatus.DRAFT) {
+        throw new DefinitiveJournalMutationError();
+      }
+      return { changed: true, draft };
+    });
+  } catch (error) {
+    return throwPublicJournalError(error);
+  }
+}
+
 export async function discardJournalDraftInternal(
   input: DiscardJournalDraftInput,
   actor: ApplicationUser,
@@ -559,6 +705,10 @@ export async function discardJournalDraftInternal(
       if (current.version !== parsed.expectedVersion) {
         throw new DefinitiveJournalMutationError("STALE_VERSION");
       }
+
+      await transaction.journalGoalReference.deleteMany({
+        where: { journalEntryId: current.id },
+      });
 
       const discarded = await transaction.journalEntry.deleteMany({
         where: {
@@ -734,6 +884,15 @@ export async function signJournalDraftInternal(
   let auditAction: AuditAction;
   try {
     const preflight = await prisma.$transaction(async (transaction) => {
+      const identity = await findOwnedEntryIdentity(
+        transaction,
+        actor,
+        parsed.journalEntryId,
+      );
+      if (!identity) {
+        throw new DefinitiveJournalMutationError("TARGET_UNAVAILABLE");
+      }
+      await lockClientForMutation(transaction, identity.clientId);
       const currentActor = await requireCurrentActor(transaction, actor);
       const entry = await findOwnedAccessibleEntry(
         transaction,

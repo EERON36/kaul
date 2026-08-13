@@ -112,6 +112,36 @@ export const AUDIT_ACTION_POLICY = {
     targetType: "JOURNAL_ENTRY",
     targetId: "REQUIRED",
   },
+  GOAL_COMPLETED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "GOAL",
+    targetId: "REQUIRED",
+  },
+  GOAL_ARCHIVED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "GOAL",
+    targetId: "REQUIRED",
+  },
+  FOLLOW_UP_REASSIGNED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "FOLLOW_UP",
+    targetId: "REQUIRED",
+  },
+  FOLLOW_UP_COMPLETED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "FOLLOW_UP",
+    targetId: "REQUIRED",
+  },
+  FOLLOW_UP_CANCELLED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "FOLLOW_UP",
+    targetId: "REQUIRED",
+  },
 } as const;
 
 export const AUDIT_ACTIONS = [
@@ -133,6 +163,11 @@ export const AUDIT_ACTIONS = [
   "ASSIGNMENT_ENDED",
   "JOURNAL_ENTRY_SIGNED",
   "JOURNAL_CORRECTION_SIGNED",
+  "GOAL_COMPLETED",
+  "GOAL_ARCHIVED",
+  "FOLLOW_UP_REASSIGNED",
+  "FOLLOW_UP_COMPLETED",
+  "FOLLOW_UP_CANCELLED",
 ] as const satisfies readonly (keyof typeof AUDIT_ACTION_POLICY)[];
 
 export const AUDIT_TARGET_TYPES = [
@@ -142,6 +177,8 @@ export const AUDIT_TARGET_TYPES = [
   "CLIENT",
   "ASSIGNMENT",
   "JOURNAL_ENTRY",
+  "GOAL",
+  "FOLLOW_UP",
 ] as const;
 
 export const auditActionSchema = z.enum(AUDIT_ACTIONS);

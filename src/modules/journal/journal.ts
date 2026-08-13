@@ -9,10 +9,13 @@ import {
   getSignedJournalEntryInternal,
   JournalError,
   listSignedJournalEntriesInternal,
+  listAvailableJournalGoalsInternal,
+  replaceJournalDraftGoalsInternal,
   saveJournalDraftInternal,
   signJournalDraftInternal,
   type JournalEntryRecord,
   type SignedJournalEntryDetail,
+  type AvailableJournalGoal,
 } from "./journal-internal";
 import type {
   BeginJournalCorrectionInput,
@@ -22,6 +25,7 @@ import type {
   JournalEntryQueryInput,
   SaveJournalDraftInput,
   SignJournalDraftInput,
+  ReplaceJournalDraftGoalsInput,
 } from "./journal-input";
 
 export {
@@ -37,8 +41,14 @@ export {
   type JournalEntryQueryInput,
   type SaveJournalDraftInput,
   type SignJournalDraftInput,
+  type ReplaceJournalDraftGoalsInput,
 } from "./journal-input";
-export { JournalError, type JournalEntryRecord, type SignedJournalEntryDetail };
+export {
+  JournalError,
+  type AvailableJournalGoal,
+  type JournalEntryRecord,
+  type SignedJournalEntryDetail,
+};
 
 export async function getCurrentJournalDraft(
   input: ClientJournalQueryInput,
@@ -52,6 +62,24 @@ export async function createJournalDraft(input: CreateJournalDraftInput) {
 
 export async function saveJournalDraft(input: SaveJournalDraftInput) {
   return saveJournalDraftInternal(input, await requireApplicationUser());
+}
+
+export async function listAvailableJournalGoals(
+  input: ClientJournalQueryInput,
+): Promise<readonly AvailableJournalGoal[]> {
+  return listAvailableJournalGoalsInternal(
+    input,
+    await requireApplicationUser(),
+  );
+}
+
+export async function replaceJournalDraftGoals(
+  input: ReplaceJournalDraftGoalsInput,
+) {
+  return replaceJournalDraftGoalsInternal(
+    input,
+    await requireApplicationUser(),
+  );
 }
 
 export async function discardJournalDraft(

@@ -56,6 +56,19 @@ enum JournalEntryType {
   OTHER
 }
 
+enum GoalStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum FollowUpStatus {
+  PLANNED
+  COMPLETED
+  CANCELLED
+}
+
 model Organisation {
   id             String         @id
   name           String
@@ -65,32 +78,44 @@ model Organisation {
   clients        Client[]       @relation("OrganisationClients")
   assignments    Assignment[]   @relation("OrganisationAssignments")
   journalEntries JournalEntry[] @relation("OrganisationJournalEntries")
+  goals          Goal[]         @relation("OrganisationGoals")
+  followUps      FollowUp[]     @relation("OrganisationFollowUps")
 
   @@map("organisation")
 }
 
 model User {
-  id                           String         @id
+  id                           String                          @id
   name                         String
   email                        String
-  emailVerified                Boolean        @default(false)
+  emailVerified                Boolean                         @default(false)
   image                        String?
-  createdAt                    DateTime       @default(now())
-  updatedAt                    DateTime       @updatedAt
-  role                         UserRole       @default(STAFF_MEMBER)
-  banned                       Boolean?       @default(false)
+  createdAt                    DateTime                        @default(now())
+  updatedAt                    DateTime                        @updatedAt
+  role                         UserRole                        @default(STAFF_MEMBER)
+  banned                       Boolean?                        @default(false)
   banReason                    String?
   banExpires                   DateTime?
   organisationId               String
-  organisation                 Organisation   @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+  organisation                 Organisation                    @relation(fields: [organisationId], references: [id], onDelete: Restrict)
   professionalTitle            String
-  mustChangePassword           Boolean        @default(true)
+  mustChangePassword           Boolean                         @default(true)
   temporaryCredentialExpiresAt DateTime?
   sessions                     Session[]
   accounts                     Account[]
-  staffAssignments             Assignment[]   @relation("StaffAssignments")
-  createdAssignments           Assignment[]   @relation("AssignmentCreators")
-  authoredJournalEntries       JournalEntry[] @relation("JournalEntryAuthors")
+  staffAssignments             Assignment[]                    @relation("StaffAssignments")
+  createdAssignments           Assignment[]                    @relation("AssignmentCreators")
+  authoredJournalEntries       JournalEntry[]                  @relation("JournalEntryAuthors")
+  createdGoals                 Goal[]                          @relation("GoalCreators")
+  completedGoals               Goal[]                          @relation("GoalCompletionActors")
+  archivedGoals                Goal[]                          @relation("GoalArchiveActors")
+  createdFollowUps             FollowUp[]                      @relation("FollowUpCreators")
+  responsibleFollowUps         FollowUp[]                      @relation("FollowUpResponsibleUsers")
+  completedFollowUps           FollowUp[]                      @relation("FollowUpCompletionActors")
+  cancelledFollowUps           FollowUp[]                      @relation("FollowUpCancellationActors")
+  previousResponsibilities     FollowUpResponsibilityHistory[] @relation("PreviousResponsibleUsers")
+  newResponsibilities          FollowUpResponsibilityHistory[] @relation("NewResponsibleUsers")
+  actedResponsibilityChanges   FollowUpResponsibilityHistory[] @relation("ResponsibilityChangeActors")
 
   @@unique([email])
   @@unique([organisationId, id])
@@ -112,6 +137,8 @@ model Client {
   updatedAt        DateTime       @updatedAt
   assignments      Assignment[]   @relation("ClientAssignments")
   journalEntries   JournalEntry[] @relation("ClientJournalEntries")
+  goals            Goal[]         @relation("ClientGoals")
+  followUps        FollowUp[]     @relation("ClientFollowUps")
 
   @@unique([organisationId, personIdentifier])
   @@unique([organisationId, id])
@@ -199,15 +226,16 @@ model RateLimit {
 }
 
 model AuditOperation {
-  id             String         @id @db.Uuid
-  organisationId String?
-  actorKind      AuditActorKind
-  actorUserId    String?
-  action         String
-  targetType     String
-  targetId       String?
-  createdAt      DateTime       @default(now())
-  events         AuditEvent[]
+  id                            String                         @id @db.Uuid
+  organisationId                String?
+  actorKind                     AuditActorKind
+  actorUserId                   String?
+  action                        String
+  targetType                    String
+  targetId                      String?
+  createdAt                     DateTime                       @default(now())
+  events                        AuditEvent[]
+  followUpResponsibilityHistory FollowUpResponsibilityHistory?
 
   @@index([organisationId, createdAt])
   @@index([actorUserId, createdAt])
@@ -231,33 +259,137 @@ model AuditEvent {
 }
 
 model JournalEntry {
-  id                      String             @id @db.Uuid
-  reference               String             @unique @db.VarChar(40)
+  id                      String                 @id @db.Uuid
+  reference               String                 @unique @db.VarChar(40)
   organisationId          String
-  organisation            Organisation       @relation("OrganisationJournalEntries", fields: [organisationId], references: [id], onDelete: Restrict)
-  clientId                String             @db.Uuid
-  client                  Client             @relation("ClientJournalEntries", fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict)
+  organisation            Organisation           @relation("OrganisationJournalEntries", fields: [organisationId], references: [id], onDelete: Restrict)
+  clientId                String                 @db.Uuid
+  client                  Client                 @relation("ClientJournalEntries", fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict)
   authorUserId            String
-  author                  User               @relation("JournalEntryAuthors", fields: [organisationId, authorUserId], references: [organisationId, id], onDelete: Restrict)
-  status                  JournalEntryStatus @default(DRAFT)
+  author                  User                   @relation("JournalEntryAuthors", fields: [organisationId, authorUserId], references: [organisationId, id], onDelete: Restrict)
+  status                  JournalEntryStatus     @default(DRAFT)
   entryType               JournalEntryType
-  eventOccurredAt         DateTime           @db.Timestamptz(3)
+  eventOccurredAt         DateTime               @db.Timestamptz(3)
   content                 String
-  version                 Int                @default(1)
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
-  signedAt                DateTime?          @db.Timestamptz(3)
+  version                 Int                    @default(1)
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  signedAt                DateTime?              @db.Timestamptz(3)
   signerUserId            String?
   signerName              String?
   signerProfessionalTitle String?
   signerRole              UserRole?
-  correctionOfId          String?            @db.Uuid
-  correctionOf            JournalEntry?      @relation("JournalCorrections", fields: [organisationId, clientId, correctionOfId], references: [organisationId, clientId, id], onDelete: Restrict)
-  corrections             JournalEntry[]     @relation("JournalCorrections")
+  correctionOfId          String?                @db.Uuid
+  correctionOf            JournalEntry?          @relation("JournalCorrections", fields: [organisationId, clientId, correctionOfId], references: [organisationId, clientId, id], onDelete: Restrict)
+  corrections             JournalEntry[]         @relation("JournalCorrections")
+  goalReferences          JournalGoalReference[]
 
   @@unique([organisationId, clientId, id])
   @@index([organisationId, clientId, status, eventOccurredAt, signedAt, id])
   @@index([organisationId, authorUserId, status])
   @@index([correctionOfId])
   @@map("journalEntry")
+}
+
+model Goal {
+  id                String                 @id @db.Uuid
+  organisationId    String
+  organisation      Organisation           @relation("OrganisationGoals", fields: [organisationId], references: [id], onDelete: Restrict, map: "goal_organisationId_fkey")
+  clientId          String                 @db.Uuid
+  client            Client                 @relation("ClientGoals", fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict, map: "goal_scope_client_fkey")
+  title             String                 @db.VarChar(200)
+  description       String?
+  status            GoalStatus             @default(ACTIVE)
+  startDate         DateTime               @db.Date
+  targetDate        DateTime?              @db.Date
+  createdByUserId   String
+  createdByUser     User                   @relation("GoalCreators", fields: [organisationId, createdByUserId], references: [organisationId, id], onDelete: Restrict, map: "goal_scope_creator_fkey")
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  version           Int                    @default(1)
+  completedAt       DateTime?              @db.Timestamptz(3)
+  completedByUserId String?
+  completedByUser   User?                  @relation("GoalCompletionActors", fields: [organisationId, completedByUserId], references: [organisationId, id], onDelete: Restrict, map: "goal_scope_completed_actor_fkey")
+  archivedAt        DateTime?              @db.Timestamptz(3)
+  archivedByUserId  String?
+  archivedByUser    User?                  @relation("GoalArchiveActors", fields: [organisationId, archivedByUserId], references: [organisationId, id], onDelete: Restrict, map: "goal_scope_archived_actor_fkey")
+  followUps         FollowUp[]
+  journalReferences JournalGoalReference[]
+
+  @@unique([organisationId, clientId, id], map: "goal_organisationId_clientId_id_key")
+  @@index([organisationId, clientId, status, startDate, id], map: "goal_organisationId_clientId_status_startDate_id_idx")
+  @@map("goal")
+}
+
+model FollowUp {
+  id                    String                          @id @db.Uuid
+  organisationId        String
+  organisation          Organisation                    @relation("OrganisationFollowUps", fields: [organisationId], references: [id], onDelete: Restrict, map: "followUp_organisationId_fkey")
+  clientId              String                          @db.Uuid
+  client                Client                          @relation("ClientFollowUps", fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict, map: "followUp_scope_client_fkey")
+  title                 String                          @db.VarChar(200)
+  description           String?
+  dueDate               DateTime                        @db.Date
+  dueTime               String?                         @db.VarChar(5)
+  dueAt                 DateTime?                       @db.Timestamptz(3)
+  status                FollowUpStatus                  @default(PLANNED)
+  goalId                String?                         @db.Uuid
+  goal                  Goal?                           @relation(fields: [organisationId, clientId, goalId], references: [organisationId, clientId, id], onDelete: Restrict, map: "followUp_scope_goal_fkey")
+  createdByUserId       String
+  createdByUser         User                            @relation("FollowUpCreators", fields: [organisationId, createdByUserId], references: [organisationId, id], onDelete: Restrict, map: "followUp_scope_creator_fkey")
+  responsibleUserId     String
+  responsibleUser       User                            @relation("FollowUpResponsibleUsers", fields: [organisationId, responsibleUserId], references: [organisationId, id], onDelete: Restrict, map: "followUp_scope_responsible_fkey")
+  createdAt             DateTime                        @default(now())
+  updatedAt             DateTime                        @updatedAt
+  version               Int                             @default(1)
+  completedAt           DateTime?                       @db.Timestamptz(3)
+  completedByUserId     String?
+  completedByUser       User?                           @relation("FollowUpCompletionActors", fields: [organisationId, completedByUserId], references: [organisationId, id], onDelete: Restrict, map: "followUp_scope_completed_actor_fkey")
+  cancelledAt           DateTime?                       @db.Timestamptz(3)
+  cancelledByUserId     String?
+  cancelledByUser       User?                           @relation("FollowUpCancellationActors", fields: [organisationId, cancelledByUserId], references: [organisationId, id], onDelete: Restrict, map: "followUp_scope_cancelled_actor_fkey")
+  responsibilityHistory FollowUpResponsibilityHistory[]
+
+  @@unique([organisationId, clientId, id], map: "followUp_organisationId_clientId_id_key")
+  @@index([organisationId, clientId, status, dueDate, dueTime, id], map: "followUp_organisationId_clientId_status_dueDate_dueTime_id_idx")
+  @@index([organisationId, responsibleUserId, status, dueDate, dueTime, id], map: "followUp_organisationId_responsible_status_due_idx")
+  @@index([goalId], map: "followUp_goalId_idx")
+  @@map("followUp")
+}
+
+model FollowUpResponsibilityHistory {
+  id                        String         @id @db.Uuid
+  organisationId            String
+  clientId                  String         @db.Uuid
+  followUpId                String         @db.Uuid
+  followUp                  FollowUp       @relation(fields: [organisationId, clientId, followUpId], references: [organisationId, clientId, id], onDelete: Restrict, map: "history_scope_followUp_fkey")
+  previousResponsibleUserId String
+  previousResponsibleUser   User           @relation("PreviousResponsibleUsers", fields: [organisationId, previousResponsibleUserId], references: [organisationId, id], onDelete: Restrict, map: "history_scope_previous_user_fkey")
+  newResponsibleUserId      String
+  newResponsibleUser        User           @relation("NewResponsibleUsers", fields: [organisationId, newResponsibleUserId], references: [organisationId, id], onDelete: Restrict, map: "history_scope_new_user_fkey")
+  actorUserId               String
+  actorUser                 User           @relation("ResponsibilityChangeActors", fields: [organisationId, actorUserId], references: [organisationId, id], onDelete: Restrict, map: "history_scope_actor_fkey")
+  followUpVersion           Int
+  changedAt                 DateTime       @default(now()) @db.Timestamptz(3)
+  auditOperationId          String         @unique(map: "history_audit_operation_key") @db.Uuid
+  auditOperation            AuditOperation @relation(fields: [auditOperationId], references: [id], onDelete: Restrict, map: "history_audit_operation_fkey")
+
+  @@unique([followUpId, followUpVersion], map: "followUpResponsibilityHistory_followUp_version_key")
+  @@index([organisationId, clientId, followUpId, changedAt, id], map: "followUpResponsibilityHistory_scope_changed_idx")
+  @@map("followUpResponsibilityHistory")
+}
+
+model JournalGoalReference {
+  organisationId String
+  clientId       String       @db.Uuid
+  journalEntryId String       @db.Uuid
+  journalEntry   JournalEntry @relation(fields: [organisationId, clientId, journalEntryId], references: [organisationId, clientId, id], onDelete: Restrict, map: "journalGoalReference_scope_entry_fkey")
+  goalId         String       @db.Uuid
+  goal           Goal         @relation(fields: [organisationId, clientId, goalId], references: [organisationId, clientId, id], onDelete: Restrict, map: "journalGoalReference_scope_goal_fkey")
+  titleSnapshot  String?      @db.VarChar(200)
+  createdAt      DateTime     @default(now())
+
+  @@id([journalEntryId, goalId])
+  @@index([organisationId, clientId, goalId], map: "journalGoalReference_scope_goal_idx")
+  @@map("journalGoalReference")
 }
