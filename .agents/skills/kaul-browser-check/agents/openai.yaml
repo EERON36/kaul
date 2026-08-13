@@ -1,0 +1,4 @@
+interface:
+  display_name: "Check Kaul browser UI"
+  short_description: "Safely explore Kaul with Playwright CLI"
+  default_prompt: "Use $kaul-browser-check to safely explore Kaul browser behavior in an isolated test environment while keeping @playwright/test authoritative."
