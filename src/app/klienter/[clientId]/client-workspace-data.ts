@@ -9,6 +9,7 @@ import {
   requireClientAccess,
 } from "@/modules/clients/client-access";
 import { JournalError } from "@/modules/journal/journal";
+import { PlanningError } from "@/modules/planning/planning";
 
 export async function loadClientWorkspace(clientId: string) {
   try {
@@ -21,7 +22,8 @@ export async function loadClientWorkspace(clientId: string) {
 export function handleClientWorkspacePageError(error: unknown): never {
   if (
     error instanceof ClientAccessError ||
-    (error instanceof JournalError && error.code === "TARGET_UNAVAILABLE")
+    (error instanceof JournalError && error.code === "TARGET_UNAVAILABLE") ||
+    (error instanceof PlanningError && error.code === "TARGET_UNAVAILABLE")
   ) {
     notFound();
   }

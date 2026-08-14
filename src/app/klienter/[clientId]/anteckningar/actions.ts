@@ -10,6 +10,7 @@ import {
   getCurrentJournalDraft,
   getSignedJournalEntry,
   JournalError,
+  replaceJournalDraftGoals,
   saveJournalDraft,
   signJournalDraft,
   type JournalEntryRecord,
@@ -26,11 +27,13 @@ const STALE_DRAFT_MESSAGE =
   "Utkastet har ändrats i en annan session. Dina ändringar har inte sparats. Ladda om utkastet och granska det sparade innehållet.";
 const LOST_ACCESS_MESSAGE =
   "Du har inte längre behörighet till klienten. Ändringarna har inte sparats.";
+const PARTIAL_GOAL_SAVE_MESSAGE =
+  "Anteckningen sparades, men målkopplingarna kunde inte uppdateras. Ladda om utkastet och kontrollera målen innan du fortsätter.";
 const SIGNING_CONFLICT_MESSAGE =
   "Anteckningen kunde inte signeras eftersom den har ändrats eller redan signerats. Ladda om och granska igen.";
 
 export type JournalDraftActionState = Readonly<{
-  status: "IDLE" | "ERROR" | "SUCCESS" | "STALE";
+  status: "IDLE" | "ERROR" | "SUCCESS" | "STALE" | "PARTIAL";
   message?: string;
   fieldErrors?: JournalFormFieldErrors;
   values: JournalFormValues;
@@ -128,6 +131,28 @@ export async function saveJournalDraftAction(
     }
   } catch (error) {
     return draftErrorState(previousState, parsedForm.values, error);
+  }
+
+  try {
+    const goalResult = await replaceJournalDraftGoals({
+      journalEntryId: saved.id,
+      expectedVersion: saved.version,
+      goalIds: [...parsedForm.values.goalIds],
+    });
+    saved = goalResult.draft;
+  } catch {
+    revalidatePath(`/klienter/${saved.clientId}/anteckningar`);
+    revalidatePath(`/klienter/${saved.clientId}/anteckningar/utkast`);
+    return {
+      status: "PARTIAL",
+      message: PARTIAL_GOAL_SAVE_MESSAGE,
+      values: {
+        ...parsedForm.values,
+        goalIds: saved.goalReferences.map(({ goalId }) => goalId),
+      },
+      journalEntryId: saved.id,
+      version: saved.version,
+    };
   }
 
   revalidatePath(`/klienter/${saved.clientId}/anteckningar`);

@@ -6,6 +6,7 @@ import { generateAuditOperationId } from "@/modules/audit/audit";
 import {
   getCurrentJournalDraft,
   JOURNAL_ENTRY_TYPE_LABELS,
+  listAvailableJournalGoals,
 } from "@/modules/journal/journal";
 
 import { ClientWorkspaceHeader } from "../../../client-workspace";
@@ -26,8 +27,12 @@ export default async function JournalReviewPage({
   if (result.client.status === "ARCHIVED") notFound();
 
   let draft;
+  let goals;
   try {
-    draft = await getCurrentJournalDraft({ clientId });
+    [draft, goals] = await Promise.all([
+      getCurrentJournalDraft({ clientId }),
+      listAvailableJournalGoals({ clientId }),
+    ]);
   } catch (error) {
     return handleClientWorkspacePageError(error);
   }
@@ -88,6 +93,26 @@ export default async function JournalReviewPage({
           >
             <h3 id="review-content-heading">Anteckning</h3>
             <div className="journal-content">{draft.content}</div>
+          </section>
+          <section
+            aria-labelledby="review-goals-heading"
+            className="journal-goal-context"
+          >
+            <h3 id="review-goals-heading">Valda mål</h3>
+            {draft.goalReferences.length === 0 ? (
+              <p>Inga mål är valda.</p>
+            ) : (
+              <ul>
+                {draft.goalReferences.map((reference) => {
+                  const goal = goals.find(({ id }) => id === reference.goalId);
+                  return (
+                    <li key={reference.goalId}>
+                      {goal?.title ?? "Mål kan inte visas"}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </section>
           <p className="journal-signing-warning">
             När du signerar kan anteckningen inte längre ändras. Fel rättas

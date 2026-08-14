@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   discardJournalDraft: vi.fn(),
   getCurrentJournalDraft: vi.fn(),
   getSignedJournalEntry: vi.fn(),
+  replaceJournalDraftGoals: vi.fn(),
   saveJournalDraft: vi.fn(),
   signJournalDraft: vi.fn(),
   revalidatePath: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("@/modules/journal/journal", async (importOriginal) => ({
   discardJournalDraft: mocks.discardJournalDraft,
   getCurrentJournalDraft: mocks.getCurrentJournalDraft,
   getSignedJournalEntry: mocks.getSignedJournalEntry,
+  replaceJournalDraftGoals: mocks.replaceJournalDraftGoals,
   saveJournalDraft: mocks.saveJournalDraft,
   signJournalDraft: mocks.signJournalDraft,
 }));
@@ -39,6 +41,8 @@ import {
 const clientId = "123e4567-e89b-42d3-a456-426614174001";
 const entryId = "123e4567-e89b-42d3-a456-426614174002";
 const operationId = "123e4567-e89b-42d3-a456-426614174003";
+const goalId = "123e4567-e89b-42d3-a456-426614174004";
+const previouslySavedGoalId = "123e4567-e89b-42d3-a456-426614174005";
 const initialDraftState: JournalDraftActionState = {
   status: "IDLE",
   values: {
@@ -46,6 +50,7 @@ const initialDraftState: JournalDraftActionState = {
     eventDate: "2026-08-12",
     eventTime: "08:15",
     content: "Tidigare innehåll.",
+    goalIds: [],
   },
   journalEntryId: entryId,
   version: 1,
@@ -62,6 +67,7 @@ function draftForm() {
   form.set("eventTime", "08:15");
   form.set("content", "Webbläsarens osparade innehåll.");
   form.set("submitIntent", "save");
+  form.append("goalIds", goalId);
   return form;
 }
 
@@ -81,6 +87,91 @@ describe("Journal Server Action safe feedback", () => {
       message: expect.stringContaining("Dina ändringar har inte sparats"),
     });
     expect(mocks.createJournalDraft).not.toHaveBeenCalled();
+    expect(mocks.replaceJournalDraftGoals).not.toHaveBeenCalled();
+  });
+
+  it("updates Goal selection after saving and carries the returned version forward", async () => {
+    mocks.saveJournalDraft.mockResolvedValueOnce({
+      id: entryId,
+      clientId,
+      version: 2,
+    });
+    mocks.replaceJournalDraftGoals.mockResolvedValueOnce({
+      changed: true,
+      draft: { id: entryId, clientId, version: 3 },
+    });
+
+    const result = await saveJournalDraftAction(initialDraftState, draftForm());
+
+    expect(mocks.replaceJournalDraftGoals).toHaveBeenCalledWith({
+      journalEntryId: entryId,
+      expectedVersion: 2,
+      goalIds: [goalId],
+    });
+    expect(result).toMatchObject({
+      status: "SUCCESS",
+      version: 3,
+      values: { goalIds: [goalId] },
+    });
+  });
+
+  it("reports a durable content save separately when Goal selection fails", async () => {
+    mocks.saveJournalDraft.mockResolvedValueOnce({
+      id: entryId,
+      clientId,
+      version: 2,
+      goalReferences: [{ goalId: previouslySavedGoalId, titleSnapshot: null }],
+    });
+    mocks.replaceJournalDraftGoals.mockRejectedValueOnce(
+      new JournalError("STALE_VERSION"),
+    );
+
+    const result = await saveJournalDraftAction(initialDraftState, draftForm());
+
+    expect(mocks.replaceJournalDraftGoals).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      status: "PARTIAL",
+      message:
+        "Anteckningen sparades, men målkopplingarna kunde inte uppdateras. Ladda om utkastet och kontrollera målen innan du fortsätter.",
+      values: {
+        entryType: "CONVERSATION",
+        eventDate: "2026-08-12",
+        eventTime: "08:15",
+        content: "Webbläsarens osparade innehåll.",
+        goalIds: [previouslySavedGoalId],
+      },
+      journalEntryId: entryId,
+      version: 2,
+    });
+    expect(mocks.revalidatePath.mock.calls).toEqual(
+      expect.arrayContaining([
+        [`/klienter/${clientId}/anteckningar`],
+        [`/klienter/${clientId}/anteckningar/utkast`],
+      ]),
+    );
+    expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+
+  it("keeps Goal selection optional when saving a draft", async () => {
+    const form = draftForm();
+    form.delete("goalIds");
+    mocks.saveJournalDraft.mockResolvedValueOnce({
+      id: entryId,
+      clientId,
+      version: 2,
+    });
+    mocks.replaceJournalDraftGoals.mockResolvedValueOnce({
+      changed: false,
+      draft: { id: entryId, clientId, version: 2 },
+    });
+
+    await saveJournalDraftAction(initialDraftState, form);
+
+    expect(mocks.replaceJournalDraftGoals).toHaveBeenCalledWith({
+      journalEntryId: entryId,
+      expectedVersion: 2,
+      goalIds: [],
+    });
   });
 
   it("withholds current revision credentials after an initial-create race", async () => {
