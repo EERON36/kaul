@@ -64,6 +64,19 @@ export const beginJournalCorrectionInputSchema = editableJournalFieldsSchema
   .extend({ originalEntryId: internalUuidSchema })
   .strict();
 
+export const replaceJournalDraftGoalsInputSchema = z
+  .object({
+    journalEntryId: internalUuidSchema,
+    expectedVersion: expectedVersionSchema,
+    goalIds: z
+      .array(internalUuidSchema)
+      .max(100)
+      .refine((values) => new Set(values).size === values.length, {
+        message: "Goal identifiers must be unique.",
+      }),
+  })
+  .strict();
+
 export type ClientJournalQueryInput = z.input<
   typeof clientJournalQueryInputSchema
 >;
@@ -80,4 +93,7 @@ export type DiscardJournalDraftInput = z.input<
 export type SignJournalDraftInput = z.input<typeof signJournalDraftInputSchema>;
 export type BeginJournalCorrectionInput = z.input<
   typeof beginJournalCorrectionInputSchema
+>;
+export type ReplaceJournalDraftGoalsInput = z.input<
+  typeof replaceJournalDraftGoalsInputSchema
 >;

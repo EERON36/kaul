@@ -80,6 +80,11 @@ describe("audit vocabulary", () => {
       "ASSIGNMENT_ENDED",
       "JOURNAL_ENTRY_SIGNED",
       "JOURNAL_CORRECTION_SIGNED",
+      "GOAL_COMPLETED",
+      "GOAL_ARCHIVED",
+      "FOLLOW_UP_REASSIGNED",
+      "FOLLOW_UP_COMPLETED",
+      "FOLLOW_UP_CANCELLED",
     ]);
     expect(
       AUDIT_ACTIONS.every((action) => /^[A-Z][A-Z0-9_]*$/.test(action)),
@@ -94,6 +99,8 @@ describe("audit vocabulary", () => {
       "CLIENT",
       "ASSIGNMENT",
       "JOURNAL_ENTRY",
+      "GOAL",
+      "FOLLOW_UP",
     ]);
     expect(
       auditIntentContextSchema.safeParse(

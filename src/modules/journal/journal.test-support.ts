@@ -6,6 +6,8 @@ import {
   getCurrentJournalDraftInternal,
   getSignedJournalEntryInternal,
   listSignedJournalEntriesInternal,
+  listAvailableJournalGoalsInternal,
+  replaceJournalDraftGoalsInternal,
   saveJournalDraftInternal,
   signJournalDraftInternal,
   verifySigningTransactionCompletionForTest as verifySigningTransactionCompletionInternalForTest,
@@ -19,6 +21,7 @@ import type {
   JournalEntryQueryInput,
   SaveJournalDraftInput,
   SignJournalDraftInput,
+  ReplaceJournalDraftGoalsInput,
 } from "./journal-input";
 import type { AuditIntentHandle } from "../audit/audit";
 
@@ -50,6 +53,23 @@ export function saveJournalDraftForTest(
 ) {
   assertTestEnvironment();
   return saveJournalDraftInternal(input, actor);
+}
+
+export function listAvailableJournalGoalsForTest(
+  input: ClientJournalQueryInput,
+  actor: ApplicationUser,
+) {
+  assertTestEnvironment();
+  return listAvailableJournalGoalsInternal(input, actor);
+}
+
+export function replaceJournalDraftGoalsForTest(
+  input: ReplaceJournalDraftGoalsInput,
+  actor: ApplicationUser,
+  dependencies?: JournalTestDependencies,
+) {
+  assertTestEnvironment();
+  return replaceJournalDraftGoalsInternal(input, actor, dependencies);
 }
 
 export function discardJournalDraftForTest(
