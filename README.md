@@ -26,12 +26,18 @@ Implemented now:
 - Complete Milestone 3 Journal and Signed Records: author-private drafts,
   explicit signing, immutable signed records, signed history and detail, and
   separate flat corrections.
+- Complete Milestone 4 Goals and Follow-ups: shared Client planning,
+  lifecycle and responsibility history, the current user's authorised **Att
+  göra**, and immutable signing-time Goal context in Journal records.
 
-Milestone 4 Goals and Follow-ups is the next product milestone. Later work also
-includes documents, reports, global search, exports, pilot readiness, and a
-separate production-readiness decision. Production credential-delivery and
-sole-Administrator recovery procedures also remain unresolved. Kaul is not
-production-ready.
+The next project focus is **Pilot Readiness**: a repeatable, isolated pilot
+using fictional or sanitised data, with HTTPS, environment separation,
+operational monitoring, and verified backup and restore procedures. Documents,
+reports, global search, exports, and other deferred features are not pulled
+into the pilot merely by this change; initial user feedback should determine
+which are blocking needs. Production credential-delivery,
+sole-Administrator recovery, legal, operational, and security gates remain
+unresolved. Kaul is not production-ready.
 
 ## Core stack
 

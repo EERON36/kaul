@@ -323,13 +323,14 @@ No production deployment should depend on homelab-specific infrastructure.
 
 # Current Status
 
-Milestone 0 is complete. Milestone 1 authentication, audit, and Staff
-management slices are implemented, with production credential-delivery and
-sole-Administrator recovery procedures still outstanding. Milestone 2 Clients
-and Assignments is complete: Administrators can create and edit the permitted
-fields of **Ungdomar** and **Vuxna** Clients, manage primary and secondary Staff
-assignments, see current primary responsibility in ordinary discovery, and
-archive eligible Clients into a separate read-only historical workflow. Staff
+Milestones 0 and 1 are complete. Milestone 1 authentication, audit, and Staff
+management are implemented, while production credential-delivery and
+sole-Administrator recovery procedures remain separate production blockers.
+Milestone 2 Clients and Assignments is complete: Administrators can create and
+edit the permitted fields of **Ungdomar** and **Vuxna** Clients, manage primary
+and secondary Staff assignments, see current primary responsibility in
+ordinary discovery, and archive eligible Clients into a separate read-only
+historical workflow. Staff
 Home shows currently assigned active Clients with the current user's
 responsibility, the Client workspace presents current primary and secondary
 responsibility, and permission-aware basic name and Personreferens search uses
@@ -342,7 +343,16 @@ records, historical signer snapshots, and draft privacy remain server-
 authoritative. Printable Journal views are deferred work and do not block
 Milestone 3. Milestone 3 is complete: security and domain reviews, final
 focused race and UI reviews, and pull-request CI passed; the final UI was
-squash-merged to main in #34. Milestone 4 — Goals and Follow-ups is the next
-implementation focus. Document, report, global search, export, and other
-later-milestone functionality also remain unimplemented; Kaul is not
-production-ready.
+squash-merged to main in #34. Milestone 4 Goals and Follow-ups is also
+complete. Shared Client Goals and Follow-ups, responsibility and access-loss
+rules, Stockholm due semantics, the current user's authorised **Att göra**,
+and immutable signing-time Journal Goal references are implemented through the
+approved server, PostgreSQL, and accessible Client-workspace boundaries.
+
+The next project focus is **Pilot Readiness**: repeatable deployment to an
+isolated pilot environment using fictional or sanitised data, with HTTPS,
+separate configuration and secrets, backup/restore verification, safe
+Administrator setup, basic operations, repeatable updates, and a short user
+feedback loop. This does not make Kaul production-ready or automatically pull
+Documents, reports, global search, export, or other deferred functionality into
+the pilot. Existing production and security blockers remain open.

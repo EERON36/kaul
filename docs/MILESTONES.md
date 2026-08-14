@@ -472,6 +472,8 @@ Milestone 3 is complete when:
 
 # Milestone 4 — Goals and Follow-ups
 
+Status: Complete.
+
 ## Goal
 
 Help an authorised user answer both:
@@ -882,7 +884,8 @@ This milestone includes:
 - Uptime monitoring
 - Structured operational logs
 - PostgreSQL backups
-- Uploaded-file backups
+- Uploaded-file backups when file uploads are included in the approved pilot
+  workflow
 - Encrypted off-host backup destination
 - Restore scripts
 - Restore testing
@@ -912,7 +915,7 @@ Milestone 7 is complete when:
 - Proxmox is not exposed through the Kaul domain.
 - Development and pilot use separate credentials and databases.
 - Automatic database backups run successfully.
-- Uploaded-file backups run successfully.
+- Uploaded-file backups run successfully when file uploads are in pilot scope.
 - At least one backup is stored away from the application host.
 - A clean environment has been restored from backup.
 - Restore steps are documented.
@@ -1032,7 +1035,7 @@ Git reference:
 
 ## Current Phase
 
-### Milestone 1 — Authentication and User Administration: Implementation in Progress
+### Milestone 1 — Authentication and User Administration: Complete
 
 ADR 0001 remains Accepted.
 
@@ -1082,7 +1085,9 @@ once to the authenticated Administrator and is never persisted in plaintext.
 This development and pilot display does not resolve the required
 organisation-approved production delivery channel.
 
-Later Milestone 1 work remains outstanding, including:
+Milestone 1's implemented product scope and completion criteria are complete.
+The following operational controls remain outstanding production blockers and
+are not weakened by that milestone status:
 
 - The organisation-approved production credential-delivery channel
 - The sole-Administrator credential-loss recovery procedure
@@ -1166,10 +1171,49 @@ to main in #34. Kaul is not production-ready, and the production
 credential-delivery, sole-Administrator recovery, pilot, and
 production-readiness gates remain open.
 
-### Next product milestone — Milestone 4: Goals and Follow-ups
+### Milestone 4 — Goals and Follow-ups: Complete
 
-Milestone 4 is the current implementation focus; its approved scope and
-completion criteria are defined above.
+The Milestone 4 domain/database foundation and visible Client-planning
+workflows are implemented. Authorised users can manage retained shared Goals
+and Follow-ups through their approved lifecycles; responsibility eligibility,
+access-loss behaviour, immutable reassignment history, optimistic concurrency,
+Stockholm due semantics, and the five approved audit actions are enforced on
+the server and in PostgreSQL. **Att göra** shows only the current user's own
+authorised planned Follow-ups in the approved order.
+
+Journal drafts support optional same-Client Goal selection. Signing freezes
+Goal identifiers and title snapshots as immutable signed-record context while
+preserving the correction workflow and truthful partial-save recovery. The
+Client workspace provides separate **Mål** and **Uppföljningar** destinations,
+including archived read-only history and visible terminal dates.
+
+Merged permanent evidence includes the foundation's focused M4 PostgreSQL
+17/17, Journal/Client/Assignment 40/40, integration 173/173, and unit 337/337
+results, plus the UI slice's M4 Playwright 6/6, Client/Journal Playwright
+12/12, planning integration 17/17, Journal integration 15/15, focused action
+and form tests, audit policy, lint, typecheck, build, and successful pull-request
+CI. The foundation was squash-merged in #38 and the visible workflows in #39.
+Milestone 4 is complete.
+
+### Current focus — Pilot Readiness
+
+The next project focus is a small, repeatable, and safely isolated pilot before
+another major feature milestone is selected. Pilot Readiness should establish:
+
+- Repeatable deployment to the pilot server through an HTTPS subdomain
+- A separate pilot environment, database, configuration, and secrets
+- Verified backup and restore procedures
+- A safe Administrator bootstrap and account-support workflow
+- Basic operational logging, monitoring, and repeatable updates
+- Fictional or sanitised pilot data and a 1–2 week user-feedback loop
+- A later deliberate migration path to organisation-approved infrastructure
+
+Pilot Readiness is not complete and does not make Kaul ready for real sensitive
+information. Documents, uploads, notifications, reports, global search,
+exports, and other deferred features do not become pilot requirements without
+a validated blocking need. Existing credential-delivery, account-recovery,
+legal, operational, backup, security, and production-readiness gates remain
+open.
 
 ---
 

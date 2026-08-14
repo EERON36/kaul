@@ -1644,10 +1644,31 @@ keyboard-labelled controls, 375×812 use, high-text reflow, private-draft
 non-disclosure, stale saves, and repeated signing. Printable Journal views are
 deferred work and do not block Milestone 3. Milestone 3 is complete: security
 and domain reviews, final focused race and UI reviews, and pull-request CI
-passed; the final UI was squash-merged to main in #34. Later workspace sections
-remain unimplemented and must not be presented as active UI. Journal search,
+passed; the final UI was squash-merged to main in #34. Journal search,
 attachments, autosave, rich text, templates, incident classification,
 notifications, offline/PWA behaviour, and external or cryptographic signing
 remain deferred.
 
-The interface should be reviewed with the initial users during pilot preparation and adjusted based on real workflow feedback without abandoning the principles in this document.
+The Milestone 4 interface is complete. The Client workspace now provides real
+**Mål** and **Uppföljningar** destinations with shared create, detail, edit,
+lifecycle, responsibility, and retained-history workflows. Staff Home keeps
+**Att göra** ahead of **Mina klienter** and shows only the current user's own
+authorised planned Follow-ups in the approved **Försenade**/**Idag**/**Kommande**
+order. Journal drafting supports zero or more optional Goal selections, the
+signing review shows their context, and signed detail displays immutable
+signing-time titles. Archived Client planning is read-only, access loss fails
+closed, responsibility problems remain explicit, and terminal dates are shown.
+
+Permanent browser evidence covers the complete M4 workflow, keyboard-visible
+focus, semantic labels and navigation, text status, long-content wrapping,
+375×812 use, 200% text reflow, and absence of page-wide horizontal overflow.
+The Milestone 4 Playwright suite passed 6/6 and the overlapping Client/Journal
+suite passed 12/12 before the UI was squash-merged in #39.
+
+**Pilot Readiness** is the next project focus. The interface should be reviewed
+with initial users during a 1–2 week fictional or sanitised-data trial and
+adjusted from real workflow feedback without abandoning this document's
+principles. Documents, notifications, global task management, charts,
+PWA/offline behaviour, and the other deferred interfaces remain outside M4 and
+are not pulled into the pilot without a validated blocking need. Kaul is not
+approved for sensitive production use.
