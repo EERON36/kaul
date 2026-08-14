@@ -101,6 +101,25 @@ export default async function SignedJournalEntryPage({
             <div className="journal-content">{entry.content}</div>
           </section>
 
+          {entry.goalReferences.length > 0 ? (
+            <section
+              aria-labelledby="signed-goals-heading"
+              className="journal-goal-context"
+            >
+              <h3 id="signed-goals-heading">Mål vid signering</h3>
+              <ul>
+                {entry.goalReferences.map((reference) => (
+                  <li key={reference.goalId}>
+                    {reference.titleSnapshot ?? "Uppgift saknas"}
+                  </li>
+                ))}
+              </ul>
+              <p className="form-help">
+                Titlarna bevaras som de såg ut när anteckningen signerades.
+              </p>
+            </section>
+          ) : null}
+
           <section
             aria-labelledby="signing-heading"
             className="journal-signature"

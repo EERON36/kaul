@@ -47,4 +47,22 @@ describe("Journal event time form boundary", () => {
       content: "Skriv en anteckning.",
     });
   });
+
+  it("preserves optional unique Goal selections", () => {
+    const form = new FormData();
+    form.set("entryType", "CONVERSATION");
+    form.set("eventDate", "2026-08-12");
+    form.set("eventTime", "08:15");
+    form.set("content", "Fiktiv anteckning.");
+    form.append("goalIds", "123e4567-e89b-42d3-a456-426614174010");
+    form.append("goalIds", "123e4567-e89b-42d3-a456-426614174011");
+
+    const result = readJournalFormValues(form);
+
+    expect(result.fieldErrors.goalIds).toBeUndefined();
+    expect(result.values.goalIds).toEqual([
+      "123e4567-e89b-42d3-a456-426614174010",
+      "123e4567-e89b-42d3-a456-426614174011",
+    ]);
+  });
 });

@@ -8,6 +8,7 @@ export type JournalFormValues = Readonly<{
   eventDate: string;
   eventTime: string;
   content: string;
+  goalIds: readonly string[];
 }>;
 
 export type JournalFormFieldErrors = Partial<
@@ -135,6 +136,7 @@ export function readJournalFormValues(formData: FormData): Readonly<{
     eventDate: String(formData.get("eventDate") ?? ""),
     eventTime: String(formData.get("eventTime") ?? ""),
     content: String(formData.get("content") ?? ""),
+    goalIds: formData.getAll("goalIds").map(String),
   };
   const fieldErrors: JournalFormFieldErrors = {};
 
@@ -164,6 +166,18 @@ export function readJournalFormValues(formData: FormData): Readonly<{
     fieldErrors.content = "Skriv en anteckning.";
   } else if (values.content.length > JOURNAL_CONTENT_MAX_LENGTH) {
     fieldErrors.content = `Anteckningen får innehålla högst ${JOURNAL_CONTENT_MAX_LENGTH.toLocaleString("sv-SE")} tecken.`;
+  }
+  if (
+    values.goalIds.some(
+      (goalId) =>
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          goalId,
+        ),
+    ) ||
+    new Set(values.goalIds).size !== values.goalIds.length ||
+    values.goalIds.length > 100
+  ) {
+    fieldErrors.goalIds = "Välj giltiga mål för klienten.";
   }
 
   return { values, fieldErrors, eventOccurredAt, entryType };

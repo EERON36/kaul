@@ -7,14 +7,70 @@ import { getApplicationErrorRedirect } from "@/modules/authentication/page-acces
 import { getClientCategoryLabel } from "@/modules/clients/client-category";
 import { getAssignmentResponsibilityLabel } from "@/modules/clients/client-presentation";
 import { listAssignedClientsForHome } from "@/modules/clients/clients";
+import {
+  listOwnFollowUpsForHome,
+  type OwnFollowUpHomeItem,
+} from "@/modules/planning/planning";
+
+import {
+  followUpDueStateLabels,
+  formatPlanningDate,
+} from "./planning-presentation";
 
 export const dynamic = "force-dynamic";
 
+function HomeFollowUpGroup({
+  heading,
+  headingId,
+  items,
+}: Readonly<{
+  heading: string;
+  headingId: string;
+  items: readonly OwnFollowUpHomeItem[];
+}>) {
+  if (items.length === 0) return null;
+  return (
+    <div aria-labelledby={headingId} className="home-follow-up-group">
+      <h3 id={headingId}>{heading}</h3>
+      <ul className="planning-list">
+        {items.map((item) => (
+          <li key={item.id}>
+            <Link
+              className="planning-list-link"
+              href={`/klienter/${item.clientId}/uppfoljningar/${item.id}`}
+            >
+              <strong>{item.title}</strong>
+              <span>
+                <strong>Klient:</strong> {item.clientFirstName}{" "}
+                {item.clientLastName}
+              </span>
+              <span>
+                <strong>{followUpDueStateLabels[item.dueState]}:</strong>{" "}
+                {formatPlanningDate(item.dueDate)}
+                {item.dueTime ? ` kl. ${item.dueTime}` : ""}
+              </span>
+              {item.goal ? (
+                <span>
+                  <strong>Mål:</strong> {item.goal.title}
+                </span>
+              ) : null}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default async function Home() {
   let result;
+  let followUps;
 
   try {
-    result = await listAssignedClientsForHome();
+    [result, followUps] = await Promise.all([
+      listAssignedClientsForHome(),
+      listOwnFollowUpsForHome(),
+    ]);
   } catch (error) {
     if (error instanceof AuthenticationGuardError) {
       const destination = getApplicationErrorRedirect(error.code);
@@ -37,6 +93,36 @@ export default async function Home() {
             ? "Här ser du de klienter du arbetar med just nu."
             : "Du är inloggad i Kaul."}
         </p>
+
+        <section
+          aria-labelledby="own-follow-ups-heading"
+          className="client-section"
+        >
+          <h2 id="own-follow-ups-heading">Att göra</h2>
+          {followUps.length === 0 ? (
+            <p>Du har inga uppföljningar som behöver din uppmärksamhet nu.</p>
+          ) : (
+            <>
+              <HomeFollowUpGroup
+                heading="Försenade"
+                headingId="home-overdue-heading"
+                items={followUps.filter((item) => item.dueState === "OVERDUE")}
+              />
+              <HomeFollowUpGroup
+                heading="Idag"
+                headingId="home-today-heading"
+                items={followUps.filter(
+                  (item) => item.dueState === "DUE_TODAY",
+                )}
+              />
+              <HomeFollowUpGroup
+                heading="Kommande"
+                headingId="home-upcoming-heading"
+                items={followUps.filter((item) => item.dueState === "UPCOMING")}
+              />
+            </>
+          )}
+        </section>
 
         {result.user.role === "STAFF_MEMBER" ? (
           <section

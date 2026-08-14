@@ -7,6 +7,9 @@ import {
   JOURNAL_ENTRY_TYPE_LABELS,
   JOURNAL_ENTRY_TYPE_VALUES,
 } from "@/modules/journal/journal-entry-type";
+import type { AvailableJournalGoal } from "@/modules/journal/journal";
+
+import { goalStatusLabels } from "@/app/planning-presentation";
 
 import {
   discardJournalDraftAction,
@@ -18,9 +21,11 @@ import {
 export function JournalDraftForm({
   clientId,
   initialState,
+  goals,
 }: Readonly<{
   clientId: string;
   initialState: JournalDraftActionState;
+  goals: readonly AvailableJournalGoal[];
 }>) {
   const [state, saveAction, saving] = useActionState(
     saveJournalDraftAction,
@@ -170,6 +175,45 @@ export function JournalDraftForm({
           ) : null}
         </div>
 
+        <fieldset className="journal-goal-fields">
+          <legend>Mål (valfritt)</legend>
+          <p className="form-help" id="journal-goals-help">
+            Välj de mål som ger sammanhang till anteckningen. Du kan lämna alla
+            omarkerade.
+          </p>
+          {goals.length === 0 ? (
+            <p>Det finns inga mål att välja för klienten.</p>
+          ) : (
+            <div className="journal-goal-options">
+              {goals.map((goal) => (
+                <label key={goal.id}>
+                  <input
+                    aria-describedby={
+                      fieldErrors.goalIds
+                        ? "journal-goals-help journal-goals-error"
+                        : "journal-goals-help"
+                    }
+                    defaultChecked={state.values.goalIds.includes(goal.id)}
+                    key={`${goal.id}-${state.version ?? "new"}-${state.status}`}
+                    name="goalIds"
+                    type="checkbox"
+                    value={goal.id}
+                  />
+                  <span>
+                    <strong>{goal.title}</strong>
+                    <span>{goalStatusLabels[goal.status]}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+          {fieldErrors.goalIds ? (
+            <p className="field-error" id="journal-goals-error">
+              {fieldErrors.goalIds}
+            </p>
+          ) : null}
+        </fieldset>
+
         <div className="form-actions journal-form-actions">
           <button
             className="secondary-button"
@@ -197,7 +241,7 @@ export function JournalDraftForm({
           role={state.status === "SUCCESS" ? "status" : "alert"}
         >
           {state.message}
-          {state.status === "STALE" ? (
+          {state.status === "STALE" || state.status === "PARTIAL" ? (
             <span className="status-action">
               <a href={`/klienter/${clientId}/anteckningar/utkast`}>
                 Ladda om utkastet

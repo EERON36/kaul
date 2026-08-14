@@ -18,7 +18,7 @@ export function ClientWorkspaceHeader({
   currentSection,
 }: Readonly<{
   client: ClientWorkspaceClient;
-  currentSection: "overview" | "journal";
+  currentSection: "overview" | "journal" | "goals" | "follow-ups";
 }>) {
   const formatDate = (date: Date) =>
     new Intl.DateTimeFormat("sv-SE", {
@@ -73,6 +73,18 @@ export function ClientWorkspaceHeader({
           href={`/klienter/${client.id}/anteckningar`}
         >
           Anteckningar
+        </Link>
+        <Link
+          aria-current={currentSection === "goals" ? "page" : undefined}
+          href={`/klienter/${client.id}/mal`}
+        >
+          Mål
+        </Link>
+        <Link
+          aria-current={currentSection === "follow-ups" ? "page" : undefined}
+          href={`/klienter/${client.id}/uppfoljningar`}
+        >
+          Uppföljningar
         </Link>
       </nav>
     </>

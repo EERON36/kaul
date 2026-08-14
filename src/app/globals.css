@@ -598,6 +598,45 @@ h2 {
   font-weight: 600;
 }
 
+.journal-goal-fields {
+  min-width: 0;
+  margin: 0 0 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+}
+
+.journal-goal-fields legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+}
+
+.journal-goal-options {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.journal-goal-options label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.journal-goal-options input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.2rem;
+}
+
+.journal-goal-options label > span,
+.metadata-secondary {
+  display: grid;
+  min-width: 0;
+}
+
 .journal-discard-form {
   margin-top: 1.5rem;
   padding-top: 1.5rem;
@@ -638,7 +677,8 @@ h2 {
 
 .journal-content-section,
 .journal-signature,
-.journal-corrections {
+.journal-corrections,
+.journal-goal-context {
   margin-top: 2rem;
 }
 
@@ -678,6 +718,157 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.planning-page-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.planning-page-heading > div {
+  min-width: 0;
+}
+
+.planning-group,
+.home-follow-up-group {
+  margin-top: 1.75rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.planning-list {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planning-list-link {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.planning-list-link:hover {
+  border-color: var(--navigation);
+  background: var(--surface-muted);
+}
+
+.planning-list-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  justify-content: space-between;
+  font-size: 1.1rem;
+}
+
+.planning-record {
+  margin-top: 2rem;
+  padding: clamp(1rem, 4vw, 1.75rem);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.planning-metadata {
+  display: grid;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.planning-metadata > div {
+  min-width: 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.planning-metadata dt {
+  font-weight: 600;
+}
+
+.planning-metadata dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.planning-description,
+.planning-history {
+  margin-top: 2rem;
+}
+
+.planning-description div {
+  max-width: 44rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.planning-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: start;
+  margin-top: 2rem;
+}
+
+.planning-actions form,
+.planning-actions .form-error {
+  margin-bottom: 0;
+}
+
+.planning-form,
+.planning-reassignment-form {
+  max-width: 44rem;
+}
+
+.readonly-field-metadata {
+  margin: 0 0 0.5rem;
+}
+
+.readonly-field-metadata > div {
+  padding: 0.65rem 0.75rem;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+
+.readonly-field-metadata dt {
+  font-weight: 600;
+}
+
+.readonly-field-metadata dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.planning-read-only,
+.planning-attention {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--notice-background);
+  border: 1px solid var(--notice-border);
+}
+
+.attention-text {
+  font-weight: 600;
+}
+
+.planning-history ol {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.planning-history li,
+.planning-history li span {
+  display: grid;
+  overflow-wrap: anywhere;
 }
 
 .assignment-list > li {
@@ -774,6 +965,18 @@ h2 {
     width: 100%;
   }
 
+  .planning-page-heading,
+  .planning-page-heading .button-link,
+  .planning-form-actions,
+  .planning-form-actions .primary-button,
+  .planning-form-actions .button-link,
+  .planning-actions,
+  .planning-actions form,
+  .planning-actions .secondary-button,
+  .planning-reassignment-form .secondary-button {
+    width: 100%;
+  }
+
   .client-search-form,
   .client-search-reset,
   .client-search-form .primary-button,
@@ -784,7 +987,8 @@ h2 {
 
 @media (min-width: 48rem) {
   .journal-event-fields,
-  .journal-metadata {
+  .journal-metadata,
+  .planning-metadata {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

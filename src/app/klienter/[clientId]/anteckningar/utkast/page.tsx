@@ -1,7 +1,10 @@
 import { notFound } from "next/navigation";
 
 import { ApplicationShell } from "@/components/application-shell";
-import { getCurrentJournalDraft } from "@/modules/journal/journal";
+import {
+  getCurrentJournalDraft,
+  listAvailableJournalGoals,
+} from "@/modules/journal/journal";
 
 import { ClientWorkspaceHeader } from "../../client-workspace";
 import {
@@ -22,8 +25,12 @@ export default async function JournalDraftPage({
   if (result.client.status === "ARCHIVED") notFound();
 
   let draft;
+  let goals;
   try {
-    draft = await getCurrentJournalDraft({ clientId });
+    [draft, goals] = await Promise.all([
+      getCurrentJournalDraft({ clientId }),
+      listAvailableJournalGoals({ clientId }),
+    ]);
   } catch (error) {
     return handleClientWorkspacePageError(error);
   }
@@ -38,6 +45,7 @@ export default async function JournalDraftPage({
       eventDate: localEvent.eventDate,
       eventTime: localEvent.eventTime,
       content: draft?.content ?? "",
+      goalIds: draft?.goalReferences.map(({ goalId }) => goalId) ?? [],
     },
     journalEntryId: draft?.id,
     version: draft?.version,
@@ -62,7 +70,11 @@ export default async function JournalDraftPage({
               Originalet är signerat och kan inte ändras.
             </p>
           ) : null}
-          <JournalDraftForm clientId={clientId} initialState={initialState} />
+          <JournalDraftForm
+            clientId={clientId}
+            goals={goals}
+            initialState={initialState}
+          />
         </section>
       </div>
     </ApplicationShell>
