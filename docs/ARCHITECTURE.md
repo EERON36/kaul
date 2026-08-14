@@ -406,7 +406,7 @@ These features should be additive rather than requiring major redesign.
 
 Architecture approved.
 
-Milestone 0, Milestone 2, and Milestone 3 are complete. Implemented modules now cover Better
+Milestones 0 through 4 are complete. Implemented modules now cover Better
 Auth-backed authentication and session guards, immutable audit operations,
 Administrator and Staff management, and Client management with one central
 organisation-, lifecycle-, and Assignment-aware access scope for ordinary
@@ -423,6 +423,21 @@ PostgreSQL integrity controls. Client Components are limited to the draft form,
 pending states, and destructive confirmation. Printable Journal views are
 deferred work and do not block Milestone 3. Security and domain reviews, final
 focused race and UI reviews, and pull-request CI passed; the final UI was
-squash-merged to main in #34. Milestone 4 — Goals and Follow-ups is the next
-implementation focus. Document, report, global search, export, and other
-later-milestone modules also remain unimplemented.
+squash-merged to main in #34.
+
+The Milestone 4 Goal and Follow-up modules and visible workflows are now
+implemented. They reuse the central Client authorisation and mutation lock,
+optimistic versions, scoped PostgreSQL relationships, retained lifecycle
+history, immutable responsibility history, the five approved audit actions,
+Stockholm due semantics, own-authorised Home projection, and immutable signed
+Journal Goal snapshots. Permanent integration and browser evidence covers
+access loss, archived read-only behaviour, terminal states, concurrency,
+keyboard use, narrow screens, and high-text reflow. The foundation and visible
+workflows were squash-merged in #38 and #39.
+
+**Pilot Readiness** is the next project focus. It should prove a repeatable,
+isolated deployment and operational loop with fictional or sanitised data
+before another major feature milestone is selected. Document, report, global
+search, export, and other later modules remain unimplemented and are not pilot
+requirements without validated need. Pilot Readiness is not complete, and Kaul
+is not approved for sensitive production use.

@@ -609,7 +609,8 @@ Backups must cover:
 The pilot should use:
 
 - Automatic daily PostgreSQL backups
-- Automatic daily file backups
+- Automatic daily file backups when uploaded or generated file storage is in
+  pilot scope
 - Encrypted backup archives
 - At least one copy outside the Kaul VM
 - At least one copy separated from the live application credentials
@@ -827,7 +828,10 @@ Before exposing an environment:
 
 The pilot may begin only when:
 
-- Milestones 0 through 6 are sufficiently complete for the intended pilot workflows.
+- The workflows selected for the controlled pilot are complete and verified.
+- Deferred Documents, reports, global search, exports, and uploaded-file
+  operations are required only if the approved pilot workflow genuinely needs
+  them; pilot users may instead help determine whether they are blocking needs.
 - Critical authentication and permission tests pass.
 - HTTPS works.
 - The pilot warning is visible.
@@ -835,7 +839,7 @@ The pilot may begin only when:
 - Backups run successfully.
 - A restore test has succeeded.
 - PostgreSQL is private.
-- Uploaded-file access is protected.
+- Uploaded-file access is protected when uploads are in pilot scope.
 - Pilot users understand the limitations.
 - No known critical security defect remains.
 
@@ -879,7 +883,12 @@ The default should be the smallest secure deployment that satisfies current need
 
 ## Current Status
 
-The deployment strategy is approved for development planning and homelab pilot preparation.
+The deployment strategy is approved for development planning. **Pilot
+Readiness** is the current project focus, but it is not complete and no pilot
+deployment is approved yet. The immediate work is to make deployment to a
+separate pilot environment repeatable, establish HTTPS and isolated secrets and
+data, verify backup and restore, define safe Administrator setup and basic
+operations, and support a short user trial using fictional or sanitised data.
 
 Exact Docker, Caddy, backup, domain, and hosting commands will be added during their relevant milestones.
 
