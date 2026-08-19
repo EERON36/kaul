@@ -48,6 +48,38 @@ docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image
   ghcr.io/example/kaul@sha256:REPLACE
 ```
 
+## GHCR access and post-publication gate
+
+Choose the image-access model explicitly before deployment:
+
+- A public GHCR package may be pulled anonymously only when making the image
+  public has been deliberately approved.
+- A private GHCR package requires an authenticated operator with read-only
+  package access. Use a dedicated token limited to `read:packages` and access
+  to this package; repository administration and package-write scopes are not
+  required for a Pilot pull.
+
+For a private package, enter the token through Docker's interactive login or
+`--password-stdin` from an approved protected secret source. Never put a token
+in this repository, the Compose file, the Pilot environment file, a command-
+line argument, or shell history. Docker may retain registry credentials in the
+operator's Docker configuration. Prefer an approved credential helper; at
+minimum restrict that configuration to the operator account. Log out when the
+host should no longer retain access, and rotate or revoke the token when the
+operator, host, or package access changes.
+
+After the release workflow publishes an image, verify it from a clean Linux VM
+before any deployment command:
+
+1. Authenticate to GHCR when the package is private.
+2. Pull the approved `ghcr.io/...@sha256:...` reference by digest.
+3. Inspect `RepoDigests` and confirm the pulled digest is the approved digest.
+4. Inspect `org.opencontainers.image.revision` and confirm it is the approved
+   release commit.
+
+Proceed only after both identities match the reviewed release record. This
+gate cannot be completed before the image has actually been published.
+
 ## Proxy and client IP boundary
 
 The initial approved shape is direct Caddy with DNS-only records. Caddy
@@ -64,7 +96,10 @@ from every other peer, and regression-test the Kaul rate-limit identity.
 ## Initial bootstrap
 
 The future VM needs a supported Linux release, Docker Engine with Compose v2,
-restricted SSH, host firewall rules, working DNS, and inbound 80/443. Then:
+restricted SSH, host firewall rules, working DNS, inbound 80/443, `perl` with
+its core `Fcntl` module, and the ordinary `realpath`, `mktemp`, and checksum
+utilities. The operator must be able to create the lock file beside the
+protected Pilot environment file. Then:
 
 1. Validate configuration and start only PostgreSQL.
 
@@ -110,12 +145,16 @@ scripts/pilot-ops.sh update \
   --backup-dir /var/backups/kaul
 ```
 
-The script reports the current and target images, pulls the digest, and creates
-and validates a custom-format PostgreSQL backup and SHA-256 checksum while the
+The script reports the current and target images and pulls the digest while the
 verified current release is still serving. It then stops Caddy, stops Kaul,
-applies committed Prisma migrations, verifies migration status, starts the new
-app privately, and waits for its database-backed health check. Caddy is started
-only after Kaul is healthy.
+creates and validates a quiesced custom-format PostgreSQL backup and SHA-256
+checksum, applies committed Prisma migrations, verifies migration status,
+starts the new app privately, and waits for its database-backed health check.
+Caddy is started only after Kaul is healthy.
+
+If Caddy cannot be stopped, the update does not continue. If Kaul cannot be
+confirmed stopped, Caddy remains stopped and the update does not continue. If
+the quiesced backup fails, both remain stopped and no migration starts.
 
 If migration or Kaul startup fails, Kaul and Caddy remain stopped. If the new
 app is unhealthy, it is stopped and Caddy remains stopped. If Caddy itself
@@ -149,6 +188,20 @@ archives are not encrypted by this script. Before Pilot launch, schedule the
 backup daily and transfer it through a separately approved encrypted mechanism
 to storage outside the VM with independent credentials, retention, and failure
 alerting. Proxmox snapshots remain supplemental only.
+
+`backup`, `restore`, `migrate`, and `update` take one exclusive operation lock
+for the canonical Pilot environment-file path. The persistent zero-byte
+`.pilot-ops.lock` file beside that environment file is only the lock target;
+the operating system owns the active lock and releases it automatically on
+normal exit, error, or process death. A second workflow fails before Docker or
+PostgreSQL mutation. Do not delete or replace the lock file while an operator
+workflow is running. The implementation uses Perl's OS-backed `Fcntl` locking,
+which is verified by the Git Bash test path and must be present on the Linux
+Pilot host.
+
+Backup creation uses an atomic reservation and a unique temporary file. An
+existing archive, checksum, or same-name reservation causes an explicit
+failure; completed backup evidence is never silently replaced.
 
 Restore never overwrites or cleans a database. It accepts only a nonexistent
 name beginning with `kaul_restore_`:

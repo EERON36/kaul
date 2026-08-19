@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   chmodSync,
@@ -33,6 +33,10 @@ const dockerignore = readFileSync(
 );
 const releaseWorkflow = readFileSync(
   new URL("../.github/workflows/publish-release-image.yml", import.meta.url),
+  "utf8",
+);
+const pilotRunbook = readFileSync(
+  new URL("../deploy/pilot/README.md", import.meta.url),
   "utf8",
 );
 const pilotScriptPath = fileURLToPath(
@@ -160,10 +164,17 @@ function dockerStubLines() {
     "  esac",
     "fi",
     'case " $* " in',
-    '  *" compose version "*) exit 0 ;;',
+    '  *" compose version "*)',
+    '    if [ "${KAUL_TEST_BLOCK_PREFLIGHT:-0}" = 1 ]; then',
+    '      : > "$KAUL_TEST_BLOCK_READY"',
+    '      while [ ! -f "$KAUL_TEST_BLOCK_RELEASE" ]; do sleep 0.05; done',
+    "    fi",
+    "    exit 0 ;;",
     '  *" config --quiet "*) exit 0 ;;',
     "  *\" ps -q kaul \"*) printf '%s\\n' kaul-test-container ; exit 0 ;;",
-    "  *\" pg_dump \"*) printf 'fictional custom archive\\n' ; exit 0 ;;",
+    '  *" stop caddy "*) [ "${KAUL_TEST_FAIL_CADDY_STOP:-0}" != 1 ] ; exit $? ;;',
+    '  *" stop kaul "*) [ "${KAUL_TEST_FAIL_KAUL_STOP:-0}" != 1 ] ; exit $? ;;',
+    '  *" pg_dump "*) [ "${KAUL_TEST_FAIL_BACKUP:-0}" != 1 ] || exit 1; printf \'fictional custom archive\\n\' ; exit 0 ;;',
     '  *" pg_restore --list "*) cat >/dev/null ; exit 0 ;;',
     '  *" npm run db:deploy "*) [ "${KAUL_TEST_FAIL_MIGRATION:-0}" != 1 ] ; exit $? ;;',
     '  *" npm run db:status "*) exit 0 ;;',
@@ -174,48 +185,144 @@ function dockerStubLines() {
   ];
 }
 
-function executePilotCommand(
-  command,
-  { overrides = {}, omittedKey, stub = {} } = {},
-) {
+function createPilotCommandFixture({ overrides = {}, omittedKey } = {}) {
   const directory = createTemporaryDirectory();
   const stubDirectory = join(directory, "bin");
   const backupDirectory = join(directory, "backups");
-  const commandLog = join(directory, "docker-commands.log");
   const values = validPilotValues(overrides);
   const environmentPath = writeEnvironmentFile(directory, values, omittedKey);
   mkdirSync(stubDirectory);
-  writeFileSync(commandLog, "");
   writeExecutable(stubDirectory, "docker", dockerStubLines());
 
-  const shellArguments = [
+  return {
+    backupDirectory,
+    directory,
+    environmentPath,
+    stubDirectory,
+    values,
+  };
+}
+
+function preparePilotInvocation(
+  command,
+  fixture,
+  stub = {},
+  acquireOperationLock = false,
+) {
+  const commandLog = join(
+    fixture.directory,
+    `docker-commands-${randomBytes(6).toString("hex")}.log`,
+  );
+  writeFileSync(commandLog, "");
+
+  const operatorArguments = [
     toPosixPath(pilotScriptPath),
+    ...(acquireOperationLock ? [] : ["--pilot-operation-lock-held"]),
     command,
     "--env-file",
-    toPosixPath(environmentPath),
+    toPosixPath(fixture.environmentPath),
   ];
-  if (command === "update") {
-    mkdirSync(backupDirectory);
-    shellArguments.push(
+  if (["backup", "migrate", "update"].includes(command)) {
+    mkdirSync(fixture.backupDirectory, { recursive: true });
+    operatorArguments.push(
       "--backup-dir",
-      relative(repositoryRoot, backupDirectory).replaceAll("\\", "/"),
+      relative(repositoryRoot, fixture.backupDirectory).replaceAll("\\", "/"),
     );
   }
 
-  const result = spawnSync(posixShellPath(), shellArguments, {
-    encoding: "utf8",
-    env: childEnvironment(stubDirectory, {
+  const shellArguments = [
+    "-c",
+    'stub_path=$1; shift; PATH="$stub_path:$PATH"; export PATH; exec "$@"',
+    "pilot-test",
+    toPosixPath(fixture.stubDirectory),
+    ...operatorArguments,
+  ];
+
+  return {
+    commandLog,
+    environment: childEnvironment(fixture.stubDirectory, {
       KAUL_TEST_COMMAND_LOG: toPosixPath(commandLog),
       KAUL_TEST_CURRENT_DIGEST: "b".repeat(64),
       ...stub,
     }),
+    shellArguments,
+  };
+}
+
+function executePilotCommand(
+  command,
+  {
+    overrides = {},
+    omittedKey,
+    stub = {},
+    fixture,
+    acquireOperationLock = false,
+  } = {},
+) {
+  const commandFixture =
+    fixture ?? createPilotCommandFixture({ overrides, omittedKey });
+  const invocation = preparePilotInvocation(
+    command,
+    commandFixture,
+    stub,
+    acquireOperationLock,
+  );
+
+  const result = spawnSync(posixShellPath(), invocation.shellArguments, {
+    encoding: "utf8",
+    env: invocation.environment,
   });
 
   return {
     ...result,
-    commandLog: readFileSync(commandLog, "utf8").split(/\r?\n/).filter(Boolean),
-    values,
+    commandLog: readFileSync(invocation.commandLog, "utf8")
+      .split(/\r?\n/)
+      .filter(Boolean),
+    fixture: commandFixture,
+    values: commandFixture.values,
   };
+}
+
+function startPilotCommand(command, fixture, stub = {}) {
+  const invocation = preparePilotInvocation(command, fixture, stub, true);
+  const child = spawn(posixShellPath(), invocation.shellArguments, {
+    env: invocation.environment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  const completion = new Promise((resolve) => {
+    child.on("close", (status, signal) => {
+      resolve({
+        commandLog: readFileSync(invocation.commandLog, "utf8")
+          .split(/\r?\n/)
+          .filter(Boolean),
+        signal,
+        status,
+        stderr,
+        stdout,
+      });
+    });
+  });
+
+  return { child, completion };
+}
+
+async function waitForFile(path) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (existsSync(path)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for ${path}`);
 }
 
 function executePostgresInit(overrides = {}) {
@@ -307,6 +414,17 @@ describe("Pilot operator safety controls", () => {
     expect(script).toContain("--format=custom");
     expect(script).toContain("sha256sum");
     expect(script).toContain("pg_restore --list");
+    expect(script).toContain("mktemp");
+    expect(script).toContain('mv -n -- "$TEMPORARY_BACKUP" "$archive"');
+    expect(script).toContain("Backup destination already exists");
+  });
+
+  it("serializes every state-mutating or recovery operator workflow", () => {
+    expect(script).toContain("LOCK_EX | LOCK_NB");
+    expect(script).toContain(
+      "Another Pilot operator workflow is already running",
+    );
+    expect(script).toMatch(/backup\|restore\|migrate\|update\) return 0/);
   });
 
   it("restores only into a new guarded database without destructive clean flags", () => {
@@ -400,6 +518,18 @@ describe("Pilot operator safety controls", () => {
     expect(releaseWorkflow).not.toMatch(/\bssh\b/i);
     expect(releaseWorkflow).not.toContain("environment: pilot");
   });
+
+  it("documents the clean-VM GHCR access and immutable identity gate", () => {
+    expect(pilotRunbook).toContain("public GHCR package");
+    expect(pilotRunbook).toContain("private GHCR package");
+    expect(pilotRunbook).toContain("read:packages");
+    expect(pilotRunbook).toContain("--password-stdin");
+    expect(pilotRunbook).toContain("RepoDigests");
+    expect(pilotRunbook).toContain("org.opencontainers.image.revision");
+    expect(pilotRunbook).toContain(
+      "cannot be completed before the image has actually been published",
+    );
+  });
 });
 
 describe("Pilot preflight behavior", () => {
@@ -489,11 +619,14 @@ describe("Pilot update behavior", () => {
     const commands = result.commandLog;
 
     expect(result.status, outputOf(result)).toBe(0);
-    expect(commandPosition(commands, "pg_dump")).toBeLessThan(
-      commandPosition(commands, "stop caddy"),
-    );
     expect(commandPosition(commands, "stop caddy")).toBeLessThan(
       commandPosition(commands, "stop kaul"),
+    );
+    expect(commandPosition(commands, "stop kaul")).toBeLessThan(
+      commandPosition(commands, "pg_dump"),
+    );
+    expect(commandPosition(commands, "pg_dump")).toBeLessThan(
+      commandPosition(commands, "npm run db:deploy"),
     );
     expect(commandPosition(commands, "npm run db:deploy")).toBeLessThan(
       commandPosition(commands, "up -d --no-deps kaul"),
@@ -501,6 +634,127 @@ describe("Pilot update behavior", () => {
     expect(commandPosition(commands, ".State.Health")).toBeLessThan(
       commandPosition(commands, "up -d --no-deps caddy"),
     );
+  });
+
+  it("rejects a second operator workflow before Docker mutation", async () => {
+    const fixture = createPilotCommandFixture();
+    const readyPath = join(fixture.directory, "first-operation-ready");
+    const releasePath = join(fixture.directory, "release-first-operation");
+    const first = startPilotCommand("update", fixture, {
+      KAUL_TEST_BLOCK_PREFLIGHT: "1",
+      KAUL_TEST_BLOCK_READY: toPosixPath(readyPath),
+      KAUL_TEST_BLOCK_RELEASE: toPosixPath(releasePath),
+    });
+
+    let second;
+    let firstResult;
+    try {
+      await waitForFile(readyPath);
+      second = executePilotCommand("update", {
+        acquireOperationLock: true,
+        fixture,
+      });
+    } finally {
+      writeFileSync(releasePath, "release\n");
+      firstResult = await first.completion;
+    }
+
+    expect(second).toBeDefined();
+    expect(second.status).not.toBe(0);
+    expect(second.commandLog).toEqual([]);
+    expect(outputOf(second)).toContain(
+      "Another Pilot operator workflow is already running",
+    );
+    expect(firstResult.status, outputOf(firstResult)).toBe(0);
+
+    fixture.backupDirectory = join(fixture.directory, "backup-after-release");
+    const afterRelease = executePilotCommand("update", {
+      acquireOperationLock: true,
+      fixture,
+    });
+    expect(afterRelease.status, outputOf(afterRelease)).toBe(0);
+  }, 15_000);
+
+  it("refuses to replace a colliding completed backup", () => {
+    const fixture = createPilotCommandFixture();
+    const timestamp = "20260819T120000Z";
+    mkdirSync(fixture.backupDirectory, { recursive: true });
+    const archive = join(
+      fixture.backupDirectory,
+      `${fixture.values.KAUL_DB_NAME}_${timestamp}.dump`,
+    );
+    writeFileSync(archive, "existing verified backup\n");
+    writeExecutable(fixture.stubDirectory, "date", [
+      "#!/bin/sh",
+      `printf '%s\\n' '${timestamp}'`,
+    ]);
+
+    const result = executePilotCommand("backup", { fixture });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain(
+      "Backup destination already exists; refusing to replace it",
+    );
+    expect(readFileSync(archive, "utf8")).toBe("existing verified backup\n");
+    expect(commandPosition(result.commandLog, "pg_dump")).toBe(-1);
+  });
+
+  it("does not continue when Caddy cannot be stopped", () => {
+    const result = executePilotCommand("update", {
+      stub: { KAUL_TEST_FAIL_CADDY_STOP: "1" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(commandPosition(result.commandLog, "stop caddy")).toBeGreaterThan(
+      -1,
+    );
+    expect(commandPosition(result.commandLog, "stop kaul")).toBe(-1);
+    expect(commandPosition(result.commandLog, "pg_dump")).toBe(-1);
+    expect(outputOf(result)).toContain(
+      "Caddy could not be stopped. Update did not proceed",
+    );
+  });
+
+  it("leaves Caddy stopped when Kaul cannot be confirmed stopped", () => {
+    const result = executePilotCommand("update", {
+      stub: { KAUL_TEST_FAIL_KAUL_STOP: "1" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(commandPosition(result.commandLog, "stop caddy")).toBeGreaterThan(
+      -1,
+    );
+    expect(commandPosition(result.commandLog, "stop kaul")).toBeGreaterThan(-1);
+    expect(commandPosition(result.commandLog, "pg_dump")).toBe(-1);
+    expect(outputOf(result)).toContain(
+      "Kaul could not be stopped. Caddy remains stopped",
+    );
+  });
+
+  it("keeps Kaul and Caddy stopped when the quiesced backup fails", () => {
+    const result = executePilotCommand("update", {
+      acquireOperationLock: true,
+      stub: { KAUL_TEST_FAIL_BACKUP: "1" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(commandPosition(result.commandLog, "stop caddy")).toBeLessThan(
+      commandPosition(result.commandLog, "stop kaul"),
+    );
+    expect(commandPosition(result.commandLog, "stop kaul")).toBeLessThan(
+      commandPosition(result.commandLog, "pg_dump"),
+    );
+    expect(commandPosition(result.commandLog, "npm run db:deploy")).toBe(-1);
+    expect(commandPosition(result.commandLog, "up -d --no-deps caddy")).toBe(
+      -1,
+    );
+    expect(outputOf(result)).toContain("PostgreSQL backup failed");
+
+    const retry = executePilotCommand("update", {
+      acquireOperationLock: true,
+      fixture: result.fixture,
+    });
+    expect(retry.status, outputOf(retry)).toBe(0);
   });
 
   it("leaves public serving stopped and reports a migration failure", () => {

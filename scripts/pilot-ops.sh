@@ -10,12 +10,28 @@ BACKUP_DIRECTORY=
 ARCHIVE=
 RESTORE_DATABASE=
 TEMPORARY_BACKUP=
+BACKUP_RESERVATION=
 MINIMUM_DATABASE_PASSWORD_LENGTH=32
+OPERATION_LOCK_HELD=false
+
+if [ "${1:-}" = "--pilot-operation-lock-held" ]; then
+  OPERATION_LOCK_HELD=true
+  shift
+fi
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
 }
+
+cleanup_backup_reservation() {
+  if [ -n "$BACKUP_RESERVATION" ]; then
+    rmdir -- "$BACKUP_RESERVATION" 2>/dev/null || true
+    BACKUP_RESERVATION=
+  fi
+}
+
+trap cleanup_backup_reservation EXIT
 
 note() {
   printf '%s\n' "$*"
@@ -80,6 +96,35 @@ compose() {
   docker compose --project-directory "$REPOSITORY_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
+command_requires_operation_lock() {
+  case "$1" in
+    backup|restore|migrate|update) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+run_with_operation_lock() {
+  lock_file="${ENV_FILE}.pilot-ops.lock"
+  note "Acquiring exclusive Pilot operation lock."
+  exec perl -MFcntl=:DEFAULT,:flock,F_SETFD -e '
+    use strict;
+    use warnings;
+
+    my ($lock_path, @command) = @ARGV;
+    sysopen(my $lock, $lock_path, O_WRONLY | O_APPEND | O_CREAT, 0600)
+      or die "ERROR: Could not open the Pilot operation lock.\n";
+    flock($lock, LOCK_EX | LOCK_NB)
+      or do {
+        print STDERR "ERROR: Another Pilot operator workflow is already running.\n";
+        exit 1;
+      };
+    fcntl($lock, F_SETFD, 0)
+      or die "ERROR: Could not preserve the Pilot operation lock.\n";
+    exec @command;
+    die "ERROR: Could not start the locked Pilot operator workflow.\n";
+  ' "$lock_file" "$0" --pilot-operation-lock-held "$COMMAND" "$@"
+}
+
 validate_placeholder() {
   key=$1
   value=$2
@@ -117,6 +162,9 @@ preflight() {
   command -v docker >/dev/null 2>&1 || die "Docker is required."
   command -v awk >/dev/null 2>&1 || die "awk is required."
   command -v grep >/dev/null 2>&1 || die "grep is required."
+  command -v mktemp >/dev/null 2>&1 || die "mktemp is required."
+  command -v perl >/dev/null 2>&1 || die "Perl with Fcntl locking support is required."
+  command -v realpath >/dev/null 2>&1 || die "realpath is required."
   command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required."
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required."
 
@@ -190,19 +238,30 @@ create_backup() {
   [ -n "$BACKUP_DIRECTORY" ] || die "--backup-dir is required."
   mkdir -p -- "$BACKUP_DIRECTORY"
   chmod 700 "$BACKUP_DIRECTORY"
+  umask 077
   timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
   database=$(environment_value KAUL_DB_NAME)
   archive="$BACKUP_DIRECTORY/${database}_${timestamp}.dump"
-  TEMPORARY_BACKUP="$archive.partial"
-  umask 077
+  BACKUP_RESERVATION="$archive.reserve"
+  mkdir -- "$BACKUP_RESERVATION" 2>/dev/null || die "Backup destination is already reserved: $archive"
+  if [ -e "$archive" ] || [ -e "$archive.sha256" ]; then
+    die "Backup destination already exists; refusing to replace it: $archive"
+  fi
+  TEMPORARY_BACKUP=$(mktemp "$BACKUP_DIRECTORY/.${database}_${timestamp}.dump.partial.XXXXXX")
   compose exec -T postgres sh -ec 'pg_dump --username="$KAUL_DB_USER" --dbname="$KAUL_DB_NAME" --format=custom --no-owner --no-acl' > "$TEMPORARY_BACKUP" || die "PostgreSQL backup failed; partial file retained at $TEMPORARY_BACKUP"
   [ -s "$TEMPORARY_BACKUP" ] || die "PostgreSQL backup produced an empty archive."
-  mv -- "$TEMPORARY_BACKUP" "$archive"
+  if ! mv -n -- "$TEMPORARY_BACKUP" "$archive"; then
+    die "Could not finalize backup; partial file retained at $TEMPORARY_BACKUP"
+  fi
+  if [ -e "$TEMPORARY_BACKUP" ]; then
+    die "Backup destination already exists; refusing to replace it: $archive"
+  fi
   TEMPORARY_BACKUP=
   archive_directory=$(CDPATH= cd -- "$(dirname -- "$archive")" && pwd)
   archive_name=$(basename -- "$archive")
   (cd "$archive_directory" && sha256sum "$archive_name" > "$archive_name.sha256")
   validate_archive "$archive"
+  cleanup_backup_reservation
   note "Backup created: $archive"
   CREATED_BACKUP=$archive
 }
@@ -275,10 +334,10 @@ update_application() {
   target_image=$(environment_value KAUL_IMAGE)
   note "Target application image: $target_image"
   compose pull kaul
+  compose stop caddy || die "Caddy could not be stopped. Update did not proceed."
+  compose stop kaul || die "Kaul could not be stopped. Caddy remains stopped and update did not proceed."
   create_backup
-  note "Pre-update backup: $CREATED_BACKUP"
-  compose stop caddy
-  compose stop kaul
+  note "Quiesced pre-update backup: $CREATED_BACKUP"
   run_migrations
   if ! compose up -d --no-deps kaul; then
     if ! compose stop kaul; then
@@ -302,6 +361,14 @@ COMMAND=${1:-}
 [ -n "$COMMAND" ] || { usage; exit 2; }
 shift
 parse_options "$@"
+
+if command_requires_operation_lock "$COMMAND" && [ "$OPERATION_LOCK_HELD" != true ]; then
+  [ -r "$ENV_FILE" ] || die "A readable --env-file is required."
+  command -v realpath >/dev/null 2>&1 || die "realpath is required."
+  command -v perl >/dev/null 2>&1 || die "Perl with Fcntl locking support is required."
+  ENV_FILE=$(realpath "$ENV_FILE")
+  run_with_operation_lock "$@"
+fi
 
 case "$COMMAND" in
   preflight)
