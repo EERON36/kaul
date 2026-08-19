@@ -1,0 +1,85 @@
+name: Publish release image
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  publish:
+    name: Build and publish immutable image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Require a version tag on main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must be a version such as v0.1.0." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create image metadata
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: latest=false
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=sha-
+
+      - name: Build and publish image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          build-args: |
+            KAUL_COMMIT_SHA=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Record immutable release identity
+        shell: bash
+        run: |
+          {
+            echo "### Published Kaul image"
+            echo
+            echo "- Version: \`$GITHUB_REF_NAME\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo
+            echo "Deploy the GHCR image by digest. No deployment was performed."
+          } >> "$GITHUB_STEP_SUMMARY"

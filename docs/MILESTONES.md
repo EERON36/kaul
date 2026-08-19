@@ -863,6 +863,9 @@ Milestone 6 is complete when:
 
 # Milestone 7 — Pilot Readiness
 
+Status: In progress. The repository-side deployment foundation is implemented;
+live infrastructure and Pilot gate evidence remain outstanding.
+
 ## Goal
 
 Prepare Kaul for controlled pilot use on the Proxmox homelab using fictional or non-sensitive information.
