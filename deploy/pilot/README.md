@@ -98,8 +98,9 @@ from every other peer, and regression-test the Kaul rate-limit identity.
 The future VM needs a supported Linux release, Docker Engine with Compose v2,
 restricted SSH, host firewall rules, working DNS, inbound 80/443, `perl` with
 its core `Fcntl` module, and the ordinary `realpath`, `mktemp`, and checksum
-utilities. The operator must be able to create the lock file beside the
-protected Pilot environment file. Then:
+utilities. `COMPOSE_PROJECT_NAME` must start with a lowercase letter or digit,
+contain only lowercase letters, digits, hyphens, and underscores, and contain
+at most 63 characters. Then:
 
 1. Validate configuration and start only PostgreSQL.
 
@@ -190,14 +191,20 @@ to storage outside the VM with independent credentials, retention, and failure
 alerting. Proxmox snapshots remain supplemental only.
 
 `backup`, `restore`, `migrate`, and `update` take one exclusive operation lock
-for the canonical Pilot environment-file path. The persistent zero-byte
-`.pilot-ops.lock` file beside that environment file is only the lock target;
-the operating system owns the active lock and releases it automatically on
-normal exit, error, or process death. A second workflow fails before Docker or
-PostgreSQL mutation. Do not delete or replace the lock file while an operator
-workflow is running. The implementation uses Perl's OS-backed `Fcntl` locking,
-which is verified by the Git Bash test path and must be present on the Linux
-Pilot host.
+for the validated Compose project. The deterministic zero-byte lock target is
+`/tmp/kaul-pilot-COMPOSE_PROJECT_NAME.pilot-ops.lock`, so different environment
+files for the same Compose project contend on the same lock while different
+projects remain independent. The script also passes that validated project
+name explicitly to Docker Compose so a process-level environment override
+cannot redirect the operation after the lock is selected.
+
+The operating system owns the active non-blocking lock and releases it
+automatically on normal exit, error, or process death; the zero-byte file is
+not a stale-lock indicator. A second workflow for the same project fails
+before Docker or PostgreSQL mutation. Do not delete or replace the lock file
+while an operator workflow is running. The implementation atomically opens a
+non-symlink lock target and uses Perl's OS-backed `Fcntl` locking, which is
+verified by the Git Bash test path and must be present on the Linux Pilot host.
 
 Backup creation uses an atomic reservation and a unique temporary file. An
 existing archive, checksum, or same-name reservation causes an explicit

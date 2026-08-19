@@ -13,10 +13,14 @@ TEMPORARY_BACKUP=
 BACKUP_RESERVATION=
 MINIMUM_DATABASE_PASSWORD_LENGTH=32
 OPERATION_LOCK_HELD=false
+LOCKED_COMPOSE_PROJECT=
+PILOT_COMPOSE_PROJECT=
 
 if [ "${1:-}" = "--pilot-operation-lock-held" ]; then
   OPERATION_LOCK_HELD=true
-  shift
+  LOCKED_COMPOSE_PROJECT=${2:-}
+  [ -n "$LOCKED_COMPOSE_PROJECT" ] || exit 1
+  shift 2
 fi
 
 die() {
@@ -93,7 +97,41 @@ environment_value() {
 }
 
 compose() {
-  docker compose --project-directory "$REPOSITORY_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  docker compose \
+    --project-name "$PILOT_COMPOSE_PROJECT" \
+    --project-directory "$REPOSITORY_ROOT" \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    "$@"
+}
+
+validate_compose_project_name() {
+  value=$1
+  [ -n "$value" ] || die "COMPOSE_PROJECT_NAME must not be empty."
+  [ "${#value}" -le 63 ] ||
+    die "COMPOSE_PROJECT_NAME must contain at most 63 characters."
+  case "$value" in
+    [a-z0-9]*) ;;
+    *)
+      die "COMPOSE_PROJECT_NAME must start with a lowercase letter or digit."
+      ;;
+  esac
+  case "$value" in
+    *[!a-z0-9_-]*)
+      die "COMPOSE_PROJECT_NAME may contain only lowercase letters, digits, hyphens, and underscores."
+      ;;
+  esac
+}
+
+load_compose_project() {
+  [ -r "$ENV_FILE" ] || die "A readable --env-file is required."
+  command -v awk >/dev/null 2>&1 || die "awk is required."
+  PILOT_COMPOSE_PROJECT=$(environment_value COMPOSE_PROJECT_NAME)
+  validate_compose_project_name "$PILOT_COMPOSE_PROJECT"
+  if [ -n "$LOCKED_COMPOSE_PROJECT" ] &&
+    [ "$PILOT_COMPOSE_PROJECT" != "$LOCKED_COMPOSE_PROJECT" ]; then
+    die "COMPOSE_PROJECT_NAME changed while acquiring the Pilot operation lock."
+  fi
 }
 
 command_requires_operation_lock() {
@@ -104,15 +142,25 @@ command_requires_operation_lock() {
 }
 
 run_with_operation_lock() {
-  lock_file="${ENV_FILE}.pilot-ops.lock"
-  note "Acquiring exclusive Pilot operation lock."
-  exec perl -MFcntl=:DEFAULT,:flock,F_SETFD -e '
+  lock_file="/tmp/kaul-pilot-${PILOT_COMPOSE_PROJECT}.pilot-ops.lock"
+  note "Acquiring exclusive Pilot operation lock for Compose project $PILOT_COMPOSE_PROJECT."
+  exec perl -MFcntl=:DEFAULT,:flock,:mode,F_SETFD -e '
     use strict;
     use warnings;
 
     my ($lock_path, @command) = @ARGV;
-    sysopen(my $lock, $lock_path, O_WRONLY | O_APPEND | O_CREAT, 0600)
+    sysopen(
+      my $lock,
+      $lock_path,
+      O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_NONBLOCK,
+      0600,
+    )
       or die "ERROR: Could not open the Pilot operation lock.\n";
+    my @lock_stat = stat($lock);
+    S_ISREG($lock_stat[2])
+      or die "ERROR: Pilot operation lock target is not a regular file.\n";
+    $lock_stat[4] == $<
+      or die "ERROR: Pilot operation lock is not owned by the current operator.\n";
     flock($lock, LOCK_EX | LOCK_NB)
       or do {
         print STDERR "ERROR: Another Pilot operator workflow is already running.\n";
@@ -122,7 +170,7 @@ run_with_operation_lock() {
       or die "ERROR: Could not preserve the Pilot operation lock.\n";
     exec @command;
     die "ERROR: Could not start the locked Pilot operator workflow.\n";
-  ' "$lock_file" "$0" --pilot-operation-lock-held "$COMMAND" "$@"
+  ' "$lock_file" "$0" --pilot-operation-lock-held "$PILOT_COMPOSE_PROJECT" "$COMMAND" "$@"
 }
 
 validate_placeholder() {
@@ -157,7 +205,7 @@ validate_database_password() {
 }
 
 preflight() {
-  [ -r "$ENV_FILE" ] || die "A readable --env-file is required."
+  load_compose_project
   [ -r "$COMPOSE_FILE" ] || die "Pilot Compose file not found: $COMPOSE_FILE"
   command -v docker >/dev/null 2>&1 || die "Docker is required."
   command -v awk >/dev/null 2>&1 || die "awk is required."
@@ -367,6 +415,7 @@ if command_requires_operation_lock "$COMMAND" && [ "$OPERATION_LOCK_HELD" != tru
   command -v realpath >/dev/null 2>&1 || die "realpath is required."
   command -v perl >/dev/null 2>&1 || die "Perl with Fcntl locking support is required."
   ENV_FILE=$(realpath "$ENV_FILE")
+  load_compose_project
   run_with_operation_lock "$@"
 fi
 

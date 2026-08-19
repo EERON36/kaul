@@ -9,6 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { delimiter, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -53,10 +54,14 @@ const testTemporaryRoot = join(
 );
 
 const temporaryDirectories = [];
+const operationLockPaths = [];
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
+  }
+  for (const lockPath of operationLockPaths.splice(0)) {
+    rmSync(lockPath, { force: true });
   }
 });
 
@@ -98,6 +103,15 @@ function createTemporaryDirectory() {
 
 function generatedSecret() {
   return randomBytes(24).toString("base64url");
+}
+
+function uniqueComposeProject(suffix) {
+  const project = `kaul-pilot-${suffix}-${randomBytes(6).toString("hex")}`;
+  const lockDirectory = process.platform === "win32" ? tmpdir() : "/tmp";
+  operationLockPaths.push(
+    join(lockDirectory, `kaul-pilot-${project}.pilot-ops.lock`),
+  );
+  return project;
 }
 
 function validPilotValues(overrides = {}) {
@@ -217,7 +231,9 @@ function preparePilotInvocation(
 
   const operatorArguments = [
     toPosixPath(pilotScriptPath),
-    ...(acquireOperationLock ? [] : ["--pilot-operation-lock-held"]),
+    ...(acquireOperationLock
+      ? []
+      : ["--pilot-operation-lock-held", fixture.values.COMPOSE_PROJECT_NAME]),
     command,
     "--env-file",
     toPosixPath(fixture.environmentPath),
@@ -422,6 +438,11 @@ describe("Pilot operator safety controls", () => {
   it("serializes every state-mutating or recovery operator workflow", () => {
     expect(script).toContain("LOCK_EX | LOCK_NB");
     expect(script).toContain(
+      'lock_file="/tmp/kaul-pilot-${PILOT_COMPOSE_PROJECT}.pilot-ops.lock"',
+    );
+    expect(script).toContain('--project-name "$PILOT_COMPOSE_PROJECT"');
+    expect(script).not.toContain("${ENV_FILE}.pilot-ops.lock");
+    expect(script).toContain(
       "Another Pilot operator workflow is already running",
     );
     expect(script).toMatch(/backup\|restore\|migrate\|update\) return 0/);
@@ -551,6 +572,21 @@ describe("Pilot preflight behavior", () => {
     ["database name", { KAUL_DB_NAME: "kaul-pilot" }, "KAUL_DB_NAME"],
     ["application username", { KAUL_DB_USER: "Kaul_app" }, "KAUL_DB_USER"],
     [
+      "Compose project name",
+      { COMPOSE_PROJECT_NAME: "Kaul Pilot" },
+      "COMPOSE_PROJECT_NAME",
+    ],
+    [
+      "Compose project name prefix",
+      { COMPOSE_PROJECT_NAME: "-kaul-pilot" },
+      "COMPOSE_PROJECT_NAME",
+    ],
+    [
+      "Compose project name length",
+      { COMPOSE_PROJECT_NAME: "a".repeat(64) },
+      "COMPOSE_PROJECT_NAME",
+    ],
+    [
       "administrator username",
       { POSTGRES_ADMIN_USER: "kaul-admin" },
       "POSTGRES_ADMIN_USER",
@@ -675,6 +711,88 @@ describe("Pilot update behavior", () => {
     expect(afterRelease.status, outputOf(afterRelease)).toBe(0);
   }, 15_000);
 
+  it("serializes different env files that target the same Compose project", async () => {
+    const project = uniqueComposeProject("shared");
+    const firstFixture = createPilotCommandFixture({
+      overrides: { COMPOSE_PROJECT_NAME: project },
+    });
+    const secondFixture = createPilotCommandFixture({
+      overrides: { COMPOSE_PROJECT_NAME: project },
+    });
+    expect(secondFixture.environmentPath).not.toBe(
+      firstFixture.environmentPath,
+    );
+    const readyPath = join(firstFixture.directory, "first-operation-ready");
+    const releasePath = join(firstFixture.directory, "release-first-operation");
+    const first = startPilotCommand("update", firstFixture, {
+      KAUL_TEST_BLOCK_PREFLIGHT: "1",
+      KAUL_TEST_BLOCK_READY: toPosixPath(readyPath),
+      KAUL_TEST_BLOCK_RELEASE: toPosixPath(releasePath),
+    });
+
+    let second;
+    let firstResult;
+    try {
+      await waitForFile(readyPath);
+      second = executePilotCommand("backup", {
+        acquireOperationLock: true,
+        fixture: secondFixture,
+      });
+    } finally {
+      writeFileSync(releasePath, "release\n");
+      firstResult = await first.completion;
+    }
+
+    expect(second).toBeDefined();
+    expect(second.status).not.toBe(0);
+    expect(second.commandLog).toEqual([]);
+    expect(outputOf(second)).toContain(
+      "Another Pilot operator workflow is already running",
+    );
+    expect(firstResult.status, outputOf(firstResult)).toBe(0);
+  }, 15_000);
+
+  it("keeps different Compose project locks independent", async () => {
+    const firstFixture = createPilotCommandFixture({
+      overrides: {
+        COMPOSE_PROJECT_NAME: uniqueComposeProject("first"),
+      },
+    });
+    const secondFixture = createPilotCommandFixture({
+      overrides: {
+        COMPOSE_PROJECT_NAME: uniqueComposeProject("second"),
+      },
+    });
+    expect(secondFixture.values.COMPOSE_PROJECT_NAME).not.toBe(
+      firstFixture.values.COMPOSE_PROJECT_NAME,
+    );
+    const readyPath = join(firstFixture.directory, "first-operation-ready");
+    const releasePath = join(firstFixture.directory, "release-first-operation");
+    const first = startPilotCommand("update", firstFixture, {
+      KAUL_TEST_BLOCK_PREFLIGHT: "1",
+      KAUL_TEST_BLOCK_READY: toPosixPath(readyPath),
+      KAUL_TEST_BLOCK_RELEASE: toPosixPath(releasePath),
+    });
+
+    let second;
+    let firstResult;
+    try {
+      await waitForFile(readyPath);
+      second = executePilotCommand("backup", {
+        acquireOperationLock: true,
+        fixture: secondFixture,
+      });
+    } finally {
+      writeFileSync(releasePath, "release\n");
+      firstResult = await first.completion;
+    }
+
+    expect(second).toBeDefined();
+    expect(second.status, outputOf(second)).toBe(0);
+    expect(commandPosition(second.commandLog, "pg_dump")).toBeGreaterThan(-1);
+    expect(firstResult.status, outputOf(firstResult)).toBe(0);
+  }, 15_000);
+
   it("refuses to replace a colliding completed backup", () => {
     const fixture = createPilotCommandFixture();
     const timestamp = "20260819T120000Z";
@@ -755,7 +873,7 @@ describe("Pilot update behavior", () => {
       fixture: result.fixture,
     });
     expect(retry.status, outputOf(retry)).toBe(0);
-  });
+  }, 15_000);
 
   it("leaves public serving stopped and reports a migration failure", () => {
     const result = executePilotCommand("update", {
