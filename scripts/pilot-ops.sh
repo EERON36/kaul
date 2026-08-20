@@ -4,7 +4,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPOSITORY_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-COMPOSE_FILE=${KAUL_PILOT_COMPOSE_FILE:-"$REPOSITORY_ROOT/compose.pilot.yaml"}
+COMPOSE_FILE="$REPOSITORY_ROOT/compose.pilot.yaml"
 ENV_FILE=
 BACKUP_DIRECTORY=
 ARCHIVE=
@@ -15,6 +15,23 @@ MINIMUM_DATABASE_PASSWORD_LENGTH=32
 OPERATION_LOCK_HELD=false
 LOCKED_COMPOSE_PROJECT=
 PILOT_COMPOSE_PROJECT=
+COMPOSE_INTERPOLATION_KEYS='
+COMPOSE_PROJECT_NAME
+KAUL_IMAGE
+PILOT_HOSTNAME
+PILOT_HTTP_BIND
+PILOT_HTTPS_BIND
+PILOT_HTTPS_UDP_BIND
+DEPLOYMENT_ENV
+BETTER_AUTH_URL
+BETTER_AUTH_SECRET
+POSTGRES_ADMIN_USER
+POSTGRES_ADMIN_PASSWORD
+KAUL_DB_USER
+KAUL_DB_PASSWORD
+KAUL_DB_NAME
+DATABASE_URL
+'
 
 if [ "${1:-}" = "--pilot-operation-lock-held" ]; then
   OPERATION_LOCK_HELD=true
@@ -50,6 +67,9 @@ Usage:
   scripts/pilot-ops.sh restore --env-file PATH --archive PATH --database kaul_restore_NAME
   scripts/pilot-ops.sh migrate --env-file PATH --backup-dir PATH
   scripts/pilot-ops.sh update --env-file PATH --backup-dir PATH
+  scripts/pilot-ops.sh start-postgres --env-file PATH
+  scripts/pilot-ops.sh bootstrap-admin --env-file PATH
+  scripts/pilot-ops.sh start-stack --env-file PATH
 
 The environment file is parsed as data and is never sourced as shell code.
 USAGE
@@ -96,13 +116,48 @@ environment_value() {
   awk -F= -v wanted="$key" '$1 == wanted { value = substr($0, index($0, "=") + 1); sub(/\r$/, "", value); print value }' "$ENV_FILE"
 }
 
-compose() {
-  docker compose \
+run_sanitized_compose() {
+  override_mode=$1
+  override_value=$2
+  shift 2
+  KAUL_PILOT_COMPOSE_OVERRIDE_MODE="$override_mode" \
+    KAUL_PILOT_COMPOSE_OVERRIDE_VALUE="$override_value" \
+    perl -e '
+      use strict;
+      use warnings;
+
+      my ($keys, @command) = @ARGV;
+      my $override_mode = delete($ENV{KAUL_PILOT_COMPOSE_OVERRIDE_MODE}) // q{};
+      my $override_value = delete($ENV{KAUL_PILOT_COMPOSE_OVERRIDE_VALUE});
+      my @keys = grep { length } split /\s+/, $keys;
+      delete @ENV{@keys};
+
+      if ($override_mode eq q{database-url}) {
+        defined($override_value) && length($override_value)
+          or die "ERROR: Missing trusted Compose database override.\n";
+        $ENV{DATABASE_URL} = $override_value;
+      } elsif ($override_mode ne q{none}) {
+        die "ERROR: Invalid trusted Compose override mode.\n";
+      }
+
+      exec @command;
+      die "ERROR: Could not start Docker Compose.\n";
+    ' "$COMPOSE_INTERPOLATION_KEYS" docker compose \
     --project-name "$PILOT_COMPOSE_PROJECT" \
     --project-directory "$REPOSITORY_ROOT" \
     --env-file "$ENV_FILE" \
     -f "$COMPOSE_FILE" \
     "$@"
+}
+
+compose() {
+  run_sanitized_compose none '' "$@"
+}
+
+compose_with_database_url() {
+  database_url_override=$1
+  shift
+  run_sanitized_compose database-url "$database_url_override" "$@"
 }
 
 validate_compose_project_name() {
@@ -136,7 +191,7 @@ load_compose_project() {
 
 command_requires_operation_lock() {
   case "$1" in
-    backup|restore|migrate|update) return 0 ;;
+    backup|restore|migrate|update|start-postgres|bootstrap-admin|start-stack) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -193,7 +248,7 @@ validate_database_identifier() {
   esac
 }
 
-validate_database_password() {
+validate_url_safe_secret() {
   key=$1
   value=$2
   validate_placeholder "$key" "$value"
@@ -202,6 +257,16 @@ validate_database_password() {
   case "$value" in
     *[!A-Za-z0-9._~-]*) die "$key must use URL-safe characters only." ;;
   esac
+}
+
+validate_port_binding() {
+  key=$1
+  value=$2
+  case "$value" in
+    ""|*[!0-9]*) die "$key must be a numeric host port." ;;
+  esac
+  [ "$value" -ge 1 ] && [ "$value" -le 65535 ] ||
+    die "$key must be between 1 and 65535."
 }
 
 preflight() {
@@ -226,8 +291,17 @@ preflight() {
 
   hostname=$(environment_value PILOT_HOSTNAME)
   case "$hostname" in
-    ""|*://*|*/*) die "PILOT_HOSTNAME must be a hostname without a scheme or path." ;;
+    ""|*://*|*/*|*[!a-z0-9.-]*|.*|*..*|*.)
+      die "PILOT_HOSTNAME must be a lowercase hostname without a scheme or path."
+      ;;
   esac
+
+  http_bind=$(environment_value PILOT_HTTP_BIND)
+  https_bind=$(environment_value PILOT_HTTPS_BIND)
+  https_udp_bind=$(environment_value PILOT_HTTPS_UDP_BIND)
+  validate_port_binding PILOT_HTTP_BIND "$http_bind"
+  validate_port_binding PILOT_HTTPS_BIND "$https_bind"
+  validate_port_binding PILOT_HTTPS_UDP_BIND "$https_udp_bind"
 
   auth_url=$(environment_value BETTER_AUTH_URL)
   case "$auth_url" in
@@ -240,8 +314,7 @@ preflight() {
   [ "$auth_hostname" = "$hostname" ] || die "BETTER_AUTH_URL hostname must match PILOT_HOSTNAME."
 
   auth_secret=$(environment_value BETTER_AUTH_SECRET)
-  validate_placeholder BETTER_AUTH_SECRET "$auth_secret"
-  [ "${#auth_secret}" -ge 32 ] || die "BETTER_AUTH_SECRET must contain at least 32 characters."
+  validate_url_safe_secret BETTER_AUTH_SECRET "$auth_secret"
 
   admin_user=$(environment_value POSTGRES_ADMIN_USER)
   admin_password=$(environment_value POSTGRES_ADMIN_PASSWORD)
@@ -253,8 +326,8 @@ preflight() {
   validate_database_identifier POSTGRES_ADMIN_USER "$admin_user"
   validate_database_identifier KAUL_DB_USER "$app_user"
   validate_database_identifier KAUL_DB_NAME "$database"
-  validate_database_password POSTGRES_ADMIN_PASSWORD "$admin_password"
-  validate_database_password KAUL_DB_PASSWORD "$app_password"
+  validate_url_safe_secret POSTGRES_ADMIN_PASSWORD "$admin_password"
+  validate_url_safe_secret KAUL_DB_PASSWORD "$app_password"
   [ "$admin_user" != "$app_user" ] || die "PostgreSQL administrator and application users must differ."
   [ "$admin_password" != "$app_password" ] || die "PostgreSQL administrator and application passwords must differ."
   [ "$auth_secret" != "$admin_password" ] || die "Authentication and database secrets must differ."
@@ -349,7 +422,7 @@ restore_backup() {
   compose exec -T postgres sh -ec 'psql --username="$KAUL_DB_USER" --dbname="$1" --set=ON_ERROR_STOP=1 --command="SELECT COUNT(*) AS migration_count FROM \"_prisma_migrations\";"' sh "$RESTORE_DATABASE"
   source_url=$(environment_value DATABASE_URL)
   restore_url=${source_url%/*}/$RESTORE_DATABASE
-  DATABASE_URL=$restore_url compose run --rm --no-deps kaul npm run db:status
+  compose_with_database_url "$restore_url" run --rm --no-deps kaul npm run db:status
   note "Restore completed into new database: $RESTORE_DATABASE"
   note "The active Pilot database was not changed. Update a controlled verification environment explicitly before starting Kaul against this restore."
 }
@@ -447,6 +520,18 @@ case "$COMMAND" in
   update)
     preflight
     update_application
+    ;;
+  start-postgres)
+    preflight
+    compose up -d postgres
+    ;;
+  bootstrap-admin)
+    preflight
+    compose run --rm --no-deps kaul npm run bootstrap:admin
+    ;;
+  start-stack)
+    preflight
+    compose up -d
     ;;
   -h|--help|help)
     usage

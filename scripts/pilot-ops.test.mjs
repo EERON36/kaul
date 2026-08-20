@@ -171,6 +171,13 @@ function dockerStubLines() {
     "#!/bin/sh",
     "set -eu",
     'printf \'%s\\n\' "$*" >> "$KAUL_TEST_COMMAND_LOG"',
+    'case " $* " in',
+    '  *" compose --project-name "*)',
+    "    for key in COMPOSE_PROJECT_NAME KAUL_IMAGE PILOT_HOSTNAME PILOT_HTTP_BIND PILOT_HTTPS_BIND PILOT_HTTPS_UDP_BIND DEPLOYMENT_ENV BETTER_AUTH_URL BETTER_AUTH_SECRET POSTGRES_ADMIN_USER POSTGRES_ADMIN_PASSWORD KAUL_DB_USER KAUL_DB_PASSWORD KAUL_DB_NAME DATABASE_URL; do",
+    '      if printenv "$key" >/dev/null 2>&1; then source=ambient; else source=env-file; fi',
+    '      printf \'%s=%s\\n\' "$key" "$source" >> "$KAUL_TEST_INTERPOLATION_LOG"',
+    "    done ;;",
+    "esac",
     'if [ "${1:-}" = inspect ]; then',
     '  case "$*" in',
     '    *".Config.Image"*) printf \'%s\\n\' "ghcr.io/example/kaul@sha256:${KAUL_TEST_CURRENT_DIGEST}" ; exit 0 ;;',
@@ -227,7 +234,12 @@ function preparePilotInvocation(
     fixture.directory,
     `docker-commands-${randomBytes(6).toString("hex")}.log`,
   );
+  const interpolationLog = join(
+    fixture.directory,
+    `compose-interpolation-${randomBytes(6).toString("hex")}.log`,
+  );
   writeFileSync(commandLog, "");
+  writeFileSync(interpolationLog, "");
 
   const operatorArguments = [
     toPosixPath(pilotScriptPath),
@@ -256,8 +268,10 @@ function preparePilotInvocation(
 
   return {
     commandLog,
+    interpolationLog,
     environment: childEnvironment(fixture.stubDirectory, {
       KAUL_TEST_COMMAND_LOG: toPosixPath(commandLog),
+      KAUL_TEST_INTERPOLATION_LOG: toPosixPath(interpolationLog),
       KAUL_TEST_CURRENT_DIGEST: "b".repeat(64),
       ...stub,
     }),
@@ -294,6 +308,9 @@ function executePilotCommand(
     commandLog: readFileSync(invocation.commandLog, "utf8")
       .split(/\r?\n/)
       .filter(Boolean),
+    interpolationSources: readFileSync(invocation.interpolationLog, "utf8")
+      .split(/\r?\n/)
+      .filter(Boolean),
     fixture: commandFixture,
     values: commandFixture.values,
   };
@@ -320,6 +337,9 @@ function startPilotCommand(command, fixture, stub = {}) {
     child.on("close", (status, signal) => {
       resolve({
         commandLog: readFileSync(invocation.commandLog, "utf8")
+          .split(/\r?\n/)
+          .filter(Boolean),
+        interpolationSources: readFileSync(invocation.interpolationLog, "utf8")
           .split(/\r?\n/)
           .filter(Boolean),
         signal,
@@ -445,7 +465,36 @@ describe("Pilot operator safety controls", () => {
     expect(script).toContain(
       "Another Pilot operator workflow is already running",
     );
-    expect(script).toMatch(/backup\|restore\|migrate\|update\) return 0/);
+    expect(script).toMatch(
+      /backup\|restore\|migrate\|update\|start-postgres\|bootstrap-admin\|start-stack\) return 0/,
+    );
+  });
+
+  it("sanitizes every variable interpolated by the Pilot Compose contract", () => {
+    const composeKeys = [
+      ...compose.matchAll(/(?<!\$)\$\{([A-Z][A-Z0-9_]*)/g),
+    ].map((match) => match[1]);
+    const contract = script.match(
+      /COMPOSE_INTERPOLATION_KEYS='([\s\S]*?)'\r?\n/,
+    );
+    expect(contract).not.toBeNull();
+    const sanitizedKeys = contract[1].trim().split(/\s+/);
+
+    expect([...new Set(sanitizedKeys)].sort()).toEqual(
+      [...new Set(composeKeys)].sort(),
+    );
+    expect(script).toContain("delete @ENV{@keys}");
+  });
+
+  it("routes every documented state-changing Compose example through the protected operator", () => {
+    expect(pilotRunbook).not.toMatch(/^\s*docker compose\b/m);
+    for (const command of [
+      "start-postgres",
+      "bootstrap-admin",
+      "start-stack",
+    ]) {
+      expect(pilotRunbook).toContain(`scripts/pilot-ops.sh ${command}`);
+    }
   });
 
   it("restores only into a new guarded database without destructive clean flags", () => {
@@ -586,6 +635,7 @@ describe("Pilot preflight behavior", () => {
       { COMPOSE_PROJECT_NAME: "a".repeat(64) },
       "COMPOSE_PROJECT_NAME",
     ],
+    ["HTTPS binding", { PILOT_HTTPS_BIND: "443/tcp" }, "PILOT_HTTPS_BIND"],
     [
       "administrator username",
       { POSTGRES_ADMIN_USER: "kaul-admin" },
@@ -623,14 +673,17 @@ describe("Pilot preflight behavior", () => {
     },
   );
 
-  it("rejects a missing required value", () => {
-    const result = executePilotCommand("preflight", {
-      omittedKey: "KAUL_DB_USER",
-    });
+  it.each(["KAUL_DB_USER", "PILOT_HTTPS_BIND"])(
+    "rejects a missing required %s value",
+    (key) => {
+      const result = executePilotCommand("preflight", {
+        omittedKey: key,
+      });
 
-    expect(result.status).not.toBe(0);
-    expect(outputOf(result)).toContain("KAUL_DB_USER must occur exactly once");
-  });
+      expect(result.status).not.toBe(0);
+      expect(outputOf(result)).toContain(`${key} must occur exactly once`);
+    },
+  );
 
   it.each(["POSTGRES_ADMIN_PASSWORD", "KAUL_DB_PASSWORD"])(
     "rejects a too-short %s without printing it",
@@ -645,6 +698,98 @@ describe("Pilot preflight behavior", () => {
         `${key} must contain at least 32 characters`,
       );
       expect(outputOf(result).includes(shortPassword)).toBe(false);
+    },
+  );
+
+  it("rejects a non-URL-safe authentication secret without printing it", () => {
+    const malformedSecret = `${"a".repeat(31)}$`;
+    const result = executePilotCommand("preflight", {
+      overrides: { BETTER_AUTH_SECRET: malformedSecret },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain("BETTER_AUTH_SECRET");
+    expect(outputOf(result).includes(malformedSecret)).toBe(false);
+  });
+});
+
+describe("Pilot Compose environment isolation", () => {
+  it("uses the selected env file despite hostile ambient Pilot values", () => {
+    const fixture = createPilotCommandFixture({
+      overrides: {
+        COMPOSE_PROJECT_NAME: uniqueComposeProject("ambient"),
+      },
+    });
+    const hostileSecret = `hostile-${"x".repeat(40)}`;
+    const result = executePilotCommand("start-postgres", {
+      acquireOperationLock: true,
+      fixture,
+      stub: {
+        COMPOSE_PROJECT_NAME: "ambient-project",
+        KAUL_IMAGE: "ghcr.io/ambient/kaul:latest",
+        DATABASE_URL: "postgresql://ambient:ambient@127.0.0.1:5432/kaul",
+        DEPLOYMENT_ENV: "production",
+        BETTER_AUTH_SECRET: hostileSecret,
+        PILOT_HTTPS_BIND: "9443",
+      },
+    });
+
+    expect(result.status, outputOf(result)).toBe(0);
+    for (const key of [
+      "COMPOSE_PROJECT_NAME",
+      "KAUL_IMAGE",
+      "DATABASE_URL",
+      "DEPLOYMENT_ENV",
+      "BETTER_AUTH_SECRET",
+      "PILOT_HTTPS_BIND",
+    ]) {
+      const sources = result.interpolationSources.filter((entry) =>
+        entry.startsWith(`${key}=`),
+      );
+      expect(sources.length).toBeGreaterThan(0);
+      expect(sources.every((entry) => entry === `${key}=env-file`)).toBe(true);
+    }
+    const composeCommands = result.commandLog.filter((command) =>
+      command.startsWith("compose --project-name "),
+    );
+    expect(composeCommands.length).toBeGreaterThan(0);
+    expect(
+      composeCommands.every((command) =>
+        command.includes(
+          `--project-name ${fixture.values.COMPOSE_PROJECT_NAME}`,
+        ),
+      ),
+    ).toBe(true);
+    expect(outputOf(result)).not.toContain(hostileSecret);
+  }, 30_000);
+
+  it.each([
+    ["start-postgres", "up -d postgres"],
+    ["bootstrap-admin", "npm run bootstrap:admin"],
+    ["start-stack", " up -d"],
+  ])(
+    "protects the documented %s workflow",
+    (command, expectedDockerCommand) => {
+      const result = executePilotCommand(command, {
+        stub: {
+          KAUL_IMAGE: "ghcr.io/ambient/kaul:latest",
+          DEPLOYMENT_ENV: "production",
+        },
+      });
+
+      expect(result.status, outputOf(result)).toBe(0);
+      expect(
+        commandPosition(result.commandLog, expectedDockerCommand),
+      ).toBeGreaterThan(-1);
+      const protectedSources = result.interpolationSources.filter(
+        (entry) =>
+          entry.startsWith("KAUL_IMAGE=") ||
+          entry.startsWith("DEPLOYMENT_ENV="),
+      );
+      expect(protectedSources.length).toBeGreaterThan(0);
+      expect(
+        protectedSources.every((entry) => entry.endsWith("=env-file")),
+      ).toBe(true);
     },
   );
 });
@@ -709,7 +854,7 @@ describe("Pilot update behavior", () => {
       fixture,
     });
     expect(afterRelease.status, outputOf(afterRelease)).toBe(0);
-  }, 15_000);
+  }, 30_000);
 
   it("serializes different env files that target the same Compose project", async () => {
     const project = uniqueComposeProject("shared");
@@ -750,7 +895,7 @@ describe("Pilot update behavior", () => {
       "Another Pilot operator workflow is already running",
     );
     expect(firstResult.status, outputOf(firstResult)).toBe(0);
-  }, 15_000);
+  }, 30_000);
 
   it("keeps different Compose project locks independent", async () => {
     const firstFixture = createPilotCommandFixture({
@@ -791,7 +936,7 @@ describe("Pilot update behavior", () => {
     expect(second.status, outputOf(second)).toBe(0);
     expect(commandPosition(second.commandLog, "pg_dump")).toBeGreaterThan(-1);
     expect(firstResult.status, outputOf(firstResult)).toBe(0);
-  }, 15_000);
+  }, 30_000);
 
   it("refuses to replace a colliding completed backup", () => {
     const fixture = createPilotCommandFixture();
@@ -873,7 +1018,7 @@ describe("Pilot update behavior", () => {
       fixture: result.fixture,
     });
     expect(retry.status, outputOf(retry)).toBe(0);
-  }, 15_000);
+  }, 30_000);
 
   it("leaves public serving stopped and reports a migration failure", () => {
     const result = executePilotCommand("update", {

@@ -105,8 +105,8 @@ at most 63 characters. Then:
 1. Validate configuration and start only PostgreSQL.
 
    ```sh
-   scripts/pilot-ops.sh preflight --env-file /etc/kaul/pilot.env
-   docker compose --env-file /etc/kaul/pilot.env -f compose.pilot.yaml up -d postgres
+   scripts/pilot-ops.sh start-postgres \
+     --env-file /etc/kaul/pilot.env
    ```
 
 2. Apply committed migrations once, while Kaul remains stopped. The command
@@ -122,9 +122,10 @@ at most 63 characters. Then:
    protect the one-time credential, then start the stack.
 
    ```sh
-   docker compose --env-file /etc/kaul/pilot.env -f compose.pilot.yaml \
-     run --rm --no-deps kaul npm run bootstrap:admin
-   docker compose --env-file /etc/kaul/pilot.env -f compose.pilot.yaml up -d
+   scripts/pilot-ops.sh bootstrap-admin \
+     --env-file /etc/kaul/pilot.env
+   scripts/pilot-ops.sh start-stack \
+     --env-file /etc/kaul/pilot.env
    ```
 
 The credential expires after 24 hours and must be changed at first login. The
@@ -190,13 +191,20 @@ backup daily and transfer it through a separately approved encrypted mechanism
 to storage outside the VM with independent credentials, retention, and failure
 alerting. Proxmox snapshots remain supplemental only.
 
-`backup`, `restore`, `migrate`, and `update` take one exclusive operation lock
-for the validated Compose project. The deterministic zero-byte lock target is
-`/tmp/kaul-pilot-COMPOSE_PROJECT_NAME.pilot-ops.lock`, so different environment
-files for the same Compose project contend on the same lock while different
-projects remain independent. The script also passes that validated project
-name explicitly to Docker Compose so a process-level environment override
-cannot redirect the operation after the lock is selected.
+Every state-changing operator command (`backup`, `restore`, `migrate`, `update`,
+`start-postgres`, `bootstrap-admin`, and `start-stack`) takes one exclusive
+operation lock for the validated Compose project. The deterministic zero-byte
+lock target is `/tmp/kaul-pilot-COMPOSE_PROJECT_NAME.pilot-ops.lock`, so
+different environment files for the same Compose project contend on the same
+lock while different projects remain independent.
+
+The script removes the complete Pilot Compose interpolation contract from the
+caller's process environment before every Compose invocation. Compose must
+therefore obtain those values from the selected environment file. The script
+also passes the validated project name explicitly with `--project-name`, so the
+lock identity and Compose stack identity remain aligned. Do not replace the
+protected operator commands with raw `docker compose` commands: shell variables
+take precedence over `--env-file` and could otherwise bypass validated values.
 
 The operating system owns the active non-blocking lock and releases it
 automatically on normal exit, error, or process death; the zero-byte file is
