@@ -1,12 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { ApplicationShell } from "@/components/application-shell";
-import { generateAuditOperationId } from "@/modules/audit/audit";
-import {
-  getFollowUp,
-  listEligibleResponsibleUsers,
-  listGoals,
-} from "@/modules/planning/planning";
+import { getFollowUp, listGoals } from "@/modules/planning/planning";
 
 import { formatPlanningDateInput } from "@/app/planning-presentation";
 import { ClientWorkspaceHeader } from "../../../client-workspace";
@@ -15,7 +10,6 @@ import {
   loadClientWorkspace,
 } from "../../../client-workspace-data";
 import type { FollowUpFormActionState } from "../../actions";
-import { ReassignFollowUpControl } from "../../follow-up-controls-client";
 import { FollowUpForm } from "../../follow-up-form-client";
 
 export const dynamic = "force-dynamic";
@@ -27,12 +21,10 @@ export default async function EditFollowUpPage({
   const result = await loadClientWorkspace(clientId);
   if (result.client.status === "ARCHIVED") notFound();
   let followUp;
-  let eligibleUsers;
   let goals;
   try {
-    [followUp, eligibleUsers, goals] = await Promise.all([
+    [followUp, goals] = await Promise.all([
       getFollowUp({ followUpId }),
-      listEligibleResponsibleUsers({ clientId }),
       listGoals({ clientId }),
     ]);
   } catch (error) {
@@ -75,30 +67,8 @@ export default async function EditFollowUpPage({
           <h2 id="edit-follow-up-heading">Redigera uppföljning</h2>
           <FollowUpForm
             clientId={clientId}
-            eligibleUsers={eligibleUsers}
             goals={selectableGoals}
             initialState={initialState}
-          />
-        </section>
-        <section
-          aria-labelledby="reassign-follow-up-heading"
-          className="client-section"
-        >
-          <h2 id="reassign-follow-up-heading">Ansvarig medarbetare</h2>
-          {followUp.responsibilityNeedsReassignment ? (
-            <p className="planning-attention">
-              Den nuvarande ansvariga personen saknar aktuell behörighet. Välj
-              en ny ansvarig.
-            </p>
-          ) : (
-            <p>Byten av ansvarig bevaras i uppföljningens historik.</p>
-          )}
-          <ReassignFollowUpControl
-            eligibleUsers={eligibleUsers}
-            followUpId={followUp.id}
-            operationId={generateAuditOperationId()}
-            responsibleUserId={followUp.responsibleUser.id}
-            version={followUp.version}
           />
         </section>
       </div>

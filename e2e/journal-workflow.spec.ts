@@ -4,6 +4,7 @@ import {
   expect,
   test,
   type BrowserContext,
+  type Dialog,
   type Locator,
   type Page,
 } from "@playwright/test";
@@ -126,7 +127,14 @@ async function createFixtures() {
     ),
   ]);
   const clients = await Promise.all(
-    ["ARBETE", "PRIVAT", "KONFLIKT", "SKAPARACE", "TANGENTBORD"].map((label) =>
+    [
+      "ARBETE",
+      "PRIVAT",
+      "KONFLIKT",
+      "SKAPARACE",
+      "TANGENTBORD",
+      "NAVIGERING",
+    ].map((label) =>
       prisma.client.create({
         data: {
           id: randomUUID(),
@@ -377,6 +385,73 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   });
   await page.getByRole("button", { name: "Kasta utkast" }).click();
   await expect(page.getByText("Utkastet har kastats.")).toBeVisible();
+});
+
+test("Unsaved Journal work protects internal navigation without trapping a saved form", async ({
+  page,
+}) => {
+  const client = fixtures.clients[5];
+  const content = page.getByLabel("Anteckning", { exact: true });
+  const warning =
+    "Du har osparade ändringar i anteckningen. Vill du lämna sidan? Ändringarna försvinner om du inte sparar dem.";
+
+  await logIn(page, authorEmail, "192.0.2.229");
+  await openNewDraft(page, client.id);
+
+  const unexpectedDialogs: string[] = [];
+  const collectUnexpectedDialog = async (dialog: Dialog) => {
+    unexpectedDialogs.push(dialog.message());
+    await dialog.accept();
+  };
+  page.on("dialog", collectUnexpectedDialog);
+  await content.fill("Tillfällig ändring som återställs.");
+  await content.fill("");
+  await page.getByRole("link", { name: "Översikt", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}`,
+  );
+  expect(unexpectedDialogs).toEqual([]);
+  page.off("dialog", collectUnexpectedDialog);
+
+  await openNewDraft(page, client.id);
+  const unsavedContent =
+    "Betydande fiktiv anteckning som inte får försvinna utan varning.";
+  await content.fill(unsavedContent);
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe(warning);
+    await dialog.dismiss();
+  });
+  await page.getByRole("link", { name: "Mål", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}/anteckningar/utkast`,
+  );
+  await expect(content).toHaveValue(unsavedContent);
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe(warning);
+    await dialog.accept();
+  });
+  await page.getByRole("link", { name: "Hem", exact: true }).click();
+  await expect(page).toHaveURL(`${testEnvironment.origin}/`);
+
+  await openNewDraft(page, client.id);
+  await content.fill("Fiktiv anteckning som sparas före navigering.");
+  await page.getByRole("button", { name: "Spara utkast" }).click();
+  await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
+
+  const postSaveDialogs: string[] = [];
+  const collectPostSaveDialog = async (dialog: Dialog) => {
+    postSaveDialogs.push(dialog.message());
+    await dialog.accept();
+  };
+  page.on("dialog", collectPostSaveDialog);
+  await page.getByRole("link", { name: "Uppföljningar", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}/uppfoljningar`,
+  );
+  expect(postSaveDialogs).toEqual([]);
+  page.off("dialog", collectPostSaveDialog);
 });
 
 test("Draft privacy, signed access, access loss, archive, and mobile reflow stay safe", async ({

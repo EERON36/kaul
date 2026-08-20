@@ -10,6 +10,7 @@ import {
 import type { AvailableJournalGoal } from "@/modules/journal/journal";
 
 import { goalStatusLabels } from "@/app/planning-presentation";
+import { useNavigationGuard } from "@/components/navigation-guard";
 
 import {
   discardJournalDraftAction,
@@ -17,6 +18,23 @@ import {
   type JournalDraftActionState,
   type JournalMutationActionState,
 } from "./actions";
+import {
+  areJournalFormValuesEqual,
+  type JournalFormValues,
+} from "./journal-form-values";
+
+function readCurrentJournalFormValues(
+  form: HTMLFormElement,
+): JournalFormValues {
+  const formData = new FormData(form);
+  return {
+    entryType: String(formData.get("entryType") ?? ""),
+    eventDate: String(formData.get("eventDate") ?? ""),
+    eventTime: String(formData.get("eventTime") ?? ""),
+    content: String(formData.get("content") ?? ""),
+    goalIds: formData.getAll("goalIds").map(String),
+  };
+}
 
 export function JournalDraftForm({
   clientId,
@@ -36,11 +54,16 @@ export function JournalDraftForm({
     discardJournalDraftAction,
     discardInitialState,
   );
+  const setNavigationBlocked = useNavigationGuard();
+  const savedValuesRef = useRef(initialState.values);
   const dirtyRef = useRef(false);
 
   useEffect(() => {
-    if (state.status === "SUCCESS") dirtyRef.current = false;
-  }, [state.status]);
+    if (state.status !== "SUCCESS") return;
+    savedValuesRef.current = state.values;
+    dirtyRef.current = false;
+    setNavigationBlocked(false);
+  }, [setNavigationBlocked, state]);
 
   useEffect(() => {
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -64,8 +87,13 @@ export function JournalDraftForm({
     <div className="journal-editor">
       <form
         action={saveAction}
-        onChange={() => {
-          dirtyRef.current = true;
+        onChange={(event) => {
+          const dirty = !areJournalFormValuesEqual(
+            savedValuesRef.current,
+            readCurrentJournalFormValues(event.currentTarget),
+          );
+          dirtyRef.current = dirty;
+          setNavigationBlocked(dirty);
         }}
       >
         <input name="clientId" type="hidden" value={clientId} />
