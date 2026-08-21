@@ -219,7 +219,9 @@ test("completes login, forced password change, shell access, logout, and new log
   await expect(page.getByText("Fiktiva Omsorgen")).toBeVisible();
   await expect(page.getByText("Administratör", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Hem" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Personal" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Personal", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("link", {
       name: /Dokument|Sök|Inställningar/,

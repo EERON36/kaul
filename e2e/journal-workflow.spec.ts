@@ -288,9 +288,11 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   await expect(
     page.getByRole("navigation", { name: "Klientarbetsyta" }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Anteckningar" }).click();
-  await expect(page.getByRole("link", { name: "Ny anteckning" })).toBeVisible();
-  await page.getByRole("link", { name: "Ny anteckning" }).click();
+  const overviewJournalAction = page.getByRole("link", {
+    name: "Ny anteckning",
+  });
+  await expect(overviewJournalAction).toBeVisible();
+  await overviewJournalAction.click();
   await expect(page.getByLabel("Typ av anteckning")).toBeVisible();
 
   const typeOptions = await page
@@ -314,9 +316,8 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
 
-  await page.goto(`/klienter/${client.id}/anteckningar`);
-  await expect(page.getByRole("link", { name: "Öppna utkast" })).toBeVisible();
-  await page.getByRole("link", { name: "Öppna utkast" }).click();
+  await page.goto(`/klienter/${client.id}`);
+  await page.getByRole("link", { name: "Ny anteckning" }).click();
   await expect(page.getByLabel("Typ av anteckning")).toHaveValue("PHONE_CALL");
   await expect(page.getByLabel("Datum för händelsen")).toHaveValue(
     "2026-08-12",
@@ -632,6 +633,7 @@ test("Browser Back and Forward protect unsaved Journal work without trapping cle
   await logIn(page, authorEmail, "192.0.2.230");
   await page.goto(`/klienter/${client.id}`);
   await page.getByRole("link", { name: "Anteckningar" }).click();
+  await expect(page).toHaveURL(journalUrl);
   await page.getByRole("link", { name: "Ny anteckning" }).click();
   await expect(page).toHaveURL(editorUrl);
 
@@ -893,6 +895,10 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
   ).toHaveCount(0);
   await expect(
     administratorPage.getByRole("link", { name: "Öppna utkast" }),
+  ).toHaveCount(0);
+  await administratorPage.goto(`/klienter/${signedClient.id}`);
+  await expect(
+    administratorPage.getByRole("link", { name: "Ny anteckning" }),
   ).toHaveCount(0);
   await administratorPage.goto(
     `/klienter/${signedClient.id}/anteckningar/${signedOriginal.id}`,

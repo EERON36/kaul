@@ -191,7 +191,7 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
 }) => {
   await logIn(page, administratorEmail, administratorPassword);
   await expect(page).toHaveURL(`${testEnvironment.origin}/`);
-  await page.getByRole("link", { name: "Personal" }).click();
+  await page.getByRole("link", { name: "Personal", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Personal", exact: true }),
   ).toBeVisible();
@@ -230,9 +230,9 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
     .fill(staffReplacementPassword);
   await staffPage.getByRole("button", { name: "Spara nytt lösenord" }).click();
   await expect(staffPage).toHaveURL(`${testEnvironment.origin}/`);
-  await expect(staffPage.getByRole("link", { name: "Personal" })).toHaveCount(
-    0,
-  );
+  await expect(
+    staffPage.getByRole("link", { name: "Personal", exact: true }),
+  ).toHaveCount(0);
   await staffPage.goto("/personal");
   await expect(staffPage).toHaveURL(/\/personal$/);
   await expect(
@@ -306,9 +306,9 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
   await expect(staffPage).toHaveURL(`${testEnvironment.origin}/`);
   await expect(staffPage.getByRole("link", { name: "Hem" })).toBeVisible();
   await expect(staffPage.getByRole("link", { name: "Klienter" })).toBeVisible();
-  await expect(staffPage.getByRole("link", { name: "Personal" })).toHaveCount(
-    0,
-  );
+  await expect(
+    staffPage.getByRole("link", { name: "Personal", exact: true }),
+  ).toHaveCount(0);
   await staffContext.close();
 
   const staff = await prisma.user.findUniqueOrThrow({
@@ -361,7 +361,7 @@ test("Personal remains usable on a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await logIn(page, administratorEmail, administratorPassword);
   await page.getByRole("button", { name: "Öppna meny" }).click();
-  await page.getByRole("link", { name: "Personal" }).click();
+  await page.getByRole("link", { name: "Personal", exact: true }).click();
 
   await expect(
     page.getByRole("heading", { name: "Personal", exact: true }),

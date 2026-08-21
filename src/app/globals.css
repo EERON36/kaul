@@ -395,6 +395,27 @@ h2 {
   border: 1px solid var(--border);
 }
 
+.orientation-steps {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.orientation-steps li {
+  padding-left: 0.25rem;
+}
+
+.orientation-steps a {
+  font-weight: 600;
+}
+
+.orientation-steps span {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--text-muted);
+}
+
 .client-search-form {
   display: grid;
   gap: 0.75rem;
@@ -485,6 +506,17 @@ h2 {
   margin: 0;
 }
 
+.client-inactive-guidance {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: var(--notice-background);
+  border: 1px solid var(--notice-border);
+}
+
+.client-inactive-guidance p:last-child {
+  margin-bottom: 0;
+}
+
 .responsibility-summary > div {
   padding: 1rem;
   border: 1px solid var(--border);
@@ -542,6 +574,10 @@ h2 {
   align-items: center;
   justify-content: center;
   text-decoration: none;
+}
+
+.client-create-result-link {
+  margin-bottom: 1rem;
 }
 
 .journal-own-draft p:last-of-type {
@@ -963,7 +999,9 @@ h2 {
   .journal-review-actions form,
   .journal-review-actions .primary-button,
   .journal-review-actions .button-link,
-  .journal-correction-action .secondary-button {
+  .journal-correction-action .secondary-button,
+  .client-overview-action .button-link,
+  .client-create-result-link {
     width: 100%;
   }
 
