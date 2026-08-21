@@ -39,17 +39,28 @@ let fixtures: Fixtures;
 async function cleanupOrganisations(organisationIds: readonly string[]) {
   if (organisationIds.length === 0) return;
   await prisma.$transaction(async (transaction) => {
-    await transaction.$executeRawUnsafe(
-      'ALTER TABLE "journalEntry" DISABLE TRIGGER USER',
-    );
+    const protectedTables = ["journalGoalReference", "journalEntry", "goal"];
+    for (const table of protectedTables) {
+      await transaction.$executeRawUnsafe(
+        `ALTER TABLE "${table}" DISABLE TRIGGER USER`,
+      );
+    }
     try {
+      await transaction.journalGoalReference.deleteMany({
+        where: { organisationId: { in: [...organisationIds] } },
+      });
       await transaction.journalEntry.deleteMany({
         where: { organisationId: { in: [...organisationIds] } },
       });
+      await transaction.goal.deleteMany({
+        where: { organisationId: { in: [...organisationIds] } },
+      });
     } finally {
-      await transaction.$executeRawUnsafe(
-        'ALTER TABLE "journalEntry" ENABLE TRIGGER USER',
-      );
+      for (const table of [...protectedTables].reverse()) {
+        await transaction.$executeRawUnsafe(
+          `ALTER TABLE "${table}" ENABLE TRIGGER USER`,
+        );
+      }
     }
     await transaction.assignment.deleteMany({
       where: { organisationId: { in: [...organisationIds] } },
@@ -136,6 +147,7 @@ async function createFixtures() {
       "NAVIGERING",
       "HISTORIK",
       "MOBILNAVIGERING",
+      "SPARFORSENING",
     ].map((label) =>
       prisma.client.create({
         data: {
@@ -172,7 +184,24 @@ async function createFixtures() {
       ],
     });
   }
-  return { organisationId, administrator, author, peer, clients };
+  const pendingSaveGoal = await prisma.goal.create({
+    data: {
+      id: randomUUID(),
+      organisationId,
+      clientId: clients[8].id,
+      title: "Fiktivt mål för sparförsening",
+      startDate: new Date("2026-08-01T00:00:00.000Z"),
+      createdByUserId: author.id,
+    },
+  });
+  return {
+    organisationId,
+    administrator,
+    author,
+    peer,
+    clients,
+    pendingSaveGoal,
+  };
 }
 
 async function logIn(page: Page, email: string, ipAddress: string) {
@@ -454,6 +483,139 @@ test("Unsaved Journal work protects internal navigation without trapping a saved
   );
   expect(postSaveDialogs).toEqual([]);
   page.off("dialog", collectPostSaveDialog);
+});
+
+test("A delayed Journal save blocks newer edits until its response establishes a clean baseline", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const client = fixtures.clients[8];
+  const contentA = "Fiktivt innehåll A som ska sparas.";
+  const contentB = "Fiktivt innehåll B som skrivs efter sparningen.";
+
+  await logIn(page, authorEmail, "192.0.2.232");
+  await openNewDraft(page, client.id);
+
+  const editorForm = page.locator("form").filter({
+    has: page.getByLabel("Typ av anteckning"),
+  });
+  const entryType = page.getByLabel("Typ av anteckning");
+  const eventDate = page.getByLabel("Datum för händelsen");
+  const eventTime = page.getByLabel("Tid för händelsen");
+  const content = page.getByLabel("Anteckning", { exact: true });
+  const goal = page.getByRole("checkbox", {
+    name: new RegExp(fixtures.pendingSaveGoal.title),
+  });
+  const save = editorForm.locator('button[name="submitIntent"][value="save"]');
+  const review = editorForm.locator(
+    'button[name="submitIntent"][value="review"]',
+  );
+  const discard = page.getByRole("button", { name: "Kasta utkast" });
+
+  await entryType.selectOption("CONVERSATION");
+  await eventDate.fill("2026-08-20");
+  await eventTime.fill("22:01");
+  await content.fill(contentA);
+  await goal.check();
+
+  let releaseSaveResponse: (() => void) | undefined;
+  const saveResponseGate = new Promise<void>((resolve) => {
+    releaseSaveResponse = resolve;
+  });
+  let heldSaveResponses = 0;
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    if (
+      request.method() !== "POST" ||
+      request.headers()["next-action"] === undefined
+    ) {
+      await route.continue();
+      return;
+    }
+
+    const response = await route.fetch();
+    heldSaveResponses += 1;
+    await saveResponseGate;
+    await route.fulfill({ response });
+  });
+
+  try {
+    await save.click();
+    await expect.poll(() => heldSaveResponses).toBe(1);
+
+    await expect(editorForm).toHaveAttribute("aria-busy", "true");
+    await expect(
+      page.getByRole("status").filter({
+        hasText:
+          "Utkastet sparas. Vänta tills det är klart innan du fortsätter redigera.",
+      }),
+    ).toBeVisible();
+    await expect(entryType).toBeDisabled();
+    await expect(eventDate).toBeDisabled();
+    await expect(eventTime).toBeDisabled();
+    await expect(content).toBeDisabled();
+    await expect(goal).toBeDisabled();
+    await expect(save).toBeDisabled();
+    await expect(review).toBeDisabled();
+    await expect(discard).toBeDisabled();
+
+    let contentEditWasBlocked = false;
+    try {
+      await content.fill(contentB, { timeout: 500 });
+    } catch {
+      contentEditWasBlocked = true;
+    }
+    expect(contentEditWasBlocked).toBe(true);
+
+    let goalEditWasBlocked = false;
+    try {
+      await goal.uncheck({ timeout: 500 });
+    } catch {
+      goalEditWasBlocked = true;
+    }
+    expect(goalEditWasBlocked).toBe(true);
+    await expect(content).toHaveValue(contentA);
+    await expect(goal).toBeChecked();
+  } finally {
+    releaseSaveResponse?.();
+  }
+
+  await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
+  await page.unroute("**/*");
+  await expect(editorForm).toHaveAttribute("aria-busy", "false");
+  await expect(entryType).toBeEnabled();
+  await expect(eventDate).toBeEnabled();
+  await expect(eventTime).toBeEnabled();
+  await expect(content).toBeEnabled();
+  await expect(goal).toBeEnabled();
+  await expect(save).toBeEnabled();
+  await expect(review).toBeEnabled();
+  await expect(discard).toBeEnabled();
+
+  const postSaveDialogs: string[] = [];
+  const collectPostSaveDialog = async (dialog: Dialog) => {
+    postSaveDialogs.push(dialog.message());
+    await dialog.accept();
+  };
+  page.on("dialog", collectPostSaveDialog);
+  await page.getByRole("link", { name: "Mål", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}/mal`,
+  );
+  expect(postSaveDialogs).toEqual([]);
+  page.off("dialog", collectPostSaveDialog);
+
+  await page.goto(`/klienter/${client.id}/anteckningar`);
+  await page.getByRole("link", { name: "Öppna utkast" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Ny anteckning" }),
+  ).toBeVisible();
+  await expect(content).toHaveValue(contentA);
+  await expect(goal).toBeChecked();
+  await content.fill(contentB);
+  await expect(content).toHaveValue(contentB);
+  await save.click();
+  await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
 });
 
 test("Browser Back and Forward protect unsaved Journal work without trapping clean history", async ({

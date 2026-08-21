@@ -82,11 +82,13 @@ export function JournalDraftForm({
 
   const fieldErrors = state.fieldErrors ?? {};
   const disabled = saving || discarding;
+  const statusIsInformational = saving || state.status === "SUCCESS";
 
   return (
     <div className="journal-editor">
       <form
         action={saveAction}
+        aria-busy={saving}
         onChange={(event) => {
           const dirty = !areJournalFormValuesEqual(
             savedValuesRef.current,
@@ -116,6 +118,7 @@ export function JournalDraftForm({
             }
             aria-invalid={fieldErrors.entryType ? true : undefined}
             defaultValue={state.values.entryType}
+            disabled={disabled}
             id="journal-entry-type"
             name="entryType"
             required
@@ -148,6 +151,7 @@ export function JournalDraftForm({
               }
               aria-invalid={fieldErrors.eventDate ? true : undefined}
               defaultValue={state.values.eventDate}
+              disabled={disabled}
               id="journal-event-date"
               name="eventDate"
               required
@@ -169,6 +173,7 @@ export function JournalDraftForm({
               }
               aria-invalid={fieldErrors.eventTime ? true : undefined}
               defaultValue={state.values.eventTime}
+              disabled={disabled}
               id="journal-event-time"
               name="eventTime"
               required
@@ -190,6 +195,7 @@ export function JournalDraftForm({
             }
             aria-invalid={fieldErrors.content ? true : undefined}
             defaultValue={state.values.content}
+            disabled={disabled}
             id="journal-content"
             maxLength={JOURNAL_CONTENT_MAX_LENGTH}
             name="content"
@@ -222,6 +228,7 @@ export function JournalDraftForm({
                         : "journal-goals-help"
                     }
                     defaultChecked={state.values.goalIds.includes(goal.id)}
+                    disabled={disabled}
                     key={`${goal.id}-${state.version ?? "new"}-${state.status}`}
                     name="goalIds"
                     type="checkbox"
@@ -265,11 +272,14 @@ export function JournalDraftForm({
 
         <div
           aria-live="polite"
-          className={state.status === "SUCCESS" ? "form-status" : "form-error"}
-          role={state.status === "SUCCESS" ? "status" : "alert"}
+          className={statusIsInformational ? "form-status" : "form-error"}
+          role={statusIsInformational ? "status" : "alert"}
         >
-          {state.message}
-          {state.status === "STALE" || state.status === "PARTIAL" ? (
+          {saving
+            ? "Utkastet sparas. Vänta tills det är klart innan du fortsätter redigera."
+            : state.message}
+          {!saving &&
+          (state.status === "STALE" || state.status === "PARTIAL") ? (
             <span className="status-action">
               <a href={`/klienter/${clientId}/anteckningar/utkast`}>
                 Ladda om utkastet
