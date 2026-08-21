@@ -883,13 +883,16 @@ The default should be the smallest secure deployment that satisfies current need
 
 ## Current Status
 
-The deployment strategy is approved for development planning. **Pilot
-Readiness** is the current project focus, but it is not complete and no pilot
-deployment is approved yet. The immediate work is to make deployment to a
-separate pilot environment repeatable, establish HTTPS and isolated secrets and
-data, verify backup and restore, define safe Administrator setup and basic
-operations, and support a short user trial using fictional or sanitised data.
+The deployment strategy is approved for development planning. The repository
+now contains the first **Pilot Readiness** deployment foundation: a release
+Dockerfile, separate Caddy/Kaul/PostgreSQL Compose topology, secret-free Pilot
+environment contract, digest-only manual update flow, one-shot migrations, and
+guarded PostgreSQL backup/restore tooling. The exact operator commands and
+remaining gates are in `deploy/pilot/README.md`.
 
-Exact Docker, Caddy, backup, domain, and hosting commands will be added during their relevant milestones.
+Pilot Readiness is not complete and no pilot deployment is approved yet. Live
+VM, HTTPS, network, encrypted off-host backup, restore, monitoring, incident,
+and user-workflow evidence must still be obtained with fictional or sanitised
+data before a controlled Pilot begins.
 
 Production hosting has not yet been selected or approved.

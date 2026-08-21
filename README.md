@@ -107,6 +107,13 @@ npm run test:e2e
 Use `npm run db:status` to inspect migration status. Prisma migrations are
 committed to Git and applied shared migrations must not be rewritten.
 
+## Pilot deployment foundation
+
+The repository contains a separate production-like Pilot stack with Caddy,
+Kaul, and PostgreSQL, plus manual release, migration, backup, restore, and
+update tooling. It does not deploy anything or approve real data. Start with
+the [Pilot operator runbook](deploy/pilot/README.md).
+
 ## Authoritative documentation
 
 - [Project scope and milestones](docs/PROJECT_SPEC.md) and

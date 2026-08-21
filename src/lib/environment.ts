@@ -17,6 +17,19 @@ const betterAuthUrlSchema = z
     return protocol === "http:" || protocol === "https:";
   }, "BETTER_AUTH_URL must use the HTTP or HTTPS protocol.");
 
+function isLoopbackHostname(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname.startsWith("127.") ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
+function databaseName(databaseUrl: string): string {
+  return decodeURIComponent(new URL(databaseUrl).pathname.replace(/^\//, ""));
+}
+
 export const environmentSchema = z
   .object({
     DATABASE_URL: databaseUrlSchema,
@@ -38,6 +51,29 @@ export const environmentSchema = z
           "BETTER_AUTH_URL must use HTTPS outside development and tests.",
         path: ["BETTER_AUTH_URL"],
       });
+    }
+
+    if (environment.DEPLOYMENT_ENV === "pilot") {
+      if (isLoopbackHostname(new URL(environment.DATABASE_URL).hostname)) {
+        context.addIssue({
+          code: "custom",
+          message: "Pilot DATABASE_URL must not use a loopback host.",
+          path: ["DATABASE_URL"],
+        });
+      }
+
+      if (
+        ["kaul", "postgres", "template0", "template1"].includes(
+          databaseName(environment.DATABASE_URL),
+        )
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Pilot DATABASE_URL must use a separate non-development database.",
+          path: ["DATABASE_URL"],
+        });
+      }
     }
   });
 
