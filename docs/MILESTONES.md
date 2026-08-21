@@ -863,8 +863,22 @@ Milestone 6 is complete when:
 
 # Milestone 7 — Pilot Readiness
 
-Status: In progress. The repository-side deployment foundation is implemented;
-live infrastructure and Pilot gate evidence remain outstanding.
+Status: In progress.
+
+The integrated release candidate contains the repository-approved Pilot
+deployment foundation and the approved product-hardening chain: form safety,
+the Swedish non-disclosing not-found page, accessibility hardening, and
+Administrator and Client orientation.
+
+The dependency audit gate remains open and blocking:
+`prisma@7.9.1 -> @prisma/config@7.9.1 -> deepmerge-ts@7.1.5` is affected by
+`GHSA-ggr8-5vv4-36mx`. The candidate must not be merged, tagged, published, or
+described as release-ready or Pilot-ready while this gate remains red.
+
+Live GHCR image verification, a disposable Linux VM, DNS and HTTPS/ACME,
+encrypted off-host backup and restore, monitoring, operational ownership, and
+critical user-workflow acceptance remain outstanding. Real or sensitive data
+is not approved.
 
 ## Goal
 
