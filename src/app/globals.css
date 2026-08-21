@@ -9,7 +9,8 @@
   --text: #18242c;
   --text-muted: #52616b;
   --border: #bcc5ca;
-  --focus: #f0b429;
+  --focus: #005a9c;
+  --focus-inner: #ffffff;
   --notice-background: #fff4cf;
   --notice-border: #9a6b00;
 }
@@ -51,6 +52,7 @@ textarea:focus-visible,
 main:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
+  box-shadow: 0 0 0 2px var(--focus-inner);
 }
 
 .skip-link {

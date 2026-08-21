@@ -284,7 +284,9 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await page.goto(`/klienter/${client.id}`);
   await page
     .locator("li", { hasText: "Fiktiv Primär" })
-    .getByRole("button", { name: "Avsluta tilldelning" })
+    .getByRole("button", {
+      name: "Avsluta primär tilldelning för Fiktiv Primär",
+    })
     .click();
   await expect(page.getByText("Tilldelningen har avslutats.")).toBeVisible();
   await expect(page.getByText("Ej aktiv", { exact: true })).toBeVisible();
@@ -751,7 +753,9 @@ test("Administrator archives only after ending all Assignments while Staff remai
     page.once("dialog", (dialog) => dialog.accept());
     await page
       .locator("li", { hasText: staffName })
-      .getByRole("button", { name: "Avsluta tilldelning" })
+      .getByRole("button", {
+        name: `Avsluta ${staffName === "Fiktiv Primär" ? "primär" : "sekundär"} tilldelning för ${staffName}`,
+      })
       .click();
     await expect(
       page.locator("li", { hasText: staffName }).getByText("Avslutad"),

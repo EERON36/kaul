@@ -32,6 +32,8 @@ function StaffStatusControl({
     action,
     initialStatusState,
   );
+  const actionLabel = member.active ? "Inaktivera" : "Återaktivera";
+  const accessibleActionLabel = `${actionLabel} ${member.name}`;
 
   function confirmDeactivation(event: FormEvent<HTMLFormElement>) {
     if (
@@ -49,13 +51,16 @@ function StaffStatusControl({
       <input name="operationId" type="hidden" value={member.operationId} />
       <input name="targetUserId" type="hidden" value={member.id} />
       <button
+        aria-label={
+          isPending ? `${actionLabel}r ${member.name}…` : accessibleActionLabel
+        }
         className={
           member.active ? "secondary-button danger-button" : "secondary-button"
         }
         disabled={isPending}
         type="submit"
       >
-        {isPending ? "Sparar…" : member.active ? "Inaktivera" : "Återaktivera"}
+        {isPending ? "Sparar…" : actionLabel}
       </button>
       <p
         aria-live="polite"
@@ -80,6 +85,7 @@ function StaffPasswordResetControl({
     resetStaffPasswordAction,
     initialState,
   );
+  const accessibleActionLabel = `Återställ lösenord för ${member.name}`;
 
   function confirmReset(event: FormEvent<HTMLFormElement>) {
     if (
@@ -98,6 +104,11 @@ function StaffPasswordResetControl({
           <input name="operationId" type="hidden" value={state.operationId} />
           <input name="targetUserId" type="hidden" value={member.id} />
           <button
+            aria-label={
+              isPending
+                ? `Återställer lösenord för ${member.name}…`
+                : accessibleActionLabel
+            }
             className="secondary-button"
             disabled={isPending}
             type="submit"
