@@ -166,6 +166,14 @@ export function ClientList({
             >
               {state.message}
             </p>
+            {state.status === "SUCCESS" && state.clientId ? (
+              <Link
+                className="primary-button button-link client-create-result-link"
+                href={`/klienter/${state.clientId}`}
+              >
+                Öppna klienten och lägg till tilldelning
+              </Link>
+            ) : null}
           </form>
         </section>
       ) : null}

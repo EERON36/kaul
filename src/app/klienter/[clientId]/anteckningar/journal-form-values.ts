@@ -17,6 +17,20 @@ export type JournalFormFieldErrors = Partial<
 
 export type JournalEntryTypeValue = (typeof JOURNAL_ENTRY_TYPE_VALUES)[number];
 
+export function areJournalFormValuesEqual(
+  first: JournalFormValues,
+  second: JournalFormValues,
+) {
+  return (
+    first.entryType === second.entryType &&
+    first.eventDate === second.eventDate &&
+    first.eventTime === second.eventTime &&
+    first.content === second.content &&
+    [...first.goalIds].sort().join("\u0000") ===
+      [...second.goalIds].sort().join("\u0000")
+  );
+}
+
 const stockholmDateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Stockholm",
   year: "numeric",

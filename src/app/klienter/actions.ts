@@ -19,6 +19,7 @@ export type ClientActionState = Readonly<{
   status: "IDLE" | "ERROR" | "SUCCESS";
   operationId: string;
   message?: string;
+  clientId?: string;
 }>;
 
 export type ClientSearchActionState = Readonly<{
@@ -59,7 +60,7 @@ export async function createClientAction(
 ): Promise<ClientActionState> {
   const operationId = String(formData.get("operationId") ?? "");
   try {
-    await createClient({
+    const created = await createClient({
       operationId,
       firstName: String(formData.get("firstName") ?? ""),
       lastName: String(formData.get("lastName") ?? ""),
@@ -71,7 +72,9 @@ export async function createClientAction(
     return {
       status: "SUCCESS",
       operationId: generateAuditOperationId(),
-      message: "Klienten har skapats.",
+      message:
+        "Klienten har skapats. Lägg till en primär tilldelning för att aktivera klienten.",
+      clientId: created.id,
     };
   } catch (error) {
     const message = getClientManagementFeedback(error);

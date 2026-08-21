@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useId, useRef, useState } from "react";
 
 import type {
@@ -9,6 +8,7 @@ import type {
 } from "@/modules/users/application-shell";
 
 import { LogoutButton } from "./authentication/logout-button";
+import { NavigationGuardLink as Link } from "./navigation-guard";
 
 type MobileNavigationProps = Readonly<{
   context: ApplicationShellContext;
@@ -62,7 +62,7 @@ export function MobileNavigation({
               className="navigation-link"
               href={item.href}
               key={item.href}
-              onClick={() => setIsOpen(false)}
+              onNavigate={() => setIsOpen(false)}
             >
               {item.label}
             </Link>

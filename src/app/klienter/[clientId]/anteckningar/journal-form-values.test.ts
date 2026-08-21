@@ -1,10 +1,49 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  areJournalFormValuesEqual,
   formatJournalFormDateTime,
   parseStockholmEventDateTime,
   readJournalFormValues,
 } from "./journal-form-values";
+
+describe("Journal unsaved-change comparison", () => {
+  const savedValues = {
+    entryType: "CONVERSATION",
+    eventDate: "2026-08-12",
+    eventTime: "08:15",
+    content: "Fiktiv anteckning.",
+    goalIds: [
+      "123e4567-e89b-42d3-a456-426614174010",
+      "123e4567-e89b-42d3-a456-426614174011",
+    ],
+  };
+
+  it("treats unchanged values and reordered Goal selections as clean", () => {
+    expect(areJournalFormValuesEqual(savedValues, savedValues)).toBe(true);
+    expect(
+      areJournalFormValuesEqual(savedValues, {
+        ...savedValues,
+        goalIds: [...savedValues.goalIds].reverse(),
+      }),
+    ).toBe(true);
+  });
+
+  it("treats changed Journal content or Goal selections as dirty", () => {
+    expect(
+      areJournalFormValuesEqual(savedValues, {
+        ...savedValues,
+        content: "Ändrad fiktiv anteckning.",
+      }),
+    ).toBe(false);
+    expect(
+      areJournalFormValuesEqual(savedValues, {
+        ...savedValues,
+        goalIds: savedValues.goalIds.slice(0, 1),
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("Journal event time form boundary", () => {
   it("resolves Swedish summer and winter wall times to unambiguous instants", () => {
