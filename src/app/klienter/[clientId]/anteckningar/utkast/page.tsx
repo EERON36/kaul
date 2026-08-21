@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { ApplicationShell } from "@/components/application-shell";
+import { NavigationGuardProvider } from "@/components/navigation-guard";
 import {
   getCurrentJournalDraft,
   listAvailableJournalGoals,
@@ -52,31 +53,33 @@ export default async function JournalDraftPage({
   };
 
   return (
-    <ApplicationShell currentPath="/klienter" user={result.user}>
-      <div className="page-content">
-        <ClientWorkspaceHeader
-          client={result.client}
-          currentSection="journal"
-        />
-        <section aria-labelledby="draft-heading" className="client-section">
-          <p className="eyebrow">Utkast</p>
-          <h2 id="draft-heading">
-            {draft?.correctionOf
-              ? `Rättelse av anteckning ${draft.correctionOf.reference}`
-              : "Ny anteckning"}
-          </h2>
-          {draft?.correctionOf ? (
-            <p className="journal-immutability-notice">
-              Originalet är signerat och kan inte ändras.
-            </p>
-          ) : null}
-          <JournalDraftForm
-            clientId={clientId}
-            goals={goals}
-            initialState={initialState}
+    <NavigationGuardProvider confirmationMessage="Du har osparade ändringar i anteckningen. Vill du lämna sidan? Ändringarna försvinner om du inte sparar dem.">
+      <ApplicationShell currentPath="/klienter" user={result.user}>
+        <div className="page-content">
+          <ClientWorkspaceHeader
+            client={result.client}
+            currentSection="journal"
           />
-        </section>
-      </div>
-    </ApplicationShell>
+          <section aria-labelledby="draft-heading" className="client-section">
+            <p className="eyebrow">Utkast</p>
+            <h2 id="draft-heading">
+              {draft?.correctionOf
+                ? `Rättelse av anteckning ${draft.correctionOf.reference}`
+                : "Ny anteckning"}
+            </h2>
+            {draft?.correctionOf ? (
+              <p className="journal-immutability-notice">
+                Originalet är signerat och kan inte ändras.
+              </p>
+            ) : null}
+            <JournalDraftForm
+              clientId={clientId}
+              goals={goals}
+              initialState={initialState}
+            />
+          </section>
+        </div>
+      </ApplicationShell>
+    </NavigationGuardProvider>
   );
 }

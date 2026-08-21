@@ -1,7 +1,7 @@
-import Link from "next/link";
-
 import { getClientCategoryLabel } from "@/modules/clients/client-category";
 import { getClientStatusLabel } from "@/modules/clients/client-presentation";
+
+import { NavigationGuardLink as Link } from "@/components/navigation-guard";
 
 type ClientWorkspaceClient = Readonly<{
   id: string;

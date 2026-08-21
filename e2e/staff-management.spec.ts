@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import { PrismaClient, UserRole } from "../src/generated/prisma/client";
@@ -22,6 +22,95 @@ const staffReplacementPassword = "Fictional staff replacement password 2031";
 const staffFinalPassword = "Fictional staff final password after reset 2031";
 const fixtureEmails = [administratorEmail, staffEmail];
 const rateLimitKeys = new Set<string>();
+
+type Rgb = readonly [number, number, number];
+
+function parseRgb(value: string): Rgb {
+  const match = value.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+
+  if (!match) {
+    throw new Error(`Expected an RGB colour, received ${value}`);
+  }
+
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function contrastRatio(first: Rgb, second: Rgb): number {
+  const luminance = ([red, green, blue]: Rgb) => {
+    const channels = [red, green, blue].map((channel) => {
+      const value = channel / 255;
+
+      return value <= 0.04045
+        ? value / 12.92
+        : ((value + 0.055) / 1.055) ** 2.4;
+    });
+
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  };
+
+  const firstLuminance = luminance(first);
+  const secondLuminance = luminance(second);
+
+  return (
+    (Math.max(firstLuminance, secondLuminance) + 0.05) /
+    (Math.min(firstLuminance, secondLuminance) + 0.05)
+  );
+}
+
+async function tabTo(page: Page, target: Locator, maximumTabs = 30) {
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
+
+  for (let step = 0; step < maximumTabs; step += 1) {
+    await page.keyboard.press("Tab");
+    if (
+      await target.evaluate((element) => element === document.activeElement)
+    ) {
+      return;
+    }
+  }
+
+  throw new Error(
+    "The expected control was not reached by keyboard navigation.",
+  );
+}
+
+async function expectVisibleFocusWithContrast(
+  target: Locator,
+  surface: "LIGHT" | "DARK",
+) {
+  await expect(target).toBeFocused();
+  const style = await target.evaluate((element) => {
+    const computed = getComputedStyle(element);
+    const sidebar = element.closest(".sidebar");
+
+    return {
+      boxShadow: computed.boxShadow,
+      outlineColor: computed.outlineColor,
+      outlineOffset: computed.outlineOffset,
+      outlineStyle: computed.outlineStyle,
+      outlineWidth: computed.outlineWidth,
+      surfaceColor:
+        sidebar === null
+          ? computed.backgroundColor
+          : getComputedStyle(sidebar).backgroundColor,
+    };
+  });
+
+  expect(style.outlineStyle).toBe("solid");
+  expect(Number.parseFloat(style.outlineWidth)).toBeGreaterThanOrEqual(3);
+  expect(Number.parseFloat(style.outlineOffset)).toBeGreaterThanOrEqual(3);
+
+  const focusColor =
+    surface === "LIGHT"
+      ? parseRgb(style.outlineColor)
+      : parseRgb(style.boxShadow);
+
+  expect(
+    contrastRatio(focusColor, parseRgb(style.surfaceColor)),
+  ).toBeGreaterThanOrEqual(3);
+}
 
 async function cleanupFixtures(): Promise<void> {
   const users = await prisma.user.findMany({
@@ -102,7 +191,7 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
 }) => {
   await logIn(page, administratorEmail, administratorPassword);
   await expect(page).toHaveURL(`${testEnvironment.origin}/`);
-  await page.getByRole("link", { name: "Personal" }).click();
+  await page.getByRole("link", { name: "Personal", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Personal", exact: true }),
   ).toBeVisible();
@@ -119,6 +208,11 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
   const temporaryCredential = credentialText ?? "";
   await expect(page.getByText("Fiktiv Medarbetare")).toBeVisible();
   await expect(page.getByText(/Status:\s*Aktiv/)).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Inaktivera Fiktiv Medarbetare",
+    }),
+  ).toHaveCount(1);
 
   await page.reload();
   await expect(page.locator(".credential-result code")).toHaveCount(0);
@@ -136,18 +230,20 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
     .fill(staffReplacementPassword);
   await staffPage.getByRole("button", { name: "Spara nytt lösenord" }).click();
   await expect(staffPage).toHaveURL(`${testEnvironment.origin}/`);
-  await expect(staffPage.getByRole("link", { name: "Personal" })).toHaveCount(
-    0,
-  );
+  await expect(
+    staffPage.getByRole("link", { name: "Personal", exact: true }),
+  ).toHaveCount(0);
   await staffPage.goto("/personal");
   await expect(staffPage).toHaveURL(/\/personal$/);
   await expect(
-    staffPage.getByText("This page could not be found"),
+    staffPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
 
   page.on("dialog", (dialog) => dialog.accept());
   await page.goto("/personal");
-  await page.getByRole("button", { name: "Inaktivera" }).click();
+  await page
+    .getByRole("button", { name: "Inaktivera Fiktiv Medarbetare" })
+    .click();
   await expect(page.getByText("Medarbetaren har inaktiverats.")).toBeVisible();
   await expect(page.getByText(/Status:\s*Inaktiv/)).toBeVisible();
   expect(
@@ -164,7 +260,9 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
     staffPage.getByText(/Det gick inte att logga in\. Kontrollera uppgifterna/),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Återaktivera" }).click();
+  await page
+    .getByRole("button", { name: "Återaktivera Fiktiv Medarbetare" })
+    .click();
   await expect(
     page.getByText("Medarbetaren har återaktiverats."),
   ).toBeVisible();
@@ -172,7 +270,9 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
   await logIn(staffPage, staffEmail, staffReplacementPassword);
   await expect(staffPage).toHaveURL(`${testEnvironment.origin}/`);
 
-  await page.getByRole("button", { name: "Återställ lösenord" }).click();
+  await page
+    .getByRole("button", { name: "Återställ lösenord för Fiktiv Medarbetare" })
+    .click();
   await expect(page.getByText("Lösenordet har återställts.")).toBeVisible();
   await expect(
     page.getByText(
@@ -206,9 +306,9 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
   await expect(staffPage).toHaveURL(`${testEnvironment.origin}/`);
   await expect(staffPage.getByRole("link", { name: "Hem" })).toBeVisible();
   await expect(staffPage.getByRole("link", { name: "Klienter" })).toBeVisible();
-  await expect(staffPage.getByRole("link", { name: "Personal" })).toHaveCount(
-    0,
-  );
+  await expect(
+    staffPage.getByRole("link", { name: "Personal", exact: true }),
+  ).toHaveCount(0);
   await staffContext.close();
 
   const staff = await prisma.user.findUniqueOrThrow({
@@ -225,11 +325,43 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
   });
 });
 
+test("Staff actions have specific names and keyboard focus remains distinct on both surfaces", async ({
+  page,
+}) => {
+  await logIn(page, administratorEmail, administratorPassword);
+  await expect(page).toHaveURL(`${testEnvironment.origin}/`);
+  await page.goto("/personal");
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "200%";
+  });
+
+  await expect(
+    page.getByRole("button", {
+      name: "Inaktivera Fiktiv Medarbetare",
+    }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("button", {
+      name: "Återställ lösenord för Fiktiv Medarbetare",
+    }),
+  ).toHaveCount(1);
+
+  const clientsNavigation = page
+    .locator(".sidebar")
+    .getByRole("link", { name: "Klienter", exact: true });
+  await tabTo(page, clientsNavigation);
+  await expectVisibleFocusWithContrast(clientsNavigation, "DARK");
+
+  const staffName = page.getByLabel("Namn");
+  await tabTo(page, staffName);
+  await expectVisibleFocusWithContrast(staffName, "LIGHT");
+});
+
 test("Personal remains usable on a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await logIn(page, administratorEmail, administratorPassword);
   await page.getByRole("button", { name: "Öppna meny" }).click();
-  await page.getByRole("link", { name: "Personal" }).click();
+  await page.getByRole("link", { name: "Personal", exact: true }).click();
 
   await expect(
     page.getByRole("heading", { name: "Personal", exact: true }),

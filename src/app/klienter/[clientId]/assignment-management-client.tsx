@@ -31,6 +31,9 @@ function EndAssignmentControl({
     operationId: assignment.operationId,
   };
   const [state, action, pending] = useActionState(endAssignmentAction, initial);
+  const responsibilityLabel =
+    assignment.responsibility === "PRIMARY" ? "primär" : "sekundär";
+  const accessibleActionLabel = `Avsluta ${responsibilityLabel} tilldelning för ${assignment.staffUser.name}`;
 
   function confirmEnd(event: FormEvent<HTMLFormElement>) {
     if (!window.confirm("Vill du avsluta den här tilldelningen?")) {
@@ -51,6 +54,11 @@ function EndAssignmentControl({
       <input name="operationId" type="hidden" value={state.operationId} />
       <input name="assignmentId" type="hidden" value={assignment.id} />
       <button
+        aria-label={
+          pending
+            ? `Avslutar ${responsibilityLabel} tilldelning för ${assignment.staffUser.name}…`
+            : accessibleActionLabel
+        }
         className="secondary-button danger-button"
         disabled={pending}
         type="submit"
