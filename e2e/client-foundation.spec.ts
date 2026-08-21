@@ -152,6 +152,29 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
+test("Swedish non-disclosing not-found page handles unknown URLs with keyboard navigation", async ({
+  page,
+}) => {
+  await logIn(page, administratorEmail, "192.0.2.180");
+  const response = await page.goto("/sida-saknas");
+
+  expect(response?.status()).toBe(404);
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Den kan ha tagits bort eller kan inte visas."),
+  ).toBeVisible();
+  await expect(page.getByText("This page could not be found")).toHaveCount(0);
+
+  const overviewLink = page.getByRole("link", { name: "Gå till Översikt" });
+  await page.keyboard.press("Tab");
+  await expect(overviewLink).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(`${testEnvironment.origin}/`);
+  await expect(page.getByRole("heading", { name: "Översikt" })).toBeVisible();
+});
+
 test("Client assignment controls access, revocation, and secondary regain", async ({
   browser,
   page,
@@ -238,10 +261,15 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await logIn(unrelatedPage, unrelatedEmail, "192.0.2.183");
   await unrelatedPage.goto("/klienter");
   await expect(unrelatedPage.getByText("E2E-KLIENT-01")).toHaveCount(0);
-  await unrelatedPage.goto(`/klienter/${client.id}`);
+  const inaccessibleResponse = await unrelatedPage.goto(
+    `/klienter/${client.id}`,
+  );
+  expect(inaccessibleResponse?.status()).toBe(404);
   await expect(
-    unrelatedPage.getByText("This page could not be found"),
+    unrelatedPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
+  await expect(unrelatedPage.getByText("Fiktiv Klientperson")).toHaveCount(0);
+  await expect(unrelatedPage.getByText("E2E-KLIENT-01")).toHaveCount(0);
 
   const secondaryContext = await browser.newContext();
   const secondaryPage = await secondaryContext.newPage();
@@ -264,7 +292,7 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await expect(primaryPage.getByText("E2E-KLIENT-01")).toHaveCount(0);
   await primaryPage.goto(`/klienter/${client.id}`);
   await expect(
-    primaryPage.getByText("This page could not be found"),
+    primaryPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
 
   await secondaryPage.goto("/");
@@ -807,11 +835,11 @@ test("Administrator archives only after ending all Assignments while Staff remai
   ).toHaveCount(0);
   await staffPage.goto(`/klienter/${client.id}`);
   await expect(
-    staffPage.getByText("This page could not be found"),
+    staffPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
   await staffPage.goto("/klienter/arkiverade");
   await expect(
-    staffPage.getByText("This page could not be found"),
+    staffPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
 
   const directMutation = await staffPage.evaluate(async (request) => {

@@ -142,7 +142,7 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
   await staffPage.goto("/personal");
   await expect(staffPage).toHaveURL(/\/personal$/);
   await expect(
-    staffPage.getByText("This page could not be found"),
+    staffPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
 
   page.on("dialog", (dialog) => dialog.accept());

@@ -871,7 +871,7 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
     `/klienter/${signedClient.id}/anteckningar/${signedOriginal.id}`,
   );
   await expect(
-    peerPage.getByText("This page could not be found"),
+    peerPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
 
   await prisma.assignment.updateMany({

@@ -430,8 +430,14 @@ test("Client workspace supports Goal and Follow-up lifecycles with terminal and 
       .locator("time"),
   ).toHaveAttribute("datetime", /.+/);
   await expect(page.getByRole("link", { name: "Redigera" })).toHaveCount(0);
-  await page.goto(`/klienter/${activeClient.id}/mal/${firstGoal.id}/redigera`);
-  await expect(page.getByText("This page could not be found")).toBeVisible();
+  const terminalResponse = await page.goto(
+    `/klienter/${activeClient.id}/mal/${firstGoal.id}/redigera`,
+  );
+  expect(terminalResponse?.status()).toBe(404);
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
+  await expect(page.getByText(firstGoal.title, { exact: true })).toHaveCount(0);
 
   const linkedGoal = await prisma.goal.create({
     data: {
@@ -522,11 +528,15 @@ test("Client workspace supports Goal and Follow-up lifecycles with terminal and 
   await page.goto(
     `/klienter/${activeClient.id}/uppfoljningar/${firstFollowUp.id}/redigera`,
   );
-  await expect(page.getByText("This page could not be found")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
   await page.goto(
     `/klienter/${activeClient.id}/uppfoljningar/${firstFollowUp.id}/ansvarig`,
   );
-  await expect(page.getByText("This page could not be found")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
 
   await page.goto(`/klienter/${activeClient.id}/uppfoljningar/ny`);
   await page.getByLabel("Rubrik").fill("Slutförbar fiktiv uppföljning");
@@ -869,13 +879,19 @@ test("Home shows only own authorised Follow-ups and archived/access-loss views f
   await page.goto(
     `/klienter/${activeClient.id}/uppfoljningar/${retainedResponsibility.id}`,
   );
-  await expect(page.getByText("This page could not be found")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
   await page.goto(
     `/klienter/${activeClient.id}/uppfoljningar/${retainedResponsibility.id}/ansvarig`,
   );
-  await expect(page.getByText("This page could not be found")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
   await page.goto(`/klienter/${activeClient.id}/mal/${accessLossGoal.id}`);
-  await expect(page.getByText("This page could not be found")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
 
   const administratorContext = await browser.newContext();
   const administratorPage = await newSignedInPage(
@@ -918,19 +934,19 @@ test("Home shows only own authorised Follow-ups and archived/access-loss views f
   );
   await unrelatedPage.goto(`/klienter/${fixtures.archivedClient.id}/mal`);
   await expect(
-    unrelatedPage.getByText("This page could not be found"),
+    unrelatedPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
   await unrelatedPage.goto(
     `/klienter/${activeClient.id}/uppfoljningar/${retainedResponsibility.id}`,
   );
   await expect(
-    unrelatedPage.getByText("This page could not be found"),
+    unrelatedPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
   await unrelatedPage.goto(
     `/klienter/${activeClient.id}/uppfoljningar/${retainedResponsibility.id}/ansvarig`,
   );
   await expect(
-    unrelatedPage.getByText("This page could not be found"),
+    unrelatedPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
   await administratorContext.close();
   await unrelatedContext.close();
