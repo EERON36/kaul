@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import { PrismaClient, UserRole } from "../src/generated/prisma/client";
@@ -25,12 +25,88 @@ const fixtureRateLimitKeys = new Set<string>([
 const administratorEmail = "slice4.administrator@example.test";
 const temporaryPassword = "Fictional temporary password 2030";
 const replacementPassword = "Fictional replacement passphrase 2030";
+const nativeFallbackEmail = "slice4.native-fallback@example.test";
+const nativeFallbackCurrentPassword =
+  "Fictional native fallback current password 2030";
+const nativeFallbackNewPassword =
+  "Fictional native fallback replacement password 2030";
 const fixtureEmails = [
   administratorEmail,
+  nativeFallbackEmail,
   "slice4.expired@example.test",
   "slice4.aged-session@example.test",
   "slice4.banned@example.test",
 ];
+
+const credentialFieldNames = [
+  "email",
+  "password",
+  "currentPassword",
+  "newPassword",
+  "confirmPassword",
+] as const;
+
+function expectCredentialFreeUrl(url: string, canaries: readonly string[]) {
+  const parsedUrl = new URL(url);
+  const decodedUrl = decodeURIComponent(parsedUrl.href.replaceAll("+", "%20"));
+
+  expect(parsedUrl.search).toBe("");
+  expect(parsedUrl.hash).toBe("");
+  for (const fieldName of credentialFieldNames) {
+    expect(parsedUrl.searchParams.has(fieldName)).toBe(false);
+  }
+  for (const canary of canaries) {
+    expect(decodedUrl).not.toContain(canary);
+  }
+}
+
+async function blockApplicationScripts(context: BrowserContext) {
+  let blockedScriptCount = 0;
+
+  await context.route("**/*", async (route) => {
+    if (route.request().resourceType() === "script") {
+      blockedScriptCount += 1;
+      await route.abort();
+      return;
+    }
+
+    await route.continue();
+  });
+
+  return () => blockedScriptCount;
+}
+
+async function expectNativePostWithoutCredentialHistory(options: {
+  page: Page;
+  pathname: "/login" | "/byt-losenord";
+  buttonName: string;
+  canaries: readonly string[];
+}) {
+  const { page, pathname, buttonName, canaries } = options;
+  const nativeNavigation = page.waitForRequest(
+    (request) =>
+      request.isNavigationRequest() &&
+      new URL(request.url()).pathname === pathname,
+  );
+
+  await page.getByRole("button", { name: buttonName }).click();
+  const request = await nativeNavigation;
+  expect(new URL(request.url()).origin).toBe(testEnvironment.origin);
+  expect(request.method()).toBe("POST");
+  expectCredentialFreeUrl(request.url(), canaries);
+  await request.response();
+  expectCredentialFreeUrl(page.url(), canaries);
+
+  const session = await page.context().newCDPSession(page);
+  try {
+    const history = await session.send("Page.getNavigationHistory");
+    for (const entry of history.entries) {
+      expectCredentialFreeUrl(entry.url, canaries);
+    }
+  } finally {
+    await session.detach();
+  }
+}
 
 function headersFor(ipAddress: string) {
   fixtureRateLimitKeys.add(`${ipAddress}|/sign-in/email`);
@@ -299,6 +375,120 @@ test("completes login, forced password change, shell access, logout, and new log
   await page.getByLabel("Lösenord").fill(replacementPassword);
   await page.getByRole("button", { name: "Logga in" }).click();
   await expect(page).toHaveURL(`${testEnvironment.origin}/`);
+});
+
+test("login cannot place credentials in URLs when application scripts fail", async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+
+  try {
+    const blockedScriptCount = await blockApplicationScripts(context);
+    const page = await context.newPage();
+    const authenticationRequests: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/auth/sign-in/email") {
+        authenticationRequests.push(request.url());
+      }
+    });
+
+    await page.goto("/login");
+    await page.getByLabel("E-post").fill(nativeFallbackEmail);
+    await page.getByLabel("Lösenord").fill(nativeFallbackCurrentPassword);
+    await expectNativePostWithoutCredentialHistory({
+      page,
+      pathname: "/login",
+      buttonName: "Logga in",
+      canaries: [nativeFallbackEmail, nativeFallbackCurrentPassword],
+    });
+
+    expect(blockedScriptCount()).toBeGreaterThan(0);
+    expect(authenticationRequests).toEqual([]);
+    await expect(page.getByRole("heading", { name: "Logga in" })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
+test("forced password change cannot place passwords in URLs when application scripts fail", async ({
+  browser,
+}) => {
+  const fallbackIpAddress = "192.0.2.126";
+  fixtureRateLimitKeys.add(`${fallbackIpAddress}|/sign-in/email`);
+  const userId = await createFixtureUser({
+    email: nativeFallbackEmail,
+    password: nativeFallbackCurrentPassword,
+    mustChangePassword: true,
+    temporaryCredentialExpiresAt: new Date("2099-01-01T00:00:00Z"),
+  });
+  const setupContext = await browser.newContext({
+    extraHTTPHeaders: { "x-real-ip": fallbackIpAddress },
+  });
+
+  let storageState: Awaited<ReturnType<typeof setupContext.storageState>>;
+  try {
+    const setupPage = await setupContext.newPage();
+    await setupPage.goto("/login");
+    await setupPage.getByLabel("E-post").fill(nativeFallbackEmail);
+    await setupPage.getByLabel("Lösenord").fill(nativeFallbackCurrentPassword);
+    await setupPage.getByRole("button", { name: "Logga in" }).click();
+    await expect(setupPage).toHaveURL(/\/byt-losenord$/);
+    storageState = await setupContext.storageState();
+  } finally {
+    await setupContext.close();
+  }
+
+  const context = await browser.newContext({
+    storageState,
+    extraHTTPHeaders: { "x-real-ip": fallbackIpAddress },
+  });
+  try {
+    const blockedScriptCount = await blockApplicationScripts(context);
+    const page = await context.newPage();
+    const passwordChangeRequests: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/kaul/change-password") {
+        passwordChangeRequests.push(request.url());
+      }
+    });
+
+    await page.goto("/byt-losenord");
+    await expect(page).toHaveURL(/\/byt-losenord$/);
+    await page
+      .getByLabel("Nuvarande lösenord")
+      .fill(nativeFallbackCurrentPassword);
+    await page
+      .getByLabel("Nytt lösenord", { exact: true })
+      .fill(nativeFallbackNewPassword);
+    await page
+      .getByLabel("Bekräfta nytt lösenord")
+      .fill(nativeFallbackNewPassword);
+    await expectNativePostWithoutCredentialHistory({
+      page,
+      pathname: "/byt-losenord",
+      buttonName: "Spara nytt lösenord",
+      canaries: [nativeFallbackCurrentPassword, nativeFallbackNewPassword],
+    });
+
+    expect(blockedScriptCount()).toBeGreaterThan(0);
+    expect(passwordChangeRequests).toEqual([]);
+    await expect(
+      page.getByRole("heading", { name: "Byt lösenord" }),
+    ).toBeVisible();
+    await expect(
+      prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { mustChangePassword: true },
+      }),
+    ).resolves.toEqual({ mustChangePassword: true });
+    await expect(
+      prisma.auditOperation.count({
+        where: { actorUserId: userId, action: "PASSWORD_CHANGED" },
+      }),
+    ).resolves.toBe(0);
+  } finally {
+    await context.close();
+  }
 });
 
 test("denies expired and banned credentials with the same generic response", async ({

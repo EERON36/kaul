@@ -32,7 +32,12 @@ export function LoginForm() {
   }
 
   return (
-    <form aria-describedby="login-help login-error" onSubmit={submit}>
+    <form
+      action="/login"
+      aria-describedby="login-help login-error"
+      method="post"
+      onSubmit={submit}
+    >
       <div className="form-field">
         <label htmlFor="email">E-post</label>
         <input
