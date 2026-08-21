@@ -62,7 +62,7 @@ export function MobileNavigation({
               className="navigation-link"
               href={item.href}
               key={item.href}
-              onClick={() => setIsOpen(false)}
+              onNavigate={() => setIsOpen(false)}
             >
               {item.label}
             </Link>

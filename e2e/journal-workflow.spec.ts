@@ -134,6 +134,8 @@ async function createFixtures() {
       "SKAPARACE",
       "TANGENTBORD",
       "NAVIGERING",
+      "HISTORIK",
+      "MOBILNAVIGERING",
     ].map((label) =>
       prisma.client.create({
         data: {
@@ -452,6 +454,145 @@ test("Unsaved Journal work protects internal navigation without trapping a saved
   );
   expect(postSaveDialogs).toEqual([]);
   page.off("dialog", collectPostSaveDialog);
+});
+
+test("Browser Back and Forward protect unsaved Journal work without trapping clean history", async ({
+  page,
+}) => {
+  const client = fixtures.clients[6];
+  const content = page.getByLabel("Anteckning", { exact: true });
+  const editorUrl = `${testEnvironment.origin}/klienter/${client.id}/anteckningar/utkast`;
+  const journalUrl = `${testEnvironment.origin}/klienter/${client.id}/anteckningar`;
+  const overviewUrl = `${testEnvironment.origin}/klienter/${client.id}`;
+  const warning =
+    "Du har osparade ändringar i anteckningen. Vill du lämna sidan? Ändringarna försvinner om du inte sparar dem.";
+
+  await logIn(page, authorEmail, "192.0.2.230");
+  await page.goto(`/klienter/${client.id}`);
+  await page.getByRole("link", { name: "Anteckningar" }).click();
+  await page.getByRole("link", { name: "Ny anteckning" }).click();
+  await expect(page).toHaveURL(editorUrl);
+
+  const cleanDialogs: string[] = [];
+  const collectCleanDialog = async (dialog: Dialog) => {
+    cleanDialogs.push(dialog.message());
+    await dialog.accept();
+  };
+  page.on("dialog", collectCleanDialog);
+  await page.evaluate(() => window.history.back());
+  await expect(page).toHaveURL(journalUrl);
+  await page.evaluate(() => window.history.forward());
+  await expect(page).toHaveURL(editorUrl);
+  expect(cleanDialogs).toEqual([]);
+  page.off("dialog", collectCleanDialog);
+
+  const backContent =
+    "Fiktiv osparad anteckning som skyddas vid webbläsarens Bakåt.";
+  await content.fill(backContent);
+  let backWarningCount = 0;
+  const handleBackWarning = async (dialog: Dialog) => {
+    backWarningCount += 1;
+    expect(dialog.message()).toBe(warning);
+    if (backWarningCount === 1) await dialog.dismiss();
+    else await dialog.accept();
+  };
+  page.on("dialog", handleBackWarning);
+  await page.evaluate(() => window.history.back());
+  await expect(page).toHaveURL(editorUrl);
+  await expect(content).toHaveValue(backContent);
+  expect(backWarningCount).toBe(1);
+
+  await page.evaluate(() => window.history.back());
+  await expect(page).toHaveURL(journalUrl);
+  expect(backWarningCount).toBe(2);
+  page.off("dialog", handleBackWarning);
+
+  const forwardDialogs: string[] = [];
+  const collectForwardDialog = async (dialog: Dialog) => {
+    forwardDialogs.push(dialog.message());
+    await dialog.accept();
+  };
+  page.on("dialog", collectForwardDialog);
+  await page.evaluate(() => window.history.forward());
+  await expect(page).toHaveURL(editorUrl);
+  expect(forwardDialogs).toEqual([]);
+  page.off("dialog", collectForwardDialog);
+
+  await content.fill("");
+  await page.getByRole("link", { name: "Översikt", exact: true }).click();
+  await expect(page).toHaveURL(overviewUrl);
+  await page.evaluate(() => window.history.back());
+  await expect(page).toHaveURL(editorUrl);
+
+  const forwardContent =
+    "Fiktiv osparad anteckning som skyddas vid webbläsarens Framåt.";
+  await content.fill(forwardContent);
+  let guardedForwardWarningCount = 0;
+  const handleGuardedForwardWarning = async (dialog: Dialog) => {
+    guardedForwardWarningCount += 1;
+    expect(dialog.message()).toBe(warning);
+    if (guardedForwardWarningCount === 1) await dialog.dismiss();
+    else await dialog.accept();
+  };
+  page.on("dialog", handleGuardedForwardWarning);
+  await page.evaluate(() => window.history.forward());
+  await expect(page).toHaveURL(editorUrl);
+  await expect(content).toHaveValue(forwardContent);
+  expect(guardedForwardWarningCount).toBe(1);
+
+  await page.evaluate(() => window.history.forward());
+  await expect(page).toHaveURL(overviewUrl);
+  expect(guardedForwardWarningCount).toBe(2);
+  page.off("dialog", handleGuardedForwardWarning);
+});
+
+test("Cancelled mobile Journal navigation keeps visible focus and confirmed navigation closes the menu", async ({
+  page,
+}) => {
+  const client = fixtures.clients[7];
+  const unsavedContent =
+    "Fiktiv osparad mobilanteckning som ska finnas kvar efter Avbryt.";
+  const warning =
+    "Du har osparade ändringar i anteckningen. Vill du lämna sidan? Ändringarna försvinner om du inte sparar dem.";
+
+  await logIn(page, authorEmail, "192.0.2.231");
+  await page.setViewportSize({ width: 375, height: 812 });
+  await openNewDraft(page, client.id);
+  const content = page.getByLabel("Anteckning", { exact: true });
+  await content.fill(unsavedContent);
+
+  const menuButton = page.locator(".mobile-menu-button");
+  const homeLink = page.getByRole("link", { name: "Hem", exact: true });
+  await menuButton.click();
+  await expect(menuButton).toHaveAttribute("aria-expanded", "true");
+  await homeLink.focus();
+
+  let warningCount = 0;
+  const handleWarning = async (dialog: Dialog) => {
+    warningCount += 1;
+    expect(dialog.message()).toBe(warning);
+    if (warningCount === 1) await dialog.dismiss();
+    else await dialog.accept();
+  };
+  page.on("dialog", handleWarning);
+  await homeLink.press("Enter");
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}/anteckningar/utkast`,
+  );
+  await expect(content).toHaveValue(unsavedContent);
+  await expect(menuButton).toHaveAttribute("aria-expanded", "true");
+  await expect(homeLink).toBeVisible();
+  await expect(homeLink).toBeFocused();
+  expect(warningCount).toBe(1);
+
+  await homeLink.press("Enter");
+  await expect(page).toHaveURL(`${testEnvironment.origin}/`);
+  await expect(page.locator(".mobile-menu-button")).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  expect(warningCount).toBe(2);
+  page.off("dialog", handleWarning);
 });
 
 test("Draft privacy, signed access, access loss, archive, and mobile reflow stay safe", async ({
