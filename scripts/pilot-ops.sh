@@ -65,6 +65,8 @@ Usage:
   scripts/pilot-ops.sh backup --env-file PATH --backup-dir PATH
   scripts/pilot-ops.sh validate-backup --env-file PATH --archive PATH
   scripts/pilot-ops.sh restore --env-file PATH --archive PATH --database kaul_restore_NAME
+  scripts/pilot-ops.sh start-restore-check --env-file PATH --database kaul_restore_NAME
+  scripts/pilot-ops.sh stop-restore-check --env-file PATH
   scripts/pilot-ops.sh migrate --env-file PATH --backup-dir PATH
   scripts/pilot-ops.sh update --env-file PATH --backup-dir PATH
   scripts/pilot-ops.sh start-postgres --env-file PATH
@@ -191,7 +193,7 @@ load_compose_project() {
 
 command_requires_operation_lock() {
   case "$1" in
-    backup|restore|migrate|update|start-postgres|bootstrap-admin|start-stack) return 0 ;;
+    backup|restore|start-restore-check|stop-restore-check|migrate|update|start-postgres|bootstrap-admin|start-stack) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -355,6 +357,33 @@ validate_archive() {
   note "Backup checksum and archive readability passed: $archive"
 }
 
+validate_restore_database_name() {
+  database=$1
+  source_database=$(environment_value KAUL_DB_NAME)
+  [ "${#database}" -le 63 ] || die "Restore database must contain at most 63 characters."
+  case "$database" in
+    kaul_restore_*) ;;
+    *) die "Restore database must start with kaul_restore_." ;;
+  esac
+  restore_suffix=${database#kaul_restore_}
+  [ -n "$restore_suffix" ] || die "Restore database needs a unique suffix."
+  case "$database" in
+    *[!a-z0-9_]*) die "Restore database may contain only lowercase letters, digits, and underscores." ;;
+  esac
+  [ "$database" != "$source_database" ] || die "Restore database must not be the active Pilot database."
+}
+
+database_exists() {
+  database=$1
+  compose exec -T postgres sh -ec 'psql --username="$POSTGRES_USER" --dbname=postgres --tuples-only --no-align --command="SELECT 1 FROM pg_database WHERE datname = '\''$1'\'';"' sh "$database"
+}
+
+restore_database_url() {
+  database=$1
+  source_url=$(environment_value DATABASE_URL)
+  printf '%s\n' "${source_url%/*}/$database"
+}
+
 create_backup() {
   [ -n "$BACKUP_DIRECTORY" ] || die "--backup-dir is required."
   mkdir -p -- "$BACKUP_DIRECTORY"
@@ -398,20 +427,10 @@ run_migrations() {
 restore_backup() {
   [ -n "$ARCHIVE" ] || die "--archive is required."
   [ -n "$RESTORE_DATABASE" ] || die "--database is required."
-  source_database=$(environment_value KAUL_DB_NAME)
-  case "$RESTORE_DATABASE" in
-    kaul_restore_*) ;;
-    *) die "Restore database must start with kaul_restore_." ;;
-  esac
-  restore_suffix=${RESTORE_DATABASE#kaul_restore_}
-  [ -n "$restore_suffix" ] || die "Restore database needs a unique suffix."
-  case "$RESTORE_DATABASE" in
-    *[!a-z0-9_]*) die "Restore database may contain only lowercase letters, digits, and underscores." ;;
-  esac
-  [ "$RESTORE_DATABASE" != "$source_database" ] || die "Restore database must not be the active Pilot database."
+  validate_restore_database_name "$RESTORE_DATABASE"
   validate_archive "$ARCHIVE"
 
-  exists=$(compose exec -T postgres sh -ec 'psql --username="$POSTGRES_USER" --dbname=postgres --tuples-only --no-align --command="SELECT 1 FROM pg_database WHERE datname = '\''$1'\'';"' sh "$RESTORE_DATABASE")
+  exists=$(database_exists "$RESTORE_DATABASE")
   [ -z "$exists" ] || die "Restore destination already exists; refusing to overwrite it."
 
   compose exec -T postgres sh -ec 'createdb --username="$POSTGRES_USER" --owner="$KAUL_DB_USER" --template=template0 "$1"' sh "$RESTORE_DATABASE"
@@ -420,16 +439,17 @@ restore_backup() {
   fi
 
   compose exec -T postgres sh -ec 'psql --username="$KAUL_DB_USER" --dbname="$1" --set=ON_ERROR_STOP=1 --command="SELECT COUNT(*) AS migration_count FROM \"_prisma_migrations\";"' sh "$RESTORE_DATABASE"
-  source_url=$(environment_value DATABASE_URL)
-  restore_url=${source_url%/*}/$RESTORE_DATABASE
+  restore_url=$(restore_database_url "$RESTORE_DATABASE")
   compose_with_database_url "$restore_url" run --rm --no-deps kaul npm run db:status
   note "Restore completed into new database: $RESTORE_DATABASE"
   note "The active Pilot database was not changed. Update a controlled verification environment explicitly before starting Kaul against this restore."
 }
 
 wait_for_application_health() {
-  container_id=$(compose ps -q kaul)
-  [ -n "$container_id" ] || die "Kaul container was not created."
+  service=$1
+  shift
+  container_id=$(compose "$@" ps -q "$service")
+  [ -n "$container_id" ] || die "$service container was not created."
   attempts=0
   while [ "$attempts" -lt 45 ]; do
     status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id")
@@ -441,6 +461,48 @@ wait_for_application_health() {
     sleep 2
   done
   return 1
+}
+
+remove_restore_check_container() {
+  compose --profile restore-check rm --force --stop kaul-restore-check
+}
+
+start_restore_check() {
+  [ -n "$RESTORE_DATABASE" ] || die "--database is required."
+  validate_restore_database_name "$RESTORE_DATABASE"
+  exists=$(database_exists "$RESTORE_DATABASE")
+  [ -n "$exists" ] || die "Restore database does not exist: $RESTORE_DATABASE"
+
+  existing_container=$(compose --profile restore-check ps --all --quiet kaul-restore-check)
+  [ -z "$existing_container" ] || die "A private restore check already exists. Stop it before starting another."
+
+  restore_url=$(restore_database_url "$RESTORE_DATABASE")
+  compose_with_database_url "$restore_url" --profile restore-check config --quiet
+  compose_with_database_url "$restore_url" --profile restore-check run --rm --no-deps kaul-restore-check npm run db:status
+
+  if ! compose_with_database_url "$restore_url" --profile restore-check up -d --no-deps kaul-restore-check; then
+    remove_restore_check_container || true
+    die "Private restore-check startup failed. The live Kaul and Caddy services were not changed."
+  fi
+  if ! wait_for_application_health kaul-restore-check --profile restore-check; then
+    if ! remove_restore_check_container; then
+      die "The private restore check was unhealthy and could not be confirmed removed. The live Kaul and Caddy services were not changed."
+    fi
+    die "The private restore check was unhealthy and was removed. The live Kaul and Caddy services were not changed."
+  fi
+
+  note "Private restore check is healthy against database: $RESTORE_DATABASE"
+  note "It has no public route. Stop it with the protected stop-restore-check command and the same environment file."
+}
+
+stop_restore_check() {
+  existing_container=$(compose --profile restore-check ps --all --quiet kaul-restore-check)
+  if [ -z "$existing_container" ]; then
+    note "No private restore check exists."
+    return
+  fi
+  remove_restore_check_container || die "The private restore-check container could not be removed."
+  note "Private restore-check container removed. Restored databases were preserved."
 }
 
 update_application() {
@@ -466,7 +528,7 @@ update_application() {
     fi
     die "Kaul startup failed. Kaul and Caddy remain stopped."
   fi
-  if ! wait_for_application_health; then
+  if ! wait_for_application_health kaul; then
     if ! compose stop kaul; then
       die "The new application did not become healthy, and Kaul could not be confirmed stopped. Caddy remains stopped."
     fi
@@ -508,6 +570,14 @@ case "$COMMAND" in
   restore)
     preflight
     restore_backup
+    ;;
+  start-restore-check)
+    preflight
+    start_restore_check
+    ;;
+  stop-restore-check)
+    preflight
+    stop_restore_check
     ;;
   migrate)
     preflight

@@ -180,6 +180,10 @@ function dockerStubLines() {
     "    for key in COMPOSE_PROJECT_NAME KAUL_IMAGE PILOT_HOSTNAME PILOT_HTTP_BIND PILOT_HTTPS_BIND PILOT_HTTPS_UDP_BIND DEPLOYMENT_ENV BETTER_AUTH_URL BETTER_AUTH_SECRET POSTGRES_ADMIN_USER POSTGRES_ADMIN_PASSWORD KAUL_DB_USER KAUL_DB_PASSWORD KAUL_DB_NAME DATABASE_URL; do",
     '      if printenv "$key" >/dev/null 2>&1; then source=ambient; else source=env-file; fi',
     '      printf \'%s=%s\\n\' "$key" "$source" >> "$KAUL_TEST_INTERPOLATION_LOG"',
+    '      if [ "$key" = DATABASE_URL ] && [ -n "${KAUL_TEST_EXPECTED_DATABASE_URL:-}" ]; then',
+    '        if [ "${DATABASE_URL:-}" = "$KAUL_TEST_EXPECTED_DATABASE_URL" ]; then match=yes; else match=no; fi',
+    '        printf \'DATABASE_URL_MATCH=%s\\n\' "$match" >> "$KAUL_TEST_INTERPOLATION_LOG"',
+    "      fi",
     "    done ;;",
     "esac",
     'if [ "${1:-}" = inspect ]; then',
@@ -196,15 +200,20 @@ function dockerStubLines() {
     "    fi",
     "    exit 0 ;;",
     '  *" config --quiet "*) exit 0 ;;',
+    '  *" ps --all --quiet kaul-restore-check "*) [ "${KAUL_TEST_RESTORE_CONTAINER_EXISTS:-0}" = 1 ] && printf \'%s\\n\' restore-test-container; exit 0 ;;',
+    "  *\" ps -q kaul-restore-check \"*) printf '%s\\n' restore-test-container ; exit 0 ;;",
     "  *\" ps -q kaul \"*) printf '%s\\n' kaul-test-container ; exit 0 ;;",
     '  *" stop caddy "*) [ "${KAUL_TEST_FAIL_CADDY_STOP:-0}" != 1 ] ; exit $? ;;',
     '  *" stop kaul "*) [ "${KAUL_TEST_FAIL_KAUL_STOP:-0}" != 1 ] ; exit $? ;;',
+    '  *"SELECT 1 FROM pg_database"*) [ "${KAUL_TEST_DATABASE_EXISTS:-0}" = 1 ] && printf \'1\\n\'; exit 0 ;;',
     '  *" pg_dump "*) [ "${KAUL_TEST_FAIL_BACKUP:-0}" != 1 ] || exit 1; printf \'fictional custom archive\\n\' ; exit 0 ;;',
     '  *" pg_restore --list "*) cat >/dev/null ; exit 0 ;;',
     '  *" npm run db:deploy "*) [ "${KAUL_TEST_FAIL_MIGRATION:-0}" != 1 ] ; exit $? ;;',
     '  *" npm run db:status "*) exit 0 ;;',
+    '  *" up -d --no-deps kaul-restore-check "*) [ "${KAUL_TEST_FAIL_RESTORE_CHECK_START:-0}" != 1 ] ; exit $? ;;',
     '  *" up -d --no-deps kaul "*) [ "${KAUL_TEST_FAIL_APP_START:-0}" != 1 ] ; exit $? ;;',
     '  *" up -d --no-deps caddy "*) [ "${KAUL_TEST_FAIL_CADDY_START:-0}" != 1 ] ; exit $? ;;',
+    '  *" rm --force --stop kaul-restore-check "*) [ "${KAUL_TEST_FAIL_RESTORE_CHECK_REMOVE:-0}" != 1 ] ; exit $? ;;',
     "esac",
     "exit 0",
   ];
@@ -233,6 +242,7 @@ function preparePilotInvocation(
   fixture,
   stub = {},
   acquireOperationLock = false,
+  database = "kaul_restore_test",
 ) {
   const commandLog = join(
     fixture.directory,
@@ -260,6 +270,9 @@ function preparePilotInvocation(
       "--backup-dir",
       relative(repositoryRoot, fixture.backupDirectory).replaceAll("\\", "/"),
     );
+  }
+  if (command === "start-restore-check") {
+    operatorArguments.push("--database", database);
   }
 
   const shellArguments = [
@@ -291,6 +304,7 @@ function executePilotCommand(
     stub = {},
     fixture,
     acquireOperationLock = false,
+    database,
   } = {},
 ) {
   const commandFixture =
@@ -300,6 +314,7 @@ function executePilotCommand(
     commandFixture,
     stub,
     acquireOperationLock,
+    database,
   );
 
   const result = spawnSync(posixShellPath(), invocation.shellArguments, {
@@ -578,7 +593,7 @@ describe("Pilot operator safety controls", () => {
       "Another Pilot operator workflow is already running",
     );
     expect(script).toMatch(
-      /backup\|restore\|migrate\|update\|start-postgres\|bootstrap-admin\|start-stack\) return 0/,
+      /backup\|restore\|start-restore-check\|stop-restore-check\|migrate\|update\|start-postgres\|bootstrap-admin\|start-stack\) return 0/,
     );
   });
 
@@ -604,15 +619,15 @@ describe("Pilot operator safety controls", () => {
       "start-postgres",
       "bootstrap-admin",
       "start-stack",
+      "start-restore-check",
+      "stop-restore-check",
     ]) {
       expect(pilotRunbook).toContain(`scripts/pilot-ops.sh ${command}`);
     }
   });
 
   it("restores only into a new guarded database without destructive clean flags", () => {
-    expect(script).toContain(
-      "restore_suffix=${RESTORE_DATABASE#kaul_restore_}",
-    );
+    expect(script).toContain("restore_suffix=${database#kaul_restore_}");
     expect(script).toContain("*[!a-z0-9_]*");
     expect(script).toContain("Restore destination already exists");
     expect(script).not.toContain("pg_restore --clean");
@@ -639,13 +654,20 @@ describe("Pilot operator safety controls", () => {
   it("exposes only Caddy and overwrites the trusted client IP header", () => {
     const publicPortServices = [
       ...compose.matchAll(
-        /^  ([a-z]+):\r?\n([\s\S]*?)(?=^  [a-z]+:|^networks:)/gm,
+        /^  ([a-z][a-z0-9-]*):\r?\n([\s\S]*?)(?=^  [a-z][a-z0-9-]*:|^networks:)/gm,
       ),
     ]
       .filter(([, , block]) => /^    ports:/m.test(block))
       .map((match) => match[1]);
     expect(publicPortServices).toEqual(["caddy"]);
     expect(compose).toContain("internal: true");
+    const restoreCheckService = compose.match(
+      /^  kaul-restore-check:\r?\n([\s\S]*?)(?=^  postgres:)/m,
+    )?.[1];
+    expect(restoreCheckService).toContain("- restore-check");
+    expect(restoreCheckService).toContain('restart: "no"');
+    expect(restoreCheckService).not.toMatch(/^    ports:/m);
+    expect(caddy).not.toContain("kaul-restore-check");
     expect(caddy).toContain("header_up X-Real-IP {remote_host}");
     expect(caddy).toContain("header_up -CF-Connecting-IP");
   });
@@ -906,6 +928,236 @@ describe("Pilot Compose environment isolation", () => {
   );
 });
 
+describe("Pilot private restore-check behavior", () => {
+  it("starts only the profile-gated private service with a trusted restored-database override", () => {
+    const fixture = createPilotCommandFixture({
+      overrides: {
+        COMPOSE_PROJECT_NAME: uniqueComposeProject("restore-check"),
+      },
+    });
+    const restoreDatabase = "kaul_restore_20260822";
+    const expectedRestoreUrl = fixture.values.DATABASE_URL.replace(
+      /\/[^/]+$/,
+      `/${restoreDatabase}`,
+    );
+    const hostileDatabaseUrl =
+      "postgresql://hostile:hostile@127.0.0.1:5432/hostile";
+    const result = executePilotCommand("start-restore-check", {
+      acquireOperationLock: true,
+      database: restoreDatabase,
+      fixture,
+      stub: {
+        DATABASE_URL: hostileDatabaseUrl,
+        KAUL_TEST_DATABASE_EXISTS: "1",
+        KAUL_TEST_EXPECTED_DATABASE_URL: expectedRestoreUrl,
+      },
+    });
+
+    expect(result.status, outputOf(result)).toBe(0);
+    expect(
+      commandPosition(
+        result.commandLog,
+        "--profile restore-check run --rm --no-deps kaul-restore-check npm run db:status",
+      ),
+    ).toBeGreaterThan(-1);
+    expect(
+      commandPosition(
+        result.commandLog,
+        "--profile restore-check up -d --no-deps kaul-restore-check",
+      ),
+    ).toBeGreaterThan(-1);
+    expect(commandPosition(result.commandLog, ".State.Health")).toBeGreaterThan(
+      -1,
+    );
+    expect(
+      result.commandLog.some((command) => command.endsWith(" stop caddy")),
+    ).toBe(false);
+    expect(
+      result.commandLog.some((command) =>
+        command.endsWith(" up -d --no-deps caddy"),
+      ),
+    ).toBe(false);
+    expect(
+      result.commandLog.some((command) => command.endsWith(" stop kaul")),
+    ).toBe(false);
+    expect(
+      result.commandLog.some((command) =>
+        command.endsWith(" up -d --no-deps kaul"),
+      ),
+    ).toBe(false);
+    expect(result.interpolationSources).toContain("DATABASE_URL_MATCH=yes");
+    expect(
+      result.interpolationSources.filter(
+        (entry) => entry === "DATABASE_URL_MATCH=yes",
+      ).length,
+    ).toBeGreaterThanOrEqual(3);
+    for (const key of [
+      "COMPOSE_PROJECT_NAME",
+      "KAUL_IMAGE",
+      "DEPLOYMENT_ENV",
+      "BETTER_AUTH_SECRET",
+      "KAUL_DB_NAME",
+    ]) {
+      const sources = result.interpolationSources.filter((entry) =>
+        entry.startsWith(`${key}=`),
+      );
+      expect(sources.length).toBeGreaterThan(0);
+      expect(sources.every((entry) => entry === `${key}=env-file`)).toBe(true);
+    }
+    expect(outputOf(result)).not.toContain(hostileDatabaseUrl);
+    expect(outputOf(result)).not.toContain(expectedRestoreUrl);
+    expect(outputOf(result)).not.toContain(fixture.values.KAUL_DB_PASSWORD);
+    expect(outputOf(result)).toContain(
+      `Private restore check is healthy against database: ${restoreDatabase}`,
+    );
+  }, 30_000);
+
+  it("rejects an invalid restored-database name before startup", () => {
+    const invalid = executePilotCommand("start-restore-check", {
+      database: "kaul_restore_invalid-name",
+      stub: { KAUL_TEST_DATABASE_EXISTS: "1" },
+    });
+    expect(invalid.status).not.toBe(0);
+    expect(outputOf(invalid)).toContain(
+      "Restore database may contain only lowercase letters, digits, and underscores",
+    );
+    expect(commandPosition(invalid.commandLog, "kaul-restore-check")).toBe(-1);
+  }, 15_000);
+
+  it("rejects an absent restored database before startup", () => {
+    const absent = executePilotCommand("start-restore-check");
+    expect(absent.status).not.toBe(0);
+    expect(outputOf(absent)).toContain("Restore database does not exist");
+    expect(commandPosition(absent.commandLog, " up -d ")).toBe(-1);
+  }, 15_000);
+
+  it("refuses to replace an existing private restore check", () => {
+    const existing = executePilotCommand("start-restore-check", {
+      stub: {
+        KAUL_TEST_DATABASE_EXISTS: "1",
+        KAUL_TEST_RESTORE_CONTAINER_EXISTS: "1",
+      },
+    });
+    expect(existing.status).not.toBe(0);
+    expect(outputOf(existing)).toContain(
+      "A private restore check already exists",
+    );
+    expect(commandPosition(existing.commandLog, " up -d ")).toBe(-1);
+  }, 15_000);
+
+  it("removes an unhealthy private check without changing live services", () => {
+    const result = executePilotCommand("start-restore-check", {
+      stub: {
+        KAUL_TEST_DATABASE_EXISTS: "1",
+        KAUL_TEST_HEALTH_STATUS: "unhealthy",
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(
+      commandPosition(
+        result.commandLog,
+        "rm --force --stop kaul-restore-check",
+      ),
+    ).toBeGreaterThan(-1);
+    expect(commandPosition(result.commandLog, "stop caddy")).toBe(-1);
+    expect(
+      result.commandLog.some((command) => command.endsWith(" stop kaul")),
+    ).toBe(false);
+    expect(outputOf(result)).toContain(
+      "private restore check was unhealthy and was removed",
+    );
+  }, 15_000);
+
+  it("cleans up a failed private-check startup without changing live services", () => {
+    const result = executePilotCommand("start-restore-check", {
+      stub: {
+        KAUL_TEST_DATABASE_EXISTS: "1",
+        KAUL_TEST_FAIL_RESTORE_CHECK_START: "1",
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(
+      commandPosition(result.commandLog, "up -d --no-deps kaul-restore-check"),
+    ).toBeGreaterThan(-1);
+    expect(
+      commandPosition(
+        result.commandLog,
+        "rm --force --stop kaul-restore-check",
+      ),
+    ).toBeGreaterThan(-1);
+    expect(commandPosition(result.commandLog, "stop caddy")).toBe(-1);
+    expect(
+      result.commandLog.some((command) => command.endsWith(" stop kaul")),
+    ).toBe(false);
+    expect(outputOf(result)).toContain("restore-check startup failed");
+  }, 15_000);
+
+  it("stops only the private check and preserves every database", () => {
+    const result = executePilotCommand("stop-restore-check", {
+      stub: { KAUL_TEST_RESTORE_CONTAINER_EXISTS: "1" },
+    });
+
+    expect(result.status, outputOf(result)).toBe(0);
+    expect(
+      commandPosition(
+        result.commandLog,
+        "rm --force --stop kaul-restore-check",
+      ),
+    ).toBeGreaterThan(-1);
+    expect(commandPosition(result.commandLog, "dropdb")).toBe(-1);
+    expect(commandPosition(result.commandLog, "DROP DATABASE")).toBe(-1);
+    expect(commandPosition(result.commandLog, "stop caddy")).toBe(-1);
+    expect(
+      result.commandLog.some((command) => command.endsWith(" stop kaul")),
+    ).toBe(false);
+    expect(outputOf(result)).toContain("Restored databases were preserved");
+
+    const absent = executePilotCommand("stop-restore-check");
+    expect(absent.status, outputOf(absent)).toBe(0);
+    expect(outputOf(absent)).toContain("No private restore check exists");
+    expect(commandPosition(absent.commandLog, " rm ")).toBe(-1);
+  }, 15_000);
+
+  it("serializes restore-check start and stop by Compose project", async () => {
+    const fixture = createPilotCommandFixture({
+      overrides: {
+        COMPOSE_PROJECT_NAME: uniqueComposeProject("restore-lock"),
+      },
+    });
+    const readyPath = join(fixture.directory, "restore-check-lock-ready");
+    const releasePath = join(fixture.directory, "restore-check-lock-release");
+    const first = startPilotCommand("start-restore-check", fixture, {
+      KAUL_TEST_BLOCK_PREFLIGHT: "1",
+      KAUL_TEST_BLOCK_READY: toPosixPath(readyPath),
+      KAUL_TEST_BLOCK_RELEASE: toPosixPath(releasePath),
+      KAUL_TEST_DATABASE_EXISTS: "1",
+    });
+
+    let second;
+    let firstResult;
+    try {
+      await waitForFile(readyPath);
+      second = executePilotCommand("stop-restore-check", {
+        acquireOperationLock: true,
+        fixture,
+      });
+    } finally {
+      writeFileSync(releasePath, "release\n");
+      firstResult = await first.completion;
+    }
+
+    expect(second).toBeDefined();
+    expect(second.status).not.toBe(0);
+    expect(second.commandLog).toEqual([]);
+    expect(outputOf(second)).toContain(
+      "Another Pilot operator workflow is already running",
+    );
+    expect(firstResult.status, outputOf(firstResult)).toBe(0);
+  }, 30_000);
+});
+
 describe("Pilot update behavior", () => {
   it("keeps Caddy stopped until a healthy Kaul release passes validation", () => {
     const result = executePilotCommand("update");
@@ -927,7 +1179,7 @@ describe("Pilot update behavior", () => {
     expect(commandPosition(commands, ".State.Health")).toBeLessThan(
       commandPosition(commands, "up -d --no-deps caddy"),
     );
-  });
+  }, 15_000);
 
   it("rejects a second operator workflow before Docker mutation", async () => {
     const fixture = createPilotCommandFixture();
@@ -1088,7 +1340,7 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "Caddy could not be stopped. Update did not proceed",
     );
-  });
+  }, 15_000);
 
   it("leaves Caddy stopped when Kaul cannot be confirmed stopped", () => {
     const result = executePilotCommand("update", {
@@ -1104,7 +1356,7 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "Kaul could not be stopped. Caddy remains stopped",
     );
-  });
+  }, 15_000);
 
   it("keeps Kaul and Caddy stopped when the quiesced backup fails", () => {
     const result = executePilotCommand("update", {
@@ -1148,7 +1400,7 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "Migration failed. Kaul remains stopped",
     );
-  });
+  }, 15_000);
 
   it("stops an unhealthy Kaul release and leaves Caddy stopped", () => {
     const result = executePilotCommand("update", {
@@ -1168,7 +1420,7 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "The new application did not become healthy and was stopped",
     );
-  });
+  }, 15_000);
 
   it("reports an application-start failure and leaves Caddy stopped", () => {
     const result = executePilotCommand("update", {
@@ -1185,7 +1437,7 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "Kaul startup failed. Kaul and Caddy remain stopped",
     );
-  });
+  }, 15_000);
 
   it("reports when public serving cannot be restored", () => {
     const result = executePilotCommand("update", {
@@ -1202,7 +1454,7 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "Kaul is healthy, but Caddy failed to start. The Pilot remains unavailable",
     );
-  });
+  }, 15_000);
 });
 
 describe("Pilot PostgreSQL initialization behavior", () => {

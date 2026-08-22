@@ -55,6 +55,31 @@ services:
       - ALL
     logging: *pilot-logging
 
+  kaul-restore-check:
+    profiles:
+      - restore-check
+    image: ${KAUL_IMAGE:?Set KAUL_IMAGE to an immutable ghcr.io image digest}
+    restart: "no"
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:?Set DEPLOYMENT_ENV in the Pilot environment file}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?Set BETTER_AUTH_URL in the Pilot environment file}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in the Pilot environment file}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the Pilot environment file}
+    expose:
+      - "3000"
+    networks:
+      - private
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *pilot-logging
+
   postgres:
     image: postgres:18.4-bookworm@sha256:1961f96e6029a02c3812d7cb329a3b03a3ac2bb067058dec17b0f5596aca9296
     restart: unless-stopped

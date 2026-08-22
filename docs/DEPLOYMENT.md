@@ -621,6 +621,15 @@ Proxmox snapshots may be used as an additional recovery layer.
 
 They are not a replacement for portable database and file backups.
 
+The current Pilot operator foundation creates a guarded PostgreSQL custom
+archive on the application host. That completed archive is plaintext and does
+not satisfy the encrypted off-host requirements above. Selecting the durable
+backup implementation is a security decision: approve the off-host backend and
+data location, retention and append-only controls, whether the live VM may
+decrypt, key custody and offline recovery, alert ownership, restore schedule,
+and pinned tool supply policy before changing the operator contract. Do not
+treat a checksum sidecar as encryption or origin authentication.
+
 ## Production Backup Plan
 
 The production plan must define:
@@ -890,9 +899,10 @@ environment contract, digest-only manual update flow, one-shot migrations, and
 guarded PostgreSQL backup/restore tooling. The exact operator commands and
 remaining gates are in `deploy/pilot/README.md`.
 
-Pilot Readiness is not complete and no pilot deployment is approved yet. Live
-VM, HTTPS, network, encrypted off-host backup, restore, monitoring, incident,
-and user-workflow evidence must still be obtained with fictional or sanitised
-data before a controlled Pilot begins.
+Pilot Readiness is not complete and no pilot deployment is approved yet. The
+local backup archive remains plaintext and therefore is not an approved Pilot
+backup. Live VM, HTTPS, network, encrypted off-host backup, restore, monitoring,
+incident ownership, and user-workflow evidence must still be obtained with
+fictional or sanitised data before a controlled Pilot begins.
 
 Production hosting has not yet been selected or approved.

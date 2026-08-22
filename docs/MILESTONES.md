@@ -875,10 +875,19 @@ The dependency audit gate remains open and blocking:
 `GHSA-ggr8-5vv4-36mx`. The candidate must not be merged, tagged, published, or
 described as release-ready or Pilot-ready while this gate remains red.
 
+The concise repository/operations snapshot and current evidence boundaries are
+maintained in `docs/PROJECT_STATE.md`. This milestone remains the authority for
+scope and completion.
+
 Live GHCR image verification, a disposable Linux VM, DNS and HTTPS/ACME,
 encrypted off-host backup and restore, monitoring, operational ownership, and
 critical user-workflow acceptance remain outstanding. Real or sensitive data
 is not approved.
+
+The Have I Been Pwned plugin review deferred by ADR 0001 also remains an open
+Milestone 7 security decision. Its network, privacy, availability, failure-mode,
+and user-message implications must be reviewed; this is not approval to add the
+plugin.
 
 ## Goal
 

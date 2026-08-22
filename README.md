@@ -39,6 +39,10 @@ which are blocking needs. Production credential-delivery,
 sole-Administrator recovery, legal, operational, and security gates remain
 unresolved. Kaul is not production-ready.
 
+See the [current project state](docs/PROJECT_STATE.md) for the short operational
+snapshot and open release gates. `docs/MILESTONES.md` remains authoritative for
+milestone scope and completion.
+
 ## Core stack
 
 Next.js App Router, React, strict TypeScript, PostgreSQL, Prisma, Better Auth,
@@ -94,15 +98,30 @@ npm run build
 npm run audit:ci
 ```
 
-Database integration and browser tests need their documented disposable test
-resources; do not run their setup against the normal local `kaul` database.
-Install the Playwright browser before the first local browser-test run:
+Database integration and browser tests need an explicit disposable test ID,
+port, matching local URLs, and fictional process-local authentication values as
+documented in `AGENTS.md`. Never run their setup against the normal local
+`kaul` database. After setting those values, validate and create the new test
+database before use:
+
+```powershell
+npm run test:db:check
+npm run test:db:create
+npm run test:db:migrate
+npm run test:integration
+```
+
+Install the Playwright browser before the first local browser-test run, then use
+the same guarded lifecycle for the browser suite:
 
 ```powershell
 npx playwright install chromium
-npm run test:integration
 npm run test:e2e
 ```
+
+Drop only the current derived test database with `npm run test:db:drop` when
+cleanup is explicitly authorised. The command refuses the normal `kaul`
+database.
 
 Use `npm run db:status` to inspect migration status. Prisma migrations are
 committed to Git and applied shared migrations must not be rewritten.
@@ -118,6 +137,7 @@ the [Pilot operator runbook](deploy/pilot/README.md).
 
 - [Project scope and milestones](docs/PROJECT_SPEC.md) and
   [current milestone status](docs/MILESTONES.md)
+- [Current operational snapshot and release gates](docs/PROJECT_STATE.md)
 - [Domain model](docs/DOMAIN_MODEL.md) and
   [architecture](docs/ARCHITECTURE.md)
 - [Security requirements](docs/SECURITY.md) and

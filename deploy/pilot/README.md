@@ -233,11 +233,35 @@ creates it empty, restores in one transaction, reads the migration table, and
 runs Prisma migration status against the restored database. It does not change
 the active `DATABASE_URL` or delete a failed destination.
 
-For a controlled recovery or restore rehearsal, keep Kaul stopped, copy the
-protected environment file, change only `DATABASE_URL` to the restored name,
-start Kaul with that controlled file, and repeat health, login, authorised,
-denied, history, and audit checks. Promote a restored database only through a
-recorded recovery decision. Never restore over the active database.
+Start the approved image privately against that restored database with:
+
+```sh
+scripts/pilot-ops.sh start-restore-check \
+  --env-file /etc/kaul/pilot.env \
+  --database kaul_restore_20260819
+```
+
+The protected command validates the unchanged active Pilot environment, derives
+the restored database URL internally, rechecks migration status, and starts a
+profile-gated `kaul-restore-check` service only on the internal Compose network.
+It does not replace the active Kaul container, change Caddy, publish a port, or
+route public traffic to the restore. Do not copy or modify the Pilot environment
+file and do not use raw Docker Compose for this check.
+
+The command waits for the restored application's database-backed health check.
+That proves image and database startup compatibility only. It does not prove
+login, authorisation, history, audit, or stakeholder acceptance without a
+separately reviewed private interactive-access method.
+
+Stop and remove only the private application container after inspection:
+
+```sh
+scripts/pilot-ops.sh stop-restore-check \
+  --env-file /etc/kaul/pilot.env
+```
+
+The restored database is preserved. Promotion remains a separate recorded
+recovery decision. Never restore over the active database.
 
 ## Small operational loop
 

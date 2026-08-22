@@ -748,7 +748,9 @@ Kaul uses separate development, pilot, and production environments.
 ### Development
 
 - Uses fictional data
-- May be reset freely
+- The normal `kaul` database is protected from destructive and test setup
+- Explicit disposable `kaul_test_*` databases may be reset or dropped only
+  through the guarded test lifecycle
 - Uses development-only credentials
 - Must not receive production backups
 
