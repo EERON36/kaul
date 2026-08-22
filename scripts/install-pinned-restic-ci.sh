@@ -33,13 +33,14 @@ REST_SERVER_SHA256=4c9c95bc079a0334e81fad379b19dc5c3353c71c2c88d652cafce2081c2b1
   exit 1
 }
 
-for command_name in awk bunzip2 curl install mktemp sha256sum tar; do
+for command_name in awk bunzip2 curl dirname install mktemp sha256sum tar; do
   command -v "$command_name" >/dev/null 2>&1 || {
     printf 'ERROR: %s is required.\n' "$command_name" >&2
     exit 1
   }
 done
 
+SCRIPT_DIRECTORY=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 temporary_directory=$(mktemp -d)
 cleanup() {
   rm -rf -- "$temporary_directory"
@@ -72,7 +73,8 @@ install -m 0755 \
 installed_restic_version=$("$TARGET_DIRECTORY/restic" version |
   awk 'NR == 1 { print $2 }')
 installed_rest_server_version=$("$TARGET_DIRECTORY/rest-server" --version |
-  awk 'NR == 1 { print $2 }')
+  awk -v expected="$REST_SERVER_VERSION" \
+    -f "$SCRIPT_DIRECTORY/parse-rest-server-version.awk")
 [ "$installed_restic_version" = "$RESTIC_VERSION" ]
 [ "$installed_rest_server_version" = "$REST_SERVER_VERSION" ]
 

@@ -44,6 +44,9 @@ const resticCiInstaller = readFileSync(
   new URL("./install-pinned-restic-ci.sh", import.meta.url),
   "utf8",
 );
+const restServerVersionParserPath = fileURLToPath(
+  new URL("./parse-rest-server-version.awk", import.meta.url),
+);
 const backupRehearsal = readFileSync(
   new URL("./pilot-backup-rehearsal.sh", import.meta.url),
   "utf8",
@@ -101,6 +104,20 @@ function posixShellPath() {
   }
 
   return shellPath;
+}
+
+function awkPath() {
+  const candidates =
+    process.platform === "win32"
+      ? ["C:\\Program Files\\Git\\usr\\bin\\awk.exe"]
+      : ["/usr/bin/awk", "/bin/awk"];
+  const executablePath = candidates.find((candidate) => existsSync(candidate));
+
+  if (!executablePath) {
+    throw new Error("awk is required for Pilot operator tests.");
+  }
+
+  return executablePath;
 }
 
 function toPosixPath(path) {
@@ -562,6 +579,14 @@ function executeDockerBuildCommands() {
   };
 }
 
+function parseRestServerVersion(output, expected = "0.14.0") {
+  return spawnSync(
+    awkPath(),
+    ["-v", `expected=${expected}`, "-f", restServerVersionParserPath],
+    { encoding: "utf8", input: output },
+  );
+}
+
 describe("Pilot operator safety controls", () => {
   it("keeps executable Pilot shell scripts Linux-safe", () => {
     for (const [repositoryPath, filePath] of pilotShellScripts) {
@@ -657,11 +682,50 @@ describe("Pilot operator safety controls", () => {
     expect(resticCiInstaller).toContain(
       "REST_SERVER_SHA256=4c9c95bc079a0334e81fad379b19dc5c3353c71c2c88d652cafce2081c2b1c66",
     );
+    expect(resticCiInstaller).toContain(
+      '-f "$SCRIPT_DIRECTORY/parse-rest-server-version.awk"',
+    );
     expect(resticCiInstaller).toContain("sha256sum --check --status");
     expect(resticCiInstaller).toContain(
       "TARGET_DIRECTORY already exists; refusing to replace it",
     );
     expect(resticCiInstaller).not.toMatch(/\/latest(?:\/|$)/);
+  });
+
+  it("accepts the actual pinned rest-server 0.14.0 version output", () => {
+    const result = parseRestServerVersion(
+      "rest-server version rest-server 0.14.0 compiled with go1.24.3 on linux/amd64\n",
+    );
+
+    expect(result.status, outputOf(result)).toBe(0);
+    expect(result.stdout).toBe("0.14.0\n");
+  });
+
+  it("rejects a different semantic rest-server version", () => {
+    const result = parseRestServerVersion(
+      "rest-server version rest-server 0.13.0 compiled with go1.24.3 on linux/amd64\n",
+    );
+
+    expect(result.status, outputOf(result)).not.toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  it("rejects malformed rest-server version output", () => {
+    const result = parseRestServerVersion(
+      "rest-server version rest-server unknown compiled with go1.24.3 on linux/amd64\n",
+    );
+
+    expect(result.status, outputOf(result)).not.toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  it("rejects the expected rest-server number in the wrong semantic position", () => {
+    const result = parseRestServerVersion(
+      "rest-server version 0.14.0 compiled with go1.24.3 on linux/amd64\n",
+    );
+
+    expect(result.status, outputOf(result)).not.toBe(0);
+    expect(result.stdout).toBe("");
   });
 
   it("runs a separate real append-only backup rehearsal on Ubuntu", () => {
