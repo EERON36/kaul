@@ -435,9 +435,11 @@ access loss, archived read-only behaviour, terminal states, concurrency,
 keyboard use, narrow screens, and high-text reflow. The foundation and visible
 workflows were squash-merged in #38 and #39.
 
-**Pilot Readiness** is the next project focus. It should prove a repeatable,
-isolated deployment and operational loop with fictional or sanitised data
-before another major feature milestone is selected. Document, report, global
-search, export, and other later modules remain unimplemented and are not pilot
-requirements without validated need. Pilot Readiness is not complete, and Kaul
-is not approved for sensitive production use.
+**Homelab Pilot Readiness** is the next project focus. It should prove a
+repeatable, isolated deployment and operational loop with fictional or
+sanitised data before another major feature milestone is selected. The later
+**Production / Cloud Launch Readiness** gate governs professional hosting and
+live organisational information. Document, report, global search, export, and
+other later modules remain unimplemented and are not Pilot requirements without
+validated need. Homelab Pilot Readiness is not complete, and Kaul is not
+approved for sensitive production use.

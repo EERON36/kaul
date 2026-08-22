@@ -150,7 +150,7 @@ The unresolved operational controls still block sensitive production use.
 
 ---
 
-# Pilot Environment
+# Homelab Pilot Environment
 
 ## Purpose
 
@@ -159,6 +159,11 @@ The pilot environment allows the initial users to evaluate Kaul before professio
 The first pilot will run on the existing Proxmox homelab.
 
 The pilot is temporary and is not automatically approved for sensitive production information.
+
+This is Phase 1: invited stakeholders test real Kaul workflows on the owner's
+isolated Ubuntu VM through a personal domain or subdomain, using only fictional,
+sanitised, or otherwise non-sensitive case data. Phase 2 is the separate
+Production / Cloud Launch governed by Milestone 8.
 
 ## Pilot Architecture
 
@@ -231,9 +236,25 @@ The warning must remain visible during pilot use.
 - Explain pilot limitations clearly to the users.
 - Assume users may accidentally enter sensitive information despite the warning.
 
+## Pilot data durability and migration
+
+Pilot infrastructure is disposable. Pilot PostgreSQL application data should
+remain migratable where reasonably possible. Preserve stable identifiers and
+use committed Prisma migrations, portable PostgreSQL logical backups, and the
+same immutable application image during a first restore. Accounts, Clients,
+Assignments, Journal history, Goals, Follow-ups, and audit evidence should move
+together when compatibility and security checks pass.
+
+Perfect preservation is not guaranteed: a controlled reset may be safer when
+integrity, compatibility, or security evidence is insufficient. Do not add
+homelab-specific application code or storage coupling that would make the
+eventual provider migration unnecessarily difficult. The later Milestone 6
+organisation export is not required merely to prove database portability for
+the Pilot.
+
 ---
 
-# Production Environment
+# Production / Cloud Environment
 
 ## Purpose
 
@@ -635,9 +656,16 @@ material is also kept away from the VM. The approved retention objective is 14
 daily, 8 weekly, and 6 monthly snapshots, with `--keep-within 14d` added to
 protect all recent snapshots from append-only timestamp manipulation.
 
-This architecture does not select or approve a real provider, data region,
-credential-delivery mechanism, alert owner, or recovery-material custodian.
-Those remain launch gates and require real off-host and restore evidence.
+For the Homelab Pilot, a real encrypted repository outside the Pilot VM, an
+append-only writer identity, scheduled backups, failure notification, and an
+exact-snapshot restore rehearsal are launch gates. The repository contract and
+CI rehearsal do not satisfy that runtime evidence.
+
+Production / Cloud Launch additionally requires an approved provider and data
+region, production-separated writer and maintenance credentials, assigned
+retention and alert ownership, offline recovery custody, and a production
+restore rehearsal. Those production approvals are not silently substituted for
+the Homelab evidence above.
 
 ## Production Backup Plan
 
@@ -842,10 +870,15 @@ Before exposing an environment:
 
 ---
 
-## Pilot Deployment Gate
+## Homelab Pilot Deployment Gate
 
 The pilot may begin only when:
 
+- The unchanged dependency-audit policy passes and every other Milestone 7
+  security decision is resolved.
+- A supported Ubuntu VM is dedicated to or clearly isolated for Kaul, with
+  restricted SSH, host/router firewall rules, and no route exposing Proxmox or
+  unrelated homelab services.
 - The workflows selected for the controlled pilot are complete and verified.
 - Deferred Documents, reports, global search, exports, and uploaded-file
   operations are required only if the approved pilot workflow genuinely needs
@@ -856,22 +889,41 @@ The pilot may begin only when:
 - Separate pilot credentials are configured.
 - Backups run successfully.
 - A restore test has succeeded.
+- Deployment, redeployment, Prisma migration, failure recovery, application
+  upgrade, and host reboot/startup behaviour have been rehearsed on a clean VM
+  or equivalent Linux/Docker environment.
+- The deployed image is identified immutably and a safe update records the old
+  and new image identities plus its exact pre-update backup snapshot.
+- Portable PostgreSQL restore evidence preserves stable identifiers and useful
+  application relationships for a future provider migration.
 - PostgreSQL is private.
 - Uploaded-file access is protected when uploads are in pilot scope.
 - Pilot users understand the limitations.
+- Basic health checks, bounded logs, uptime monitoring, backup-failure alerts,
+  disk-capacity checks, incident contact, and Pilot operational ownership are
+  active.
 - No known critical security defect remains.
 
 ---
 
-## Production Deployment Gate
+## Production / Cloud Deployment Gate
 
 Production may begin only when:
 
 - Milestone 8 is approved.
+- Every applicable Milestone 7 and release dependency/provenance gate remains
+  satisfied.
 - The hosting provider is approved.
+- The managed or self-managed production database design is approved.
 - Legal and privacy responsibilities are reviewed.
+- Data residency is approved.
 - Production secrets are configured securely.
+- Backup writer, maintenance, application, and database credentials are
+  separated.
 - Production backups are working.
+- The real off-host backup backend enforces the approved immutable or
+  append-only model, with assigned retention and alert ownership and offline
+  recovery material.
 - Disaster recovery has been tested.
 - Monitoring and incident response are active.
 - Critical security tests pass.
@@ -899,20 +951,25 @@ The default should be the smallest secure deployment that satisfies current need
 
 ---
 
-## Current Status
+## Current Homelab Pilot status
 
 The deployment strategy is approved for development planning. The repository
-now contains the first **Pilot Readiness** deployment foundation: a release
+now contains the first **Homelab Pilot Readiness** deployment foundation: a release
 Dockerfile, separate Caddy/Kaul/PostgreSQL Compose topology, secret-free Pilot
 environment contract, digest-only manual update flow, one-shot migrations, and
 guarded encrypted off-host Restic backup/restore tooling. The exact operator commands and
 remaining gates are in `deploy/pilot/README.md`.
 
-Pilot Readiness is not complete and no pilot deployment is approved yet. The
+Homelab Pilot Readiness is not complete and no pilot deployment is approved yet. The
 repository contract and CI rehearsal do not configure or prove a real off-host
 provider. Live VM, HTTPS, network, scheduled append-only backup, alerting,
 off-VM retention, exact-snapshot restore, monitoring, incident ownership, and
 user-workflow evidence must still be obtained with fictional or sanitised data
 before a controlled Pilot begins.
 
-Production hosting has not yet been selected or approved.
+## Current Production / Cloud status
+
+Production hosting, database operations, data residency, credential separation,
+retention and alert ownership, offline recovery custody, production restore,
+release provenance approval, and sensitive-data launch approval have not yet
+been selected or completed. Milestone 8 has not begun.

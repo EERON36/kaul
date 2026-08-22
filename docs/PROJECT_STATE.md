@@ -1,10 +1,11 @@
 # Kaul Project State
 
-Last reviewed: 22 August 2026.
+Last reviewed: 23 August 2026.
 
 `docs/MILESTONES.md` remains authoritative for milestone scope and completion.
 This file is the short operational snapshot: what is integrated, what evidence
-exists, and what still blocks a Pilot release decision.
+exists, and what still blocks the separate Homelab Pilot and Production / Cloud
+Launch decisions.
 
 ## Product and architecture
 
@@ -41,7 +42,9 @@ the release surface requires.
 - `main` contains the completed Milestones 0–4 product baseline.
 - `pilot/release-candidate` is a separate, unmerged integration candidate. It
   combines the Pilot deployment foundation with the approved form-safety,
-  not-found, accessibility, and first-session orientation slices.
+  not-found, accessibility, and first-session orientation slices, plus the
+  reviewed dependency, private restore-check, and encrypted off-host Restic
+  remediations in `da550c4`, `49bea8f`, and `3ea91b5`.
 - The release candidate is not approved for merge, tag, publication,
   deployment, or real or sensitive data.
 
@@ -50,34 +53,110 @@ browser behaviour only where the individual check actually ran. It does not
 substitute for a clean Linux host, published-image, network, backup, restore,
 monitoring, stakeholder, or sensitive-data approval.
 
-## Blocking release gates
+## Homelab Pilot readiness
+
+Milestone 7 is the Homelab Pilot gate. It permits only invited stakeholder
+testing with fictional, sanitised, or otherwise non-sensitive case data. Under
+the current governance, the Prisma advisory is a Homelab Pilot blocker because
+`docs/MILESTONES.md` explicitly forbids describing or publishing the candidate
+as Pilot-ready while the dependency audit is red. Production-only provider,
+contract, data-residency, and formal ownership approvals do not independently
+block Milestone 7 unless another authoritative requirement assigns them there.
+
+Current status against the Homelab minimum:
 
 1. **Dependency audit:** stable `prisma@7.9.1` still pins vulnerable
    `deepmerge-ts@7.1.5` through `@prisma/config@7.9.1`. No supported stable
    upgrade currently removes it. Do not add an override, downgrade Prisma,
    adopt a prerelease, or weaken the audit policy. Wait for a supported upstream
    correction and review it normally.
-   A local remediation updates Next/PostCSS/Sharp to supported patched versions
-   and removes their obsolete exceptions, but it cannot clear this Prisma gate.
-2. **Encrypted off-host backup:** the local remediation implements the approved
+   The integrated dependency remediation updates Next/PostCSS/Sharp to supported
+   patched versions and removes their obsolete exceptions, but it cannot clear
+   this Prisma gate.
+2. **Ubuntu host and network isolation:** repository requirements exist, but no
+   dedicated supported Ubuntu VM, restricted SSH path, host/router firewall,
+   or isolation from unrelated homelab services has runtime evidence.
+3. **Domain, DNS, and HTTPS:** Caddy and the private Compose topology are
+   implemented. No personal subdomain, DNS record, public reachability, ACME
+   certificate, or external HTTPS check has been configured or verified.
+4. **Secrets and authentication:** separate Pilot configuration, secure-session
+   controls, no public signup, server-side authorisation, rate limiting, audit,
+   and individual-account workflows are implemented. Real Pilot secrets,
+   invited fictional test accounts, a safe Pilot credential handoff, incident
+   contact, and the deferred Have I Been Pwned Milestone 7 decision remain open.
+5. **PostgreSQL persistence and migrations:** a named persistent volume,
+   health checks, app/admin credential separation, committed Prisma migrations,
+   and guarded migration commands exist. No VM persistence, reboot, disk, or
+   real migration rehearsal has run.
+6. **Deployment, update, and rollback:** digest-only images, project-scoped
+   locking, quiesced backup-before-migration, private health before Caddy, and
+   fail-closed update behavior are implemented. No image has been published or
+   pulled on a clean VM, and upgrade/recovery behavior has not run there.
+7. **Encrypted off-host backup:** the integrated remediation implements the approved
    backend-neutral Restic contract: direct `pg_dump` streaming, exact snapshot
    IDs, no completed plaintext dump, append-only writer separation, off-VM
    maintenance, offline recovery material, and pinned tool supply. No real
-   provider, repository, data region, writer identity, maintenance identity,
-   schedule, or alert owner is configured or approved. CI evidence cannot clear
-   this real off-host gate.
-3. **Restore rehearsal:** the local remediation provides a private,
+   repository, writer identity, maintenance identity, schedule, or alert owner
+   is configured. Formal provider and data-residency approval remains a
+   Production / Cloud gate. CI evidence cannot clear this real off-host gate.
+8. **Restore rehearsal:** the integrated remediation provides a private,
    profile-gated application health check against a `kaul_restore_*` database
    without replacing live Kaul or Caddy. It has source/stub-test evidence only.
-   Human review, integration, a clean disposable Linux host rehearsal, and real
+   A clean disposable Linux host rehearsal and real
    off-host encrypted-backup evidence are still required. The CI rehearsal is
    fictional and disposable, not Pilot runtime evidence.
-4. **Remaining operations:** published image identity, VM prerequisites,
-   DNS/HTTPS, monitoring and incident ownership, and critical fictional-data
-   stakeholder workflows still need runtime evidence.
-5. **Authentication review:** the deferred Have I Been Pwned plugin decision in
-   ADR 0001 still requires its Milestone 7 privacy, availability, failure-mode,
-   network, and user-message review.
+9. **Logging, monitoring, health, and reboot:** bounded container logs and
+   database/application health contracts exist. Uptime monitoring, backup and
+   disk alerts, incident ownership, and startup/reboot evidence are absent.
+10. **Clean Linux/Docker rehearsal:** the new GitHub Actions job defines a real
+    Docker/PostgreSQL/rest-server rehearsal, but it has not run. CI evidence is
+    valuable repository compatibility evidence, not proof of the actual VM,
+    network, off-host backend, or operator schedule.
+11. **Data migration:** PostgreSQL logical backup/restore and host-independent
+    application configuration provide the intended migration path. No
+    cross-host rehearsal has yet proved that accounts, Clients, Assignments,
+    records, stable identifiers, and audit history survive together. The later
+    Milestone 6 organisation export is not a Homelab prerequisite without a
+    validated Pilot need.
+12. **Stakeholder acceptance:** critical fictional-data workflows, Pilot
+    warning visibility, support expectations, and the feedback loop have not
+    been accepted by invited users.
+
+## Production / Cloud Launch readiness
+
+Milestone 8 has not begun. It retains every applicable Milestone 7 and release
+policy requirement and additionally requires an approved provider and database
+operating model, data residency and legal/privacy review, production-separated
+application/database/backup credentials, a real immutable or append-only
+off-host backend, assigned retention/monitoring/alert ownership, offline
+recovery material, a production restore and migration rehearsal, release
+provenance, production hardening, stakeholder acceptance, and explicit system
+owner approval. Production credential delivery and sole-Administrator recovery
+also remain open. None of these approvals exists yet.
+
+Pilot infrastructure is disposable. Pilot PostgreSQL application data should
+nevertheless remain migratable where reasonably possible through portable
+logical backups, stable identifiers, committed migrations, and host-independent
+configuration. Perfect preservation is not promised when compatibility,
+integrity, or security evidence requires a controlled reset.
+
+## GitHub Actions behavior for the release-candidate branch
+
+The repository has two workflows. A normal push of
+`pilot/release-candidate` triggers neither one:
+
+- `Validate` runs only for pushes to `main` and pull requests targeting `main`.
+  Therefore an RC branch push alone does not run its Ubuntu validation job or
+  the new Linux/Docker/Restic rehearsal.
+- `Publish release image` runs only for a pushed `v*` tag and requires the
+  tagged commit to be an ancestor of `origin/main`. A branch push publishes no
+  image. The workflow records an image digest but contains no deployment step.
+
+The `Validate` workflow uses fictional inline CI credentials, read-only
+repository permission, and no GitHub Environment. It requires no repository
+secret or environment approval. The tag-only image workflow uses the automatic
+`GITHUB_TOKEN` with package-write permission and also declares no deployment
+environment or environment approval.
 
 ## Development and preservation
 
@@ -90,10 +169,9 @@ request, merge, and cleanup remain explicit decisions.
 
 - Keep `main` and `pilot/release-candidate` separate until every Milestone 7
   gate passes and a human explicitly approves the merge.
-- `codex/pilot-p0-remediation` contains local reviewed commits `da550c4` for
-  supported dependency remediation and `49bea8f` for private restore
-  verification. The Restic slice is a separate local review change. None is
-  integrated into release-candidate history.
+- The reviewed remediations `da550c4`, `49bea8f`, and `3ea91b5` are integrated
+  linearly into the local release candidate. Their temporary worktree and local
+  branch were removed only after identical-tip and zero-unique-commit proof.
 - Retain the current Pilot feature branches and active worktrees until the
   release-candidate pull request is merged and the normal cleanup preflight
   proves their contents are preserved.
@@ -106,10 +184,16 @@ request, merge, and cleanup remain explicit decisions.
 
 ## Next decision point
 
-The next human review should inspect the local Restic/CI slice and its evidence,
-then decide whether to integrate any remediation into the release candidate.
-Release eligibility can be reassessed only after accepted integration, real
-off-host and clean-host evidence, and a supported upstream Prisma correction.
+The next human review should approve or revise this two-level readiness
+classification. Under the unchanged current governance, the supported upstream
+Prisma correction is required before Homelab Pilot approval; changing that
+classification would require an explicit Milestone 7/security-policy decision,
+not an operational workaround.
+
+A separate CI decision is also required before pushing for Linux evidence:
+either add an explicitly reviewed `pilot/release-candidate` trigger or use a
+later pull request targeting `main`. A branch push by itself provides no Actions
+evidence. The Have I Been Pwned Milestone 7 decision also remains open.
 
 Documents, uploads, notifications, reports, global search, exports, recurrence,
 and external integrations remain deferred unless real Pilot feedback proves a

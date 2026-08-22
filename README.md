@@ -30,14 +30,16 @@ Implemented now:
   lifecycle and responsibility history, the current user's authorised **Att
   göra**, and immutable signing-time Goal context in Journal records.
 
-The next project focus is **Pilot Readiness**: a repeatable, isolated pilot
-using fictional or sanitised data, with HTTPS, environment separation,
-operational monitoring, and verified backup and restore procedures. Documents,
-reports, global search, exports, and other deferred features are not pulled
-into the pilot merely by this change; initial user feedback should determine
-which are blocking needs. Production credential-delivery,
-sole-Administrator recovery, legal, operational, and security gates remain
-unresolved. Kaul is not production-ready.
+The next project focus is **Homelab Pilot Readiness**: a repeatable, isolated
+Pilot using fictional or sanitised data, with HTTPS, environment separation,
+operational monitoring, and verified backup and restore procedures. It is
+separate from the later **Production / Cloud Launch Readiness** decision for
+live organisational information. Documents, reports, global search, exports,
+and other deferred features are not pulled into the Pilot merely by this
+change; initial user feedback should determine which are blocking needs. The
+Milestone 7 dependency/security gates and the stricter production credential,
+recovery, legal, provider, and operational gates remain unresolved. Kaul is not
+Pilot-ready or production-ready.
 
 See the [current project state](docs/PROJECT_STATE.md) for the short operational
 snapshot and open release gates. `docs/MILESTONES.md` remains authoritative for

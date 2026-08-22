@@ -319,6 +319,13 @@ The application must be designed so it can later be migrated to professional hos
 
 No production deployment should depend on homelab-specific infrastructure.
 
+The Homelab Pilot infrastructure is disposable. PostgreSQL application data
+should remain migratable where reasonably possible through stable identifiers,
+committed Prisma migrations, portable logical backups, and host-independent
+configuration. Preserving compatible accounts, Clients, Assignments, and other
+useful records is preferred but is not an absolute Pilot promise when security,
+integrity, or migration evidence requires a controlled reset.
+
 ---
 
 # Current Status
@@ -349,10 +356,13 @@ rules, Stockholm due semantics, the current user's authorised **Att göra**,
 and immutable signing-time Journal Goal references are implemented through the
 approved server, PostgreSQL, and accessible Client-workspace boundaries.
 
-The next project focus is **Pilot Readiness**: repeatable deployment to an
-isolated pilot environment using fictional or sanitised data, with HTTPS,
+The next project focus is **Homelab Pilot Readiness**: repeatable deployment to
+an isolated Pilot environment using fictional or sanitised data, with HTTPS,
 separate configuration and secrets, backup/restore verification, safe
 Administrator setup, basic operations, repeatable updates, and a short user
-feedback loop. This does not make Kaul production-ready or automatically pull
+feedback loop. **Production / Cloud Launch Readiness** is a later, separate
+decision for live organisational information. This does not automatically pull
 Documents, reports, global search, export, or other deferred functionality into
-the pilot. Existing production and security blockers remain open.
+the Pilot. Existing Milestone 7 and production/security gates remain open at
+the readiness level assigned by the authoritative milestone and security
+documents.

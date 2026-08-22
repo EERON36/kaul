@@ -764,7 +764,7 @@ Kaul uses separate development, pilot, and production environments.
 - Uses development-only credentials
 - Must not receive production backups
 
-### Pilot
+### Homelab Pilot
 
 - Runs initially on the Proxmox homelab
 - Uses separate credentials and database
@@ -772,7 +772,7 @@ Kaul uses separate development, pilot, and production environments.
 - Must not intentionally contain sensitive personal information
 - Should still use production-style security controls where practical
 
-### Production
+### Production / Cloud
 
 - Runs on approved professional hosting
 - Uses production-only credentials
@@ -781,7 +781,7 @@ Kaul uses separate development, pilot, and production environments.
 
 ---
 
-## Pilot Security
+## Homelab Pilot Security Gate
 
 The pilot must visibly display:
 
@@ -791,6 +791,8 @@ This warning must remain visible in the interface.
 
 The pilot must still provide:
 
+- A dedicated or clearly isolated Ubuntu VM separated from unrelated homelab
+  services
 - HTTPS
 - Individual accounts
 - Strong passwords
@@ -806,15 +808,24 @@ The pilot must still provide:
 
 The system should be built under the assumption that a user may accidentally enter sensitive information despite the warning.
 
+Invited stakeholders may test real workflows, but Client and case content must
+remain fictional, sanitised, or otherwise non-sensitive under the current
+Milestone 7 governance. The unchanged dependency-audit policy and every open
+Milestone 7 security decision remain Homelab Pilot gates. Production-only
+provider, contract, data-residency, and formal operational-ownership approvals
+do not become Pilot gates unless another authoritative requirement assigns them
+there.
+
 ---
 
-## Production Readiness Gate
+## Production / Cloud Security Gate
 
 Kaul must not be described as ready for sensitive production use until the production-readiness milestone is explicitly approved.
 
 Before production use, the project requires review of:
 
 - Hosting location and provider
+- Production database hosting and administration model
 - Data-processing agreements
 - Legal roles and responsibilities
 - Applicable Swedish regulatory requirements
@@ -826,6 +837,10 @@ Before production use, the project requires review of:
 - Monitoring
 - Incident response
 - Backup retention
+- Off-host immutable or append-only backup enforcement with separate writer
+  and maintenance credentials
+- Offline recovery material and a completed production restore rehearsal
+- Release provenance and production hardening
 - Disaster recovery
 - Security testing
 - Accessibility
