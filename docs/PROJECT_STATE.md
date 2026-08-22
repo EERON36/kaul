@@ -142,12 +142,18 @@ integrity, or security evidence requires a controlled reset.
 
 ## GitHub Actions behavior for the release-candidate branch
 
-The repository has two workflows. A normal push of
-`pilot/release-candidate` triggers neither one:
+The repository has two workflows. With open Draft PR #41 from
+`pilot/release-candidate` to `main`, an explicitly approved push of new RC
+commits would produce a branch `push` event and a `pull_request` `synchronize`
+event:
 
-- `Validate` runs only for pushes to `main` and pull requests targeting `main`.
-  Therefore an RC branch push alone does not run its Ubuntu validation job or
-  the new Linux/Docker/Restic rehearsal.
+- The `push` event does not match `Validate`, which accepts branch pushes only
+  to `main`.
+- The PR `synchronize` event does match `Validate`, because its
+  `pull_request.branches: [main]` filter selects the PR base branch. It starts
+  one workflow run containing the Ubuntu validation job and the separate
+  Linux/Docker/PostgreSQL/Restic rehearsal job. Adding an RC push trigger while
+  this PR remains open would duplicate that validation for the same update.
 - `Publish release image` runs only for a pushed `v*` tag and requires the
   tagged commit to be an ancestor of `origin/main`. A branch push publishes no
   image. The workflow records an image digest but contains no deployment step.
@@ -190,10 +196,11 @@ Prisma correction is required before Homelab Pilot approval; changing that
 classification would require an explicit Milestone 7/security-policy decision,
 not an operational workaround.
 
-A separate CI decision is also required before pushing for Linux evidence:
-either add an explicitly reviewed `pilot/release-candidate` trigger or use a
-later pull request targeting `main`. A branch push by itself provides no Actions
-evidence. The Have I Been Pwned Milestone 7 decision also remains open.
+Draft PR #41 already provides the required `pull_request` `synchronize` path
+for Linux evidence, so no RC-specific push trigger is required while that PR
+remains open, targets `main`, and is mergeable. A future RC push remains a
+separate explicit approval. Reverify the PR state immediately before that push.
+The Have I Been Pwned Milestone 7 decision also remains open.
 
 Documents, uploads, notifications, reports, global search, exports, recurrence,
 and external integrations remain deferred unless real Pilot feedback proves a
