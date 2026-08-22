@@ -652,7 +652,6 @@ test("Browser Back and Forward protect unsaved Journal work without trapping cle
 
   const backContent =
     "Fiktiv osparad anteckning som skyddas vid webbläsarens Bakåt.";
-  await content.fill(backContent);
   let backWarningCount = 0;
   const handleBackWarning = async (dialog: Dialog) => {
     backWarningCount += 1;
@@ -661,7 +660,19 @@ test("Browser Back and Forward protect unsaved Journal work without trapping cle
     else await dialog.accept();
   };
   page.on("dialog", handleBackWarning);
-  await page.evaluate(() => window.history.back());
+  await content.evaluate((element, value) => {
+    if (!(element instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected the Journal content textarea.");
+    }
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    if (!setValue) throw new Error("Textarea value setter is unavailable.");
+    setValue.call(element, value);
+    element.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    window.history.back();
+  }, backContent);
   await expect(page).toHaveURL(editorUrl);
   await expect(content).toHaveValue(backContent);
   expect(backWarningCount).toBe(1);
@@ -690,7 +701,6 @@ test("Browser Back and Forward protect unsaved Journal work without trapping cle
 
   const forwardContent =
     "Fiktiv osparad anteckning som skyddas vid webbläsarens Framåt.";
-  await content.fill(forwardContent);
   let guardedForwardWarningCount = 0;
   const handleGuardedForwardWarning = async (dialog: Dialog) => {
     guardedForwardWarningCount += 1;
@@ -699,7 +709,19 @@ test("Browser Back and Forward protect unsaved Journal work without trapping cle
     else await dialog.accept();
   };
   page.on("dialog", handleGuardedForwardWarning);
-  await page.evaluate(() => window.history.forward());
+  await content.evaluate((element, value) => {
+    if (!(element instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected the Journal content textarea.");
+    }
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    if (!setValue) throw new Error("Textarea value setter is unavailable.");
+    setValue.call(element, value);
+    element.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    window.history.forward();
+  }, forwardContent);
   await expect(page).toHaveURL(editorUrl);
   await expect(content).toHaveValue(forwardContent);
   expect(guardedForwardWarningCount).toBe(1);

@@ -3,8 +3,8 @@
 import Link from "next/link";
 import {
   createContext,
+  useCallback,
   useContext,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -77,20 +77,34 @@ export function NavigationGuardProvider({
   children,
   confirmationMessage,
 }: Readonly<{ children: ReactNode; confirmationMessage: string }>) {
-  const [blocked, setBlocked] = useState(false);
+  const [blocked, setBlockedState] = useState(false);
   const state = useMemo(
     () => ({ blocked, confirmationMessage }),
     [blocked, confirmationMessage],
   );
   const historyGuardRef = useContext(NavigationHistoryGuardContext);
   const ownerRef = useRef(Symbol("navigation-guard"));
+  const setBlocked = useCallback(
+    (nextBlocked: boolean) => {
+      if (historyGuardRef) {
+        historyGuardRef.current = {
+          blocked: nextBlocked,
+          confirmationMessage,
+          owner: ownerRef.current,
+        };
+      }
+      setBlockedState(nextBlocked);
+    },
+    [confirmationMessage, historyGuardRef],
+  );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!historyGuardRef) return;
-    const registration = { ...state, owner: ownerRef.current };
+    const owner = ownerRef.current;
+    const registration = { ...state, owner };
     historyGuardRef.current = registration;
     return () => {
-      if (historyGuardRef.current === registration) {
+      if (historyGuardRef.current.owner === owner) {
         historyGuardRef.current = {
           blocked: false,
           confirmationMessage: "",
