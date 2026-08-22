@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 const packageJson = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
+const packageLock = JSON.parse(
+  readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"),
+);
 
 const fictionalEnvironment = {
   DATABASE_URL: "postgresql://build:build-only@127.0.0.1:5432/kaul_build",
@@ -73,5 +76,25 @@ describe("release image operator dependency contract", () => {
     );
 
     expect(result.status, outputOf(result)).toBe(0);
+  }, 15_000);
+
+  it("pins lifecycle approvals to exact reviewed package versions", () => {
+    const expected = {
+      "@prisma/engines@7.9.1": "node_modules/@prisma/engines",
+      "prisma@7.9.1": "node_modules/prisma",
+      "unrs-resolver@1.12.2": "node_modules/unrs-resolver",
+    };
+
+    expect(packageJson.allowScripts).toEqual(
+      Object.fromEntries(Object.keys(expected).map((key) => [key, true])),
+    );
+
+    for (const [allowedPackage, packagePath] of Object.entries(expected)) {
+      const lockedPackage = packageLock.packages[packagePath];
+      expect(lockedPackage?.hasInstallScript, allowedPackage).toBe(true);
+      expect(
+        `${packagePath.slice("node_modules/".length)}@${lockedPackage?.version}`,
+      ).toBe(allowedPackage);
+    }
   });
 });

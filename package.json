@@ -42,7 +42,7 @@
     "@prisma/client": "7.9.1",
     "better-auth": "1.6.25",
     "dotenv": "17.4.2",
-    "next": "16.2.12",
+    "next": "16.3.2",
     "prisma": "7.9.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -57,9 +57,9 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.5",
-    "eslint-config-next": "16.2.12",
+    "eslint-config-next": "16.3.2",
     "jiti": "2.7.0",
-    "postcss": "8.5.22",
+    "postcss": "8.5.26",
     "prettier": "3.9.6",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
@@ -68,7 +68,6 @@
   "allowScripts": {
     "@prisma/engines@7.9.1": true,
     "prisma@7.9.1": true,
-    "sharp@0.34.5": true,
     "unrs-resolver@1.12.2": true
   }
 }

@@ -18,7 +18,7 @@ function advisory(identifier, packageName, severity, source) {
   };
 }
 
-function currentAuditReport() {
+function supersededNextAuditReport() {
   return {
     auditReportVersion: 2,
     vulnerabilities: {
@@ -37,7 +37,8 @@ function currentAuditReport() {
         via: [
           advisory("GHSA-qx2v-qp2m-jg93", "postcss", "moderate", 1),
           advisory("GHSA-6g55-p6wh-862q", "postcss", "high", 2),
-          advisory("GHSA-r28c-9q8g-f849", "postcss", "high", 3),
+          advisory("GHSA-fxqj-rqcc-2cmp", "postcss", "moderate", 3),
+          advisory("GHSA-r28c-9q8g-f849", "postcss", "high", 4),
         ],
         effects: ["next"],
         nodes: ["node_modules/next/node_modules/postcss"],
@@ -46,7 +47,7 @@ function currentAuditReport() {
         name: "sharp",
         severity: "high",
         isDirect: false,
-        via: [advisory("GHSA-f88m-g3jw-g9cj", "sharp", "high", 4)],
+        via: [advisory("GHSA-f88m-g3jw-g9cj", "sharp", "high", 5)],
         effects: ["next"],
         nodes: ["node_modules/sharp"],
       },
@@ -78,23 +79,23 @@ function addVulnerability(report, packageName, severity, identifier) {
 }
 
 describe("security audit policy", () => {
-  it("accepts the exact reviewed PostCSS and Sharp findings with warnings", () => {
-    const result = evaluateAuditReport(currentAuditReport());
+  it("rejects the superseded PostCSS and Sharp exceptions", () => {
+    const result = evaluateAuditReport(supersededNextAuditReport());
 
-    expect(result.failures).toEqual([]);
-    expect(result.warnings).toHaveLength(4);
-    expect(result.warnings).toEqual(
+    expect(result.warnings).toEqual([]);
+    expect(result.failures).toHaveLength(4);
+    expect(result.failures).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("GHSA-qx2v-qp2m-jg93"),
         expect.stringContaining("GHSA-6g55-p6wh-862q"),
         expect.stringContaining("GHSA-r28c-9q8g-f849"),
         expect.stringContaining("GHSA-f88m-g3jw-g9cj"),
+        expect.stringContaining("next via postcss, sharp"),
       ]),
     );
   });
 
   it("fails an unknown high-severity advisory", () => {
-    const report = currentAuditReport();
+    const report = supersededNextAuditReport();
     addVulnerability(
       report,
       "unexpected-package",
@@ -102,13 +103,15 @@ describe("security audit policy", () => {
       "GHSA-1111-2222-3333",
     );
 
-    expect(evaluateAuditReport(report).failures).toEqual([
-      expect.stringContaining("Unexpected high advisory"),
-    ]);
+    expect(evaluateAuditReport(report).failures).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Unexpected high advisory GHSA-1111-2222-3333"),
+      ]),
+    );
   });
 
   it("fails every critical advisory", () => {
-    const report = currentAuditReport();
+    const report = supersededNextAuditReport();
     addVulnerability(
       report,
       "critical-package",
@@ -124,15 +127,17 @@ describe("security audit policy", () => {
     );
   });
 
-  it("fails a reviewed advisory at an unexpected node path", () => {
-    const report = currentAuditReport();
+  it("rejects a formerly reviewed advisory at every node path", () => {
+    const report = supersededNextAuditReport();
     report.vulnerabilities.sharp.nodes = [
       "node_modules/another-package/node_modules/sharp",
     ];
 
-    expect(evaluateAuditReport(report).failures).toEqual([
-      expect.stringContaining("appeared unexpectedly"),
-    ]);
+    expect(evaluateAuditReport(report).failures).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Unexpected high advisory GHSA-f88m-g3jw-g9cj"),
+      ]),
+    );
   });
 
   it("fails malformed audit JSON", () => {
@@ -142,7 +147,7 @@ describe("security audit policy", () => {
   });
 
   it("fails inconsistent npm audit summary metadata", () => {
-    const report = currentAuditReport();
+    const report = supersededNextAuditReport();
     report.metadata.vulnerabilities.high = 0;
 
     expect(() => evaluateAuditReport(report)).toThrow(
@@ -151,14 +156,16 @@ describe("security audit policy", () => {
   });
 
   it("fails a critical package summary even when its advisory says high", () => {
-    const report = currentAuditReport();
+    const report = supersededNextAuditReport();
     report.vulnerabilities.sharp.severity = "critical";
     report.metadata.vulnerabilities.high -= 1;
     report.metadata.vulnerabilities.critical += 1;
 
-    expect(evaluateAuditReport(report).failures).toEqual([
-      expect.stringContaining("Critical vulnerability summary"),
-    ]);
+    expect(evaluateAuditReport(report).failures).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Critical vulnerability summary"),
+      ]),
+    );
   });
 
   it("fails audit command and registry errors", () => {
