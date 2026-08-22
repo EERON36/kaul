@@ -9,9 +9,14 @@ NR == 1 &&
   $4 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ {
   if ($4 != expected) exit 1
   parsed = $4
+  next
+}
+
+NR == 1 || NF != 0 {
+  invalid = 1
 }
 
 END {
-  if (NR != 1 || parsed == "") exit 1
+  if (parsed == "" || invalid) exit 1
   print parsed
 }

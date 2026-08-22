@@ -694,7 +694,7 @@ describe("Pilot operator safety controls", () => {
 
   it("accepts the actual pinned rest-server 0.14.0 version output", () => {
     const result = parseRestServerVersion(
-      "rest-server version rest-server 0.14.0 compiled with go1.24.3 on linux/amd64\n",
+      "rest-server version rest-server 0.14.0 compiled with go1.24.3 on linux/amd64\n\n",
     );
 
     expect(result.status, outputOf(result)).toBe(0);
@@ -722,6 +722,15 @@ describe("Pilot operator safety controls", () => {
   it("rejects the expected rest-server number in the wrong semantic position", () => {
     const result = parseRestServerVersion(
       "rest-server version 0.14.0 compiled with go1.24.3 on linux/amd64\n",
+    );
+
+    expect(result.status, outputOf(result)).not.toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  it("rejects nonblank rest-server output after the semantic version line", () => {
+    const result = parseRestServerVersion(
+      "rest-server version rest-server 0.14.0 compiled with go1.24.3 on linux/amd64\nunexpected output\n",
     );
 
     expect(result.status, outputOf(result)).not.toBe(0);
