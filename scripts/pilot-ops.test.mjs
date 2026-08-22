@@ -47,6 +47,10 @@ const postgresInitPath = fileURLToPath(
   new URL("../deploy/pilot/postgres-init.sh", import.meta.url),
 );
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const pilotShellScripts = [
+  ["scripts/pilot-ops.sh", pilotScriptPath],
+  ["deploy/pilot/postgres-init.sh", postgresInitPath],
+];
 const testTemporaryRoot = join(
   repositoryRoot,
   "tmp",
@@ -387,6 +391,48 @@ function outputOf(result) {
   return `${result.stdout ?? ""}${result.stderr ?? ""}`;
 }
 
+function tarHeaderString(header, offset, length) {
+  const field = header.subarray(offset, offset + length);
+  const nullIndex = field.indexOf(0);
+  return field
+    .subarray(0, nullIndex === -1 ? field.length : nullIndex)
+    .toString();
+}
+
+function tarHeaderOctal(header, offset, length) {
+  return Number.parseInt(tarHeaderString(header, offset, length).trim(), 8);
+}
+
+function readTarEntries(archive) {
+  const entries = new Map();
+  let offset = 0;
+
+  while (offset + 512 <= archive.length) {
+    const header = archive.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+
+    const name = tarHeaderString(header, 0, 100);
+    const prefix = tarHeaderString(header, 345, 155);
+    const path = prefix ? `${prefix}/${name}` : name;
+    const mode = tarHeaderOctal(header, 100, 8);
+    const size = tarHeaderOctal(header, 124, 12);
+    const contentStart = offset + 512;
+    const contentEnd = contentStart + size;
+
+    if (contentEnd > archive.length) {
+      throw new Error(`Truncated tar entry: ${path}`);
+    }
+
+    entries.set(path, {
+      content: archive.subarray(contentStart, contentEnd),
+      mode,
+    });
+    offset = contentStart + Math.ceil(size / 512) * 512;
+  }
+
+  return entries;
+}
+
 function commandPosition(commands, fragment) {
   return commands.findIndex((command) => command.includes(fragment));
 }
@@ -440,6 +486,72 @@ function executeDockerBuildCommands() {
 }
 
 describe("Pilot operator safety controls", () => {
+  it("keeps executable Pilot shell scripts Linux-safe", () => {
+    for (const [repositoryPath, filePath] of pilotShellScripts) {
+      const content = readFileSync(filePath);
+
+      expect(content.subarray(0, 10).toString("ascii")).toBe("#!/bin/sh\n");
+      expect(content.includes(Buffer.from("\r\n"))).toBe(false);
+
+      const attributes = spawnSync(
+        "git",
+        ["check-attr", "text", "eol", "--", repositoryPath],
+        { cwd: repositoryRoot, encoding: "utf8" },
+      );
+
+      expect(attributes.status, outputOf(attributes)).toBe(0);
+      expect(attributes.stdout).toContain(`${repositoryPath}: text: set`);
+      expect(attributes.stdout).toContain(`${repositoryPath}: eol: lf`);
+
+      const trackedMode = spawnSync(
+        "git",
+        ["ls-files", "--stage", "--", repositoryPath],
+        { cwd: repositoryRoot, encoding: "utf8" },
+      );
+
+      expect(trackedMode.status, outputOf(trackedMode)).toBe(0);
+      expect(trackedMode.stdout).toMatch(/^100755\s/);
+    }
+  });
+
+  it("keeps executable Pilot shell scripts valid POSIX shell syntax", () => {
+    const result = spawnSync(
+      posixShellPath(),
+      ["-n", ...pilotShellScripts.map(([, filePath]) => toPosixPath(filePath))],
+      { encoding: "utf8" },
+    );
+
+    expect(result.status, outputOf(result)).toBe(0);
+  });
+
+  it("keeps archived Pilot shell scripts Linux-safe", () => {
+    const result = spawnSync(
+      "git",
+      [
+        "archive",
+        "--format=tar",
+        "HEAD",
+        "--",
+        ...pilotShellScripts.map(([repositoryPath]) => repositoryPath),
+      ],
+      { cwd: repositoryRoot },
+    );
+
+    expect(result.status, outputOf(result)).toBe(0);
+    const archiveEntries = readTarEntries(result.stdout);
+
+    for (const [repositoryPath] of pilotShellScripts) {
+      const entry = archiveEntries.get(repositoryPath);
+
+      expect(entry, `Missing archive entry: ${repositoryPath}`).toBeDefined();
+      expect(
+        entry.content.subarray(0, 10).equals(Buffer.from("#!/bin/sh\n")),
+      ).toBe(true);
+      expect(entry.content.includes(Buffer.from("\r\n"))).toBe(false);
+      expect(entry.mode).toBe(0o775);
+    }
+  });
+
   it("requires immutable GHCR digests and never sources the environment file", () => {
     expect(script).toContain("@sha256:[0-9a-f]{64}");
     expect(script).not.toMatch(/(?:^|\n)\s*(?:source|\.)\s+[\"']?\$ENV_FILE/m);
@@ -527,7 +639,7 @@ describe("Pilot operator safety controls", () => {
   it("exposes only Caddy and overwrites the trusted client IP header", () => {
     const publicPortServices = [
       ...compose.matchAll(
-        /^  ([a-z]+):\n([\s\S]*?)(?=^  [a-z]+:|^networks:)/gm,
+        /^  ([a-z]+):\r?\n([\s\S]*?)(?=^  [a-z]+:|^networks:)/gm,
       ),
     ]
       .filter(([, , block]) => /^    ports:/m.test(block))
