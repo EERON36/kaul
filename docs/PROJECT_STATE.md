@@ -59,17 +59,19 @@ monitoring, stakeholder, or sensitive-data approval.
    correction and review it normally.
    A local remediation updates Next/PostCSS/Sharp to supported patched versions
    and removes their obsolete exceptions, but it cannot clear this Prisma gate.
-2. **Encrypted off-host backup:** the repository can create and restore guarded
-   PostgreSQL custom archives, but the current local archive is plaintext. A
-   durable encrypted off-host design requires explicit approval of the storage
-   backend and location, append-only/retention controls, threat model, key
-   custody and offline recovery, monitoring owner, restore schedule, and tool
-   supply/update policy before implementation.
+2. **Encrypted off-host backup:** the local remediation implements the approved
+   backend-neutral Restic contract: direct `pg_dump` streaming, exact snapshot
+   IDs, no completed plaintext dump, append-only writer separation, off-VM
+   maintenance, offline recovery material, and pinned tool supply. No real
+   provider, repository, data region, writer identity, maintenance identity,
+   schedule, or alert owner is configured or approved. CI evidence cannot clear
+   this real off-host gate.
 3. **Restore rehearsal:** the local remediation provides a private,
    profile-gated application health check against a `kaul_restore_*` database
    without replacing live Kaul or Caddy. It has source/stub-test evidence only.
-   Human review, integration, real Docker evidence, and a clean disposable Linux
-   host rehearsal with a real encrypted backup are still required.
+   Human review, integration, a clean disposable Linux host rehearsal, and real
+   off-host encrypted-backup evidence are still required. The CI rehearsal is
+   fictional and disposable, not Pilot runtime evidence.
 4. **Remaining operations:** published image identity, VM prerequisites,
    DNS/HTTPS, monitoring and incident ownership, and critical fictional-data
    stakeholder workflows still need runtime evidence.
@@ -88,8 +90,10 @@ request, merge, and cleanup remain explicit decisions.
 
 - Keep `main` and `pilot/release-candidate` separate until every Milestone 7
   gate passes and a human explicitly approves the merge.
-- `codex/pilot-p0-remediation` is an uncommitted review worktree based on the
-  local release candidate. It is not integrated into release-candidate history.
+- `codex/pilot-p0-remediation` contains local reviewed commits `da550c4` for
+  supported dependency remediation and `49bea8f` for private restore
+  verification. The Restic slice is a separate local review change. None is
+  integrated into release-candidate history.
 - Retain the current Pilot feature branches and active worktrees until the
   release-candidate pull request is merged and the normal cleanup preflight
   proves their contents are preserved.
@@ -102,10 +106,10 @@ request, merge, and cleanup remain explicit decisions.
 
 ## Next decision point
 
-The next human review should approve or reject the backup architecture choices,
-then review the local dependency and restore-check remediation diff. Complete
-verification and release eligibility can be reassessed only after those changes
-are accepted and the upstream Prisma audit gate has a supported correction.
+The next human review should inspect the local Restic/CI slice and its evidence,
+then decide whether to integrate any remediation into the release candidate.
+Release eligibility can be reassessed only after accepted integration, real
+off-host and clean-host evidence, and a supported upstream Prisma correction.
 
 Documents, uploads, notifications, reports, global search, exports, recurrence,
 and external integrations remain deferred unless real Pilot feedback proves a

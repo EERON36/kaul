@@ -97,10 +97,20 @@ from every other peer, and regression-test the Kaul rate-limit identity.
 
 The future VM needs a supported Linux release, Docker Engine with Compose v2,
 restricted SSH, host firewall rules, working DNS, inbound 80/443, `perl` with
-its core `Fcntl` module, and the ordinary `realpath`, `mktemp`, and checksum
-utilities. `COMPOSE_PROJECT_NAME` must start with a lowercase letter or digit,
-contain only lowercase letters, digits, hyphens, and underscores, and contain
-at most 63 characters. Then:
+its core `Fcntl` module, `restic` 0.19.1, and the ordinary `realpath`, `mktemp`,
+and `mkfifo` utilities. Install Restic from its official release artifacts and
+verify the reviewed publisher checksum; do not use `self-update` or an unpinned
+package channel on the Pilot host. `COMPOSE_PROJECT_NAME` must start with a lowercase
+letter or digit, contain only lowercase letters, digits, hyphens, and
+underscores, and contain at most 63 characters. Then:
+
+The Linux x86-64 CI supply contract pins Restic 0.19.1 archive SHA-256
+`f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c`
+and rest-server 0.14.0 archive SHA-256
+`4c9c95bc079a0334e81fad379b19dc5c3353c71c2c88d652cafce2081c2b1c66`.
+They come from the projects' official GitHub release checksum manifests. A
+different host architecture or version is a new supply review, not an automatic
+substitution.
 
 1. Validate configuration and start only PostgreSQL.
 
@@ -114,8 +124,7 @@ at most 63 characters. Then:
 
    ```sh
    scripts/pilot-ops.sh migrate \
-     --env-file /etc/kaul/pilot.env \
-     --backup-dir /var/backups/kaul
+     --env-file /etc/kaul/pilot.env
    ```
 
 3. Create the initial Administrator exactly once with the selected image,
@@ -143,14 +152,14 @@ digest, then replace `KAUL_IMAGE` in the protected environment file. Run:
 
 ```sh
 scripts/pilot-ops.sh update \
-  --env-file /etc/kaul/pilot.env \
-  --backup-dir /var/backups/kaul
+  --env-file /etc/kaul/pilot.env
 ```
 
 The script reports the current and target images and pulls the digest while the
 verified current release is still serving. It then stops Caddy, stops Kaul,
-creates and validates a quiesced custom-format PostgreSQL backup and SHA-256
-checksum, applies committed Prisma migrations, verifies migration status,
+streams and validates a quiesced custom-format PostgreSQL backup into the
+encrypted off-host Restic repository, records its exact snapshot ID, applies
+committed Prisma migrations, verifies migration status,
 starts the new app privately, and waits for its database-backed health check.
 Caddy is started only after Kaul is healthy.
 
@@ -161,13 +170,13 @@ the quiesced backup fails, both remain stopped and no migration starts.
 If migration or Kaul startup fails, Kaul and Caddy remain stopped. If the new
 app is unhealthy, it is stopped and Caddy remains stopped. If Caddy itself
 cannot be restarted after Kaul is healthy, Kaul remains private and the Pilot
-remains unavailable. Preserve the backup, container logs, target digest, and
+remains unavailable. Preserve the snapshot ID, container logs, target digest, and
 migration output. Do not invent down migrations or blindly start the old
 application: schema and application rollback are separate decisions.
 
 After success, independently verify public HTTPS, login, an allowed and denied
 workflow, safe logs, and disk capacity. Record the operator, time, old and new
-digests, backup path/checksum, migration result, health result, and known
+digests, exact backup snapshot ID, migration result, health result, and known
 issues.
 
 ## Backup and restore
@@ -176,20 +185,37 @@ Create and validate a logical backup:
 
 ```sh
 scripts/pilot-ops.sh backup \
-  --env-file /etc/kaul/pilot.env \
-  --backup-dir /var/backups/kaul
+  --env-file /etc/kaul/pilot.env
 
 scripts/pilot-ops.sh validate-backup \
   --env-file /etc/kaul/pilot.env \
-  --archive /var/backups/kaul/kaul_pilot_TIMESTAMP.dump
+  --snapshot EXACT_64_CHARACTER_SNAPSHOT_ID
 ```
 
-The archive is PostgreSQL custom format, excludes ownership/ACL statements,
-has a companion SHA-256 file, and is tested with `pg_restore --list`. Local
-archives are not encrypted by this script. Before Pilot launch, schedule the
-backup daily and transfer it through a separately approved encrypted mechanism
-to storage outside the VM with independent credentials, retention, and failure
-alerting. Proxmox snapshots remain supplemental only.
+Restic executes `pg_dump` through `backup --stdin-from-command`. A nonzero dump
+exit cancels the backup and does not create a successful snapshot. The custom
+archive excludes ownership/ACL statements and is never completed as a plaintext
+file on the Pilot host. The operator accepts only one unambiguous full snapshot
+ID, verifies that exact catalog entry and expected file, then streams it through
+`pg_restore --list` using a private FIFO. Restic encryption is the only backup
+encryption layer. Proxmox snapshots remain supplemental only.
+
+`RESTIC_REPOSITORY`, `RESTIC_EXPECTED_VERSION=0.19.1`, and the absolute
+`RESTIC_PASSWORD_FILE` reference belong in `/etc/kaul/pilot.env`. The password
+file must be a non-symlink regular file owned by the operator with no group or
+other permissions. Backend credentials must be supplied separately by the host
+service manager; for the REST backend the script preserves only
+`RESTIC_REST_USERNAME` and `RESTIC_REST_PASSWORD` after sanitizing other
+ambient `RESTIC_*` configuration. Do not embed REST credentials in the
+repository URL. The repository must be off-host. The script rejects local
+repositories and does not print repository or credential values.
+
+The Pilot VM uses a backup-writer identity that may create and read snapshots
+but cannot delete, overwrite, forget, or prune repository history. For a REST
+backend, use rest-server append-only mode or an equivalently reviewed backend
+control. Application and database credentials are separate from backup access.
+Keep the Restic password and provider recovery material offline, away from the
+VM and ordinary writer identity.
 
 Every state-changing operator command (`backup`, `restore`, `migrate`, `update`,
 `start-postgres`, `bootstrap-admin`, and `start-stack`) takes one exclusive
@@ -214,9 +240,27 @@ while an operator workflow is running. The implementation atomically opens a
 non-symlink lock target and uses Perl's OS-backed `Fcntl` locking, which is
 verified by the Git Bash test path and must be present on the Linux Pilot host.
 
-Backup creation uses an atomic reservation and a unique temporary file. An
-existing archive, checksum, or same-name reservation causes an explicit
-failure; completed backup evidence is never silently replaced.
+There is no retention or repository-maintenance command in `pilot-ops.sh`.
+Run maintenance only from a separately secured off-VM identity with delete
+rights. Review a dry run before applying the approved objective:
+
+```sh
+restic forget \
+  --host kaul-pilot \
+  --tag kaul-pilot-database \
+  --keep-within 14d \
+  --keep-daily 14 \
+  --keep-weekly 8 \
+  --keep-monthly 6 \
+  --prune \
+  --dry-run
+```
+
+Use the actual Compose project as `--host`. `--keep-within 14d` is deliberate:
+it preserves every recent snapshot even if a compromised writer adds deceptive
+timestamps. The off-VM maintainer must inspect the proposed removals, unexpected
+snapshot volume, timestamps, hosts, and tags before rerunning without
+`--dry-run`. Do not give these credentials to the Pilot VM.
 
 Restore never overwrites or cleans a database. It accepts only a nonexistent
 name beginning with `kaul_restore_`:
@@ -224,14 +268,16 @@ name beginning with `kaul_restore_`:
 ```sh
 scripts/pilot-ops.sh restore \
   --env-file /etc/kaul/pilot.env \
-  --archive /var/backups/kaul/kaul_pilot_TIMESTAMP.dump \
+  --snapshot EXACT_64_CHARACTER_SNAPSHOT_ID \
   --database kaul_restore_20260819
 ```
 
-The script verifies the checksum/archive, proves the destination is absent,
-creates it empty, restores in one transaction, reads the migration table, and
-runs Prisma migration status against the restored database. It does not change
-the active `DATABASE_URL` or delete a failed destination.
+The script never accepts `latest`. It verifies the exact snapshot and archive,
+proves the destination is absent, creates it empty, streams that same snapshot
+through a private FIFO into one transaction, reads the migration table, and runs
+Prisma migration status against the restored database. It does not change the
+active `DATABASE_URL`, leave a completed plaintext dump, or delete a failed
+destination.
 
 Start the approved image privately against that restored database with:
 
@@ -273,7 +319,8 @@ recovery decision. Never restore over the active database.
   evidence, not records: never log Client names, Journal content, credentials,
   cookies, request bodies, or database URLs.
 - Schedule `pilot-ops.sh backup` with the host's service manager only after the
-  paths, encrypted off-host destination, retention, ownership, and alert target
+  encrypted off-host destination, writer role, offline recovery material,
+  retention-maintainer role, schedule, and alert target
   are approved. A timer without failure notification is not an accepted backup.
 
 No Prometheus, Grafana, Elasticsearch, Loki, or other observability platform is
@@ -296,15 +343,16 @@ Before any real Pilot deployment, record and review:
   time synchronization, and restart behavior.
 - Pilot hostname, public IP/CGNAT status, DNS control, direct-Caddy decision,
   router/firewall rules, SSH source restrictions, and ports already in use.
-- Disk capacity thresholds, encrypted off-host backup destination, independent
-  credentials, retention, restore-test schedule, and failure contacts.
+- Disk capacity thresholds, encrypted off-host Restic backend, append-only
+  enforcement, independent writer and maintenance identities, offline recovery
+  material, retention, restore-test schedule, and failure contacts.
 - Pilot operator, support contact, incident owner, user list, credential
   delivery, outage communication, and the date Pilot data/backups are removed.
 
 ## Deliberate deferrals and gates
 
 This repository slice does not configure a VM, DNS, Cloudflare, firewall,
-router, SSH, monitoring provider, encrypted backup destination, or automatic
+router, SSH, monitoring provider, real off-host backup provider, or automatic
 deployment. It does not add uploads/file backups, structured application-log
 refactoring, zero-downtime migration, or multiple replicas.
 

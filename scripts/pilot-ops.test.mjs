@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join, relative } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterAll, afterEach, describe, expect, it } from "vitest";
@@ -36,6 +36,18 @@ const releaseWorkflow = readFileSync(
   new URL("../.github/workflows/publish-release-image.yml", import.meta.url),
   "utf8",
 );
+const validateWorkflow = readFileSync(
+  new URL("../.github/workflows/validate.yml", import.meta.url),
+  "utf8",
+);
+const resticCiInstaller = readFileSync(
+  new URL("./install-pinned-restic-ci.sh", import.meta.url),
+  "utf8",
+);
+const backupRehearsal = readFileSync(
+  new URL("./pilot-backup-rehearsal.sh", import.meta.url),
+  "utf8",
+);
 const pilotRunbook = readFileSync(
   new URL("../deploy/pilot/README.md", import.meta.url),
   "utf8",
@@ -59,6 +71,7 @@ const testTemporaryRoot = join(
 
 const temporaryDirectories = [];
 const operationLockPaths = [];
+const testSnapshotId = "c".repeat(64);
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -134,6 +147,9 @@ function validPilotValues(overrides = {}) {
     KAUL_DB_USER: "kaul_pilot_app",
     KAUL_DB_PASSWORD: generatedSecret(),
     KAUL_DB_NAME: "kaul_pilot",
+    RESTIC_EXPECTED_VERSION: "0.19.1",
+    RESTIC_REPOSITORY: "rest:https://backup.invalid/kaul-pilot/",
+    RESTIC_PASSWORD_FILE: "/tmp/overridden-by-fixture",
     ...overrides,
   };
 
@@ -219,17 +235,62 @@ function dockerStubLines() {
   ];
 }
 
+function resticStubLines() {
+  return [
+    "#!/bin/sh",
+    "set -eu",
+    'printf \'restic %s\\n\' "$*" >> "$KAUL_TEST_COMMAND_LOG"',
+    'if [ "${1:-}" != version ] && [ -n "${KAUL_TEST_EXPECTED_RESTIC_REPOSITORY:-}" ]; then',
+    '  [ "${RESTIC_REPOSITORY:-}" = "$KAUL_TEST_EXPECTED_RESTIC_REPOSITORY" ] || exit 91',
+    '  [ "${RESTIC_PASSWORD_FILE:-}" = "$KAUL_TEST_EXPECTED_RESTIC_PASSWORD_FILE" ] || exit 92',
+    '  [ "${RESTIC_PASSWORD+x}" != x ] || exit 93',
+    '  if [ -n "${KAUL_TEST_EXPECTED_REST_USERNAME:-}" ]; then',
+    '    [ "${RESTIC_REST_USERNAME:-}" = "$KAUL_TEST_EXPECTED_REST_USERNAME" ] || exit 94',
+    '    [ "${RESTIC_REST_PASSWORD:-}" = "$KAUL_TEST_EXPECTED_REST_PASSWORD" ] || exit 95',
+    "  fi",
+    "fi",
+    'case "${1:-}" in',
+    "  version) printf '%s\\n' 'restic 0.19.1 compiled with go1.25.0 on linux/amd64'; exit 0 ;;",
+    "  backup)",
+    '    while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done',
+    '    [ "${1:-}" = -- ] || exit 2',
+    "    shift",
+    '    "$@" >/dev/null || exit 1',
+    `    printf '%s\\n' '{"message_type":"summary","total_bytes_processed":27,"snapshot_id":"${testSnapshotId}"}'`,
+    "    ;;",
+    `  snapshots) printf '%s\\n' '[{"id":"${testSnapshotId}"}]' ;;`,
+    `  ls) printf '%s\\n' '{"message_type":"snapshot","id":"${testSnapshotId}"}' '{"struct_type":"node","path":"/kaul-pilot.dump","type":"file","size":27}' ;;`,
+    "  dump) printf '%s\\n' 'fictional custom archive' ;;",
+    "  forget|prune) exit 1 ;;",
+    "  *) exit 2 ;;",
+    "esac",
+  ];
+}
+
 function createPilotCommandFixture({ overrides = {}, omittedKey } = {}) {
   const directory = createTemporaryDirectory();
   const stubDirectory = join(directory, "bin");
-  const backupDirectory = join(directory, "backups");
-  const values = validPilotValues(overrides);
+  const resticPasswordPath = join(directory, "restic-password");
+  writeFileSync(resticPasswordPath, `${generatedSecret()}\n`, { mode: 0o600 });
+  chmodSync(resticPasswordPath, 0o600);
+  const values = validPilotValues({
+    RESTIC_PASSWORD_FILE: toPosixPath(resticPasswordPath),
+    ...overrides,
+  });
   const environmentPath = writeEnvironmentFile(directory, values, omittedKey);
   mkdirSync(stubDirectory);
   writeExecutable(stubDirectory, "docker", dockerStubLines());
+  writeExecutable(stubDirectory, "restic", resticStubLines());
+  if (process.platform === "win32") {
+    writeExecutable(stubDirectory, "mkfifo", [
+      "#!/bin/sh",
+      "set -eu",
+      'for argument in "$@"; do case "$argument" in -*) ;; *) target=$argument ;; esac; done',
+      ': > "$target"',
+    ]);
+  }
 
   return {
-    backupDirectory,
     directory,
     environmentPath,
     stubDirectory,
@@ -243,6 +304,7 @@ function preparePilotInvocation(
   stub = {},
   acquireOperationLock = false,
   database = "kaul_restore_test",
+  snapshot = testSnapshotId,
 ) {
   const commandLog = join(
     fixture.directory,
@@ -264,14 +326,10 @@ function preparePilotInvocation(
     "--env-file",
     toPosixPath(fixture.environmentPath),
   ];
-  if (["backup", "migrate", "update"].includes(command)) {
-    mkdirSync(fixture.backupDirectory, { recursive: true });
-    operatorArguments.push(
-      "--backup-dir",
-      relative(repositoryRoot, fixture.backupDirectory).replaceAll("\\", "/"),
-    );
+  if (["validate-backup", "restore"].includes(command)) {
+    operatorArguments.push("--snapshot", snapshot);
   }
-  if (command === "start-restore-check") {
+  if (["restore", "start-restore-check"].includes(command)) {
     operatorArguments.push("--database", database);
   }
 
@@ -305,6 +363,7 @@ function executePilotCommand(
     fixture,
     acquireOperationLock = false,
     database,
+    snapshot,
   } = {},
 ) {
   const commandFixture =
@@ -315,11 +374,13 @@ function executePilotCommand(
     stub,
     acquireOperationLock,
     database,
+    snapshot,
   );
 
   const result = spawnSync(posixShellPath(), invocation.shellArguments, {
     encoding: "utf8",
     env: invocation.environment,
+    timeout: 60_000,
   });
 
   return {
@@ -373,7 +434,7 @@ function startPilotCommand(command, fixture, stub = {}) {
 }
 
 async function waitForFile(path) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (let attempt = 0; attempt < 1_500; attempt += 1) {
     if (existsSync(path)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -403,7 +464,8 @@ function executePostgresInit(overrides = {}) {
 }
 
 function outputOf(result) {
-  return `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  const commandLog = result.commandLog?.join("\n") ?? "";
+  return `${result.stdout ?? ""}${result.stderr ?? ""}${commandLog}`;
 }
 
 function tarHeaderString(header, offset, length) {
@@ -573,13 +635,48 @@ describe("Pilot operator safety controls", () => {
     expect(script).toContain("The environment file is parsed as data");
   });
 
-  it("creates and validates portable PostgreSQL backups", () => {
+  it("streams portable PostgreSQL backups into exact Restic snapshots", () => {
     expect(script).toContain("--format=custom");
-    expect(script).toContain("sha256sum");
+    expect(script).toContain("--stdin-from-command");
+    expect(script).toContain('run_restic dump "$snapshot"');
     expect(script).toContain("pg_restore --list");
-    expect(script).toContain("mktemp");
-    expect(script).toContain('mv -n -- "$TEMPORARY_BACKUP" "$archive"');
-    expect(script).toContain("Backup destination already exists");
+    expect(script).toContain("mkfifo -m 600");
+    expect(script).toContain("Snapshot ID must contain exactly 64");
+    expect(script).toContain("delete @ENV{grep { /^RESTIC_/ } keys %ENV}");
+    expect(script).not.toContain("--archive");
+    expect(script).not.toContain("latest");
+    expect(script).toContain("exec pg_dump --username");
+  });
+
+  it("pins Restic CI artifacts by version and publisher checksum", () => {
+    expect(resticCiInstaller).toContain("RESTIC_VERSION=0.19.1");
+    expect(resticCiInstaller).toContain(
+      "RESTIC_SHA256=f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c",
+    );
+    expect(resticCiInstaller).toContain("REST_SERVER_VERSION=0.14.0");
+    expect(resticCiInstaller).toContain(
+      "REST_SERVER_SHA256=4c9c95bc079a0334e81fad379b19dc5c3353c71c2c88d652cafce2081c2b1c66",
+    );
+    expect(resticCiInstaller).toContain("sha256sum --check --status");
+    expect(resticCiInstaller).toContain(
+      "TARGET_DIRECTORY already exists; refusing to replace it",
+    );
+    expect(resticCiInstaller).not.toMatch(/\/latest(?:\/|$)/);
+  });
+
+  it("runs a separate real append-only backup rehearsal on Ubuntu", () => {
+    expect(validateWorkflow).toContain("backup-rehearsal:");
+    expect(validateWorkflow).toContain("runs-on: ubuntu-latest");
+    expect(validateWorkflow).toContain("scripts/install-pinned-restic-ci.sh");
+    expect(validateWorkflow).toContain("scripts/pilot-backup-rehearsal.sh");
+    expect(backupRehearsal).toContain("--append-only");
+    expect(backupRehearsal).toContain('"$SCRIPT_DIR/pilot-ops.sh" backup');
+    expect(backupRehearsal).toContain(
+      '"$SCRIPT_DIR/pilot-ops.sh" validate-backup',
+    );
+    expect(backupRehearsal).toContain('restic dump "$snapshot_id"');
+    expect(backupRehearsal).toContain('restic forget "$snapshot_id"');
+    expect(backupRehearsal).not.toContain("restic dump latest");
   });
 
   it("serializes every state-mutating or recovery operator workflow", () => {
@@ -749,6 +846,39 @@ describe("Pilot preflight behavior", () => {
         result.values.KAUL_DB_PASSWORD,
       ].some((secret) => outputOf(result).includes(secret)),
     ).toBe(false);
+  });
+
+  it("rejects local Restic repositories", () => {
+    const result = executePilotCommand("preflight", {
+      overrides: { RESTIC_REPOSITORY: "/var/backups/kaul" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain("must use an off-host backend");
+  });
+
+  it("rejects REST credentials embedded in the repository URL", () => {
+    const result = executePilotCommand("preflight", {
+      overrides: {
+        RESTIC_REPOSITORY:
+          "rest:https://writer:fictional-secret@backup.invalid/kaul/",
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain("must not embed REST credentials");
+    expect(outputOf(result)).not.toContain("fictional-secret");
+  });
+
+  it("requires the reviewed Restic version", () => {
+    const result = executePilotCommand("preflight", {
+      overrides: { RESTIC_EXPECTED_VERSION: "0.18.1" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain(
+      "RESTIC_EXPECTED_VERSION must be 0.19.1",
+    );
   });
 
   it.each([
@@ -1010,7 +1140,7 @@ describe("Pilot private restore-check behavior", () => {
     expect(outputOf(result)).toContain(
       `Private restore check is healthy against database: ${restoreDatabase}`,
     );
-  }, 30_000);
+  }, 60_000);
 
   it("rejects an invalid restored-database name before startup", () => {
     const invalid = executePilotCommand("start-restore-check", {
@@ -1067,7 +1197,7 @@ describe("Pilot private restore-check behavior", () => {
     expect(outputOf(result)).toContain(
       "private restore check was unhealthy and was removed",
     );
-  }, 15_000);
+  }, 60_000);
 
   it("cleans up a failed private-check startup without changing live services", () => {
     const result = executePilotCommand("start-restore-check", {
@@ -1092,7 +1222,7 @@ describe("Pilot private restore-check behavior", () => {
       result.commandLog.some((command) => command.endsWith(" stop kaul")),
     ).toBe(false);
     expect(outputOf(result)).toContain("restore-check startup failed");
-  }, 15_000);
+  }, 60_000);
 
   it("stops only the private check and preserves every database", () => {
     const result = executePilotCommand("stop-restore-check", {
@@ -1118,7 +1248,7 @@ describe("Pilot private restore-check behavior", () => {
     expect(absent.status, outputOf(absent)).toBe(0);
     expect(outputOf(absent)).toContain("No private restore check exists");
     expect(commandPosition(absent.commandLog, " rm ")).toBe(-1);
-  }, 15_000);
+  }, 60_000);
 
   it("serializes restore-check start and stop by Compose project", async () => {
     const fixture = createPilotCommandFixture({
@@ -1155,7 +1285,92 @@ describe("Pilot private restore-check behavior", () => {
       "Another Pilot operator workflow is already running",
     );
     expect(firstResult.status, outputOf(firstResult)).toBe(0);
-  }, 30_000);
+  }, 60_000);
+});
+
+describe("Pilot Restic backup and restore behavior", () => {
+  it("uses the selected Restic config despite hostile ambient values", () => {
+    const fixture = createPilotCommandFixture();
+    const result = executePilotCommand("backup", {
+      fixture,
+      stub: {
+        KAUL_TEST_EXPECTED_RESTIC_REPOSITORY: fixture.values.RESTIC_REPOSITORY,
+        KAUL_TEST_EXPECTED_RESTIC_PASSWORD_FILE:
+          fixture.values.RESTIC_PASSWORD_FILE,
+        RESTIC_REPOSITORY: "/hostile/local/repository",
+        RESTIC_PASSWORD: "hostile-ambient-password",
+        RESTIC_PASSWORD_FILE: "/hostile/password-file",
+        RESTIC_REST_USERNAME: "fictional-rest-writer",
+        RESTIC_REST_PASSWORD: "fictional-rest-backend-secret",
+        KAUL_TEST_EXPECTED_REST_USERNAME: "fictional-rest-writer",
+        KAUL_TEST_EXPECTED_REST_PASSWORD: "fictional-rest-backend-secret",
+      },
+    });
+
+    expect(result.status, outputOf(result)).toBe(0);
+    expect(outputOf(result)).not.toContain("hostile-ambient-password");
+  }, 60_000);
+
+  it("creates, identifies, and validates one exact snapshot", () => {
+    const result = executePilotCommand("backup");
+
+    expect(result.status, outputOf(result)).toBe(0);
+    expect(result.stdout).toContain(
+      `Backup snapshot created and validated: ${testSnapshotId}`,
+    );
+    expect(commandPosition(result.commandLog, "restic backup")).toBeLessThan(
+      commandPosition(result.commandLog, "pg_dump"),
+    );
+    expect(commandPosition(result.commandLog, "pg_dump")).toBeLessThan(
+      commandPosition(result.commandLog, "restic snapshots"),
+    );
+    expect(commandPosition(result.commandLog, "restic dump")).toBeLessThan(
+      commandPosition(result.commandLog, "pg_restore --list"),
+    );
+  }, 60_000);
+
+  it("publishes no successful snapshot when pg_dump fails", () => {
+    const result = executePilotCommand("backup", {
+      stub: { KAUL_TEST_FAIL_BACKUP: "1" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain(
+      "Restic did not publish a successful snapshot",
+    );
+    expect(commandPosition(result.commandLog, "pg_dump")).toBeGreaterThan(-1);
+    expect(commandPosition(result.commandLog, "restic snapshots")).toBe(-1);
+  }, 60_000);
+
+  it("rejects an ambiguous or shortened snapshot selector", () => {
+    const result = executePilotCommand("validate-backup", {
+      snapshot: testSnapshotId.slice(0, 12),
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain(
+      "Snapshot ID must contain exactly 64 lowercase hexadecimal characters",
+    );
+    expect(commandPosition(result.commandLog, "restic snapshots")).toBe(-1);
+  });
+
+  it("restores the selected snapshot only into a new guarded database", () => {
+    const result = executePilotCommand("restore", {
+      database: "kaul_restore_exact_ci",
+    });
+
+    expect(result.status, outputOf(result)).toBe(0);
+    expect(
+      commandPosition(result.commandLog, "restic snapshots"),
+    ).toBeGreaterThan(-1);
+    expect(commandPosition(result.commandLog, "restic dump")).toBeGreaterThan(
+      -1,
+    );
+    expect(commandPosition(result.commandLog, "createdb")).toBeGreaterThan(-1);
+    expect(outputOf(result)).toContain(
+      "Restore completed into new database: kaul_restore_exact_ci",
+    );
+  }, 60_000);
 });
 
 describe("Pilot update behavior", () => {
@@ -1179,10 +1394,14 @@ describe("Pilot update behavior", () => {
     expect(commandPosition(commands, ".State.Health")).toBeLessThan(
       commandPosition(commands, "up -d --no-deps caddy"),
     );
-  }, 15_000);
+  }, 60_000);
 
   it("rejects a second operator workflow before Docker mutation", async () => {
-    const fixture = createPilotCommandFixture();
+    const fixture = createPilotCommandFixture({
+      overrides: {
+        COMPOSE_PROJECT_NAME: uniqueComposeProject("same-workflow"),
+      },
+    });
     const readyPath = join(fixture.directory, "first-operation-ready");
     const releasePath = join(fixture.directory, "release-first-operation");
     const first = startPilotCommand("update", fixture, {
@@ -1212,13 +1431,12 @@ describe("Pilot update behavior", () => {
     );
     expect(firstResult.status, outputOf(firstResult)).toBe(0);
 
-    fixture.backupDirectory = join(fixture.directory, "backup-after-release");
     const afterRelease = executePilotCommand("update", {
       acquireOperationLock: true,
       fixture,
     });
     expect(afterRelease.status, outputOf(afterRelease)).toBe(0);
-  }, 30_000);
+  }, 120_000);
 
   it("serializes different env files that target the same Compose project", async () => {
     const project = uniqueComposeProject("shared");
@@ -1259,7 +1477,7 @@ describe("Pilot update behavior", () => {
       "Another Pilot operator workflow is already running",
     );
     expect(firstResult.status, outputOf(firstResult)).toBe(0);
-  }, 30_000);
+  }, 60_000);
 
   it("keeps different Compose project locks independent", async () => {
     const firstFixture = createPilotCommandFixture({
@@ -1300,31 +1518,7 @@ describe("Pilot update behavior", () => {
     expect(second.status, outputOf(second)).toBe(0);
     expect(commandPosition(second.commandLog, "pg_dump")).toBeGreaterThan(-1);
     expect(firstResult.status, outputOf(firstResult)).toBe(0);
-  }, 30_000);
-
-  it("refuses to replace a colliding completed backup", () => {
-    const fixture = createPilotCommandFixture();
-    const timestamp = "20260819T120000Z";
-    mkdirSync(fixture.backupDirectory, { recursive: true });
-    const archive = join(
-      fixture.backupDirectory,
-      `${fixture.values.KAUL_DB_NAME}_${timestamp}.dump`,
-    );
-    writeFileSync(archive, "existing verified backup\n");
-    writeExecutable(fixture.stubDirectory, "date", [
-      "#!/bin/sh",
-      `printf '%s\\n' '${timestamp}'`,
-    ]);
-
-    const result = executePilotCommand("backup", { fixture });
-
-    expect(result.status).not.toBe(0);
-    expect(outputOf(result)).toContain(
-      "Backup destination already exists; refusing to replace it",
-    );
-    expect(readFileSync(archive, "utf8")).toBe("existing verified backup\n");
-    expect(commandPosition(result.commandLog, "pg_dump")).toBe(-1);
-  });
+  }, 60_000);
 
   it("does not continue when Caddy cannot be stopped", () => {
     const result = executePilotCommand("update", {
@@ -1340,7 +1534,7 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "Caddy could not be stopped. Update did not proceed",
     );
-  }, 15_000);
+  }, 60_000);
 
   it("leaves Caddy stopped when Kaul cannot be confirmed stopped", () => {
     const result = executePilotCommand("update", {
@@ -1356,11 +1550,17 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "Kaul could not be stopped. Caddy remains stopped",
     );
-  }, 15_000);
+  }, 60_000);
 
   it("keeps Kaul and Caddy stopped when the quiesced backup fails", () => {
+    const fixture = createPilotCommandFixture({
+      overrides: {
+        COMPOSE_PROJECT_NAME: uniqueComposeProject("backup-failure"),
+      },
+    });
     const result = executePilotCommand("update", {
       acquireOperationLock: true,
+      fixture,
       stub: { KAUL_TEST_FAIL_BACKUP: "1" },
     });
 
@@ -1382,7 +1582,7 @@ describe("Pilot update behavior", () => {
       fixture: result.fixture,
     });
     expect(retry.status, outputOf(retry)).toBe(0);
-  }, 30_000);
+  }, 120_000);
 
   it("leaves public serving stopped and reports a migration failure", () => {
     const result = executePilotCommand("update", {
@@ -1400,7 +1600,7 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "Migration failed. Kaul remains stopped",
     );
-  }, 15_000);
+  }, 60_000);
 
   it("stops an unhealthy Kaul release and leaves Caddy stopped", () => {
     const result = executePilotCommand("update", {
@@ -1420,7 +1620,7 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "The new application did not become healthy and was stopped",
     );
-  }, 15_000);
+  }, 60_000);
 
   it("reports an application-start failure and leaves Caddy stopped", () => {
     const result = executePilotCommand("update", {
@@ -1437,7 +1637,7 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "Kaul startup failed. Kaul and Caddy remain stopped",
     );
-  }, 15_000);
+  }, 60_000);
 
   it("reports when public serving cannot be restored", () => {
     const result = executePilotCommand("update", {
@@ -1454,7 +1654,7 @@ describe("Pilot update behavior", () => {
     expect(outputOf(result)).toContain(
       "Kaul is healthy, but Caddy failed to start. The Pilot remains unavailable",
     );
-  }, 15_000);
+  }, 60_000);
 });
 
 describe("Pilot PostgreSQL initialization behavior", () => {

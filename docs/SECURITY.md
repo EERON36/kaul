@@ -709,6 +709,16 @@ Backups contain the same sensitive information as the live system.
 - Backups must be encrypted.
 - At least one copy must be stored separately from the application host.
 - Backup credentials should be separated from ordinary application credentials.
+- The live Pilot backup writer may create and read backups but must not delete,
+  overwrite, forget, or prune repository history.
+- Retention and destructive repository maintenance require a separate secured
+  off-host identity; those credentials must not be present on the Pilot VM.
+- Backup encryption passwords, provider recovery material, and recovery
+  instructions must have an offline copy outside the Pilot VM.
+- Database dumps must stream directly into the encrypted repository; do not
+  complete a plaintext dump file on the application host.
+- Automated restore and validation must select an exact immutable backup ID,
+  never an ambiguous newest/latest selector.
 - Backup access must be restricted.
 - Backup retention must be documented.
 - Restore procedures must be tested.

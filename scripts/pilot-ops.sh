@@ -6,11 +6,16 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPOSITORY_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 COMPOSE_FILE="$REPOSITORY_ROOT/compose.pilot.yaml"
 ENV_FILE=
-BACKUP_DIRECTORY=
-ARCHIVE=
+SNAPSHOT=
 RESTORE_DATABASE=
-TEMPORARY_BACKUP=
-BACKUP_RESERVATION=
+RESTIC_REPOSITORY_VALUE=
+RESTIC_PASSWORD_FILE_VALUE=
+RESTIC_EXPECTED_VERSION_VALUE=
+RESTIC_STREAM_DIRECTORY=
+RESTIC_STREAM_FIFO=
+RESTIC_DUMP_PID=
+BACKUP_FILENAME=kaul-pilot.dump
+PINNED_RESTIC_VERSION=0.19.1
 MINIMUM_DATABASE_PASSWORD_LENGTH=32
 OPERATION_LOCK_HELD=false
 LOCKED_COMPOSE_PROJECT=
@@ -45,14 +50,23 @@ die() {
   exit 1
 }
 
-cleanup_backup_reservation() {
-  if [ -n "$BACKUP_RESERVATION" ]; then
-    rmdir -- "$BACKUP_RESERVATION" 2>/dev/null || true
-    BACKUP_RESERVATION=
+cleanup_temporary_resources() {
+  if [ -n "$RESTIC_DUMP_PID" ]; then
+    kill "$RESTIC_DUMP_PID" 2>/dev/null || true
+    wait "$RESTIC_DUMP_PID" 2>/dev/null || true
+    RESTIC_DUMP_PID=
+  fi
+  if [ -n "$RESTIC_STREAM_FIFO" ]; then
+    rm -f -- "$RESTIC_STREAM_FIFO"
+    RESTIC_STREAM_FIFO=
+  fi
+  if [ -n "$RESTIC_STREAM_DIRECTORY" ]; then
+    rmdir -- "$RESTIC_STREAM_DIRECTORY" 2>/dev/null || true
+    RESTIC_STREAM_DIRECTORY=
   fi
 }
 
-trap cleanup_backup_reservation EXIT
+trap cleanup_temporary_resources EXIT
 
 note() {
   printf '%s\n' "$*"
@@ -62,13 +76,13 @@ usage() {
   cat <<'USAGE'
 Usage:
   scripts/pilot-ops.sh preflight --env-file PATH
-  scripts/pilot-ops.sh backup --env-file PATH --backup-dir PATH
-  scripts/pilot-ops.sh validate-backup --env-file PATH --archive PATH
-  scripts/pilot-ops.sh restore --env-file PATH --archive PATH --database kaul_restore_NAME
+  scripts/pilot-ops.sh backup --env-file PATH
+  scripts/pilot-ops.sh validate-backup --env-file PATH --snapshot 64_HEX_CHARACTERS
+  scripts/pilot-ops.sh restore --env-file PATH --snapshot 64_HEX_CHARACTERS --database kaul_restore_NAME
   scripts/pilot-ops.sh start-restore-check --env-file PATH --database kaul_restore_NAME
   scripts/pilot-ops.sh stop-restore-check --env-file PATH
-  scripts/pilot-ops.sh migrate --env-file PATH --backup-dir PATH
-  scripts/pilot-ops.sh update --env-file PATH --backup-dir PATH
+  scripts/pilot-ops.sh migrate --env-file PATH
+  scripts/pilot-ops.sh update --env-file PATH
   scripts/pilot-ops.sh start-postgres --env-file PATH
   scripts/pilot-ops.sh bootstrap-admin --env-file PATH
   scripts/pilot-ops.sh start-stack --env-file PATH
@@ -91,14 +105,9 @@ parse_options() {
         ENV_FILE=$2
         shift 2
         ;;
-      --backup-dir)
+      --snapshot)
         require_option_value "$1" "${2:-}"
-        BACKUP_DIRECTORY=$2
-        shift 2
-        ;;
-      --archive)
-        require_option_value "$1" "${2:-}"
-        ARCHIVE=$2
+        SNAPSHOT=$2
         shift 2
         ;;
       --database)
@@ -271,6 +280,89 @@ validate_port_binding() {
     die "$key must be between 1 and 65535."
 }
 
+validate_snapshot_id() {
+  value=$1
+  if ! printf '%s\n' "$value" | grep -Eq '^[0-9a-f]{64}$'; then
+    die "Snapshot ID must contain exactly 64 lowercase hexadecimal characters."
+  fi
+}
+
+validate_restic_password_file() {
+  secret_file=$1
+  case "$secret_file" in
+    /*) ;;
+    *) die "RESTIC_PASSWORD_FILE must be an absolute path." ;;
+  esac
+
+  perl -MFcntl=:DEFAULT,:mode -e '
+    use strict;
+    use warnings;
+
+    my ($path) = @ARGV;
+    sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW)
+      or die "ERROR: RESTIC_PASSWORD_FILE must be a readable regular file and not a symlink.\n";
+    my @stat = stat($file);
+    S_ISREG($stat[2])
+      or die "ERROR: RESTIC_PASSWORD_FILE must be a regular file.\n";
+    $stat[4] == $<
+      or die "ERROR: RESTIC_PASSWORD_FILE must be owned by the current operator.\n";
+    if ($^O ne q{msys} && $^O ne q{cygwin}) {
+      ($stat[2] & 077) == 0
+        or die "ERROR: RESTIC_PASSWORD_FILE must not grant group or other permissions.\n";
+    }
+  ' "$secret_file" || exit 1
+}
+
+load_restic_configuration() {
+  RESTIC_REPOSITORY_VALUE=$(environment_value RESTIC_REPOSITORY)
+  RESTIC_PASSWORD_FILE_VALUE=$(environment_value RESTIC_PASSWORD_FILE)
+  RESTIC_EXPECTED_VERSION_VALUE=$(environment_value RESTIC_EXPECTED_VERSION)
+
+  validate_placeholder RESTIC_REPOSITORY "$RESTIC_REPOSITORY_VALUE"
+  case "$RESTIC_REPOSITORY_VALUE" in
+    /*|./*|../*|local:*|[A-Za-z]:*)
+      die "RESTIC_REPOSITORY must use an off-host backend, not local storage."
+      ;;
+    *:*) ;;
+    *) die "RESTIC_REPOSITORY must use an explicit remote Restic backend." ;;
+  esac
+  case "$RESTIC_REPOSITORY_VALUE" in
+    rest:http://*:*@*|rest:https://*:*@*)
+      die "RESTIC_REPOSITORY must not embed REST credentials; provide them through the service environment."
+      ;;
+  esac
+
+  [ "$RESTIC_EXPECTED_VERSION_VALUE" = "$PINNED_RESTIC_VERSION" ] ||
+    die "RESTIC_EXPECTED_VERSION must be $PINNED_RESTIC_VERSION."
+  validate_restic_password_file "$RESTIC_PASSWORD_FILE_VALUE"
+
+  actual_restic_version=$(restic version 2>/dev/null | awk 'NR == 1 { print $2 }')
+  [ "$actual_restic_version" = "$PINNED_RESTIC_VERSION" ] ||
+    die "restic $PINNED_RESTIC_VERSION is required; found ${actual_restic_version:-unknown}."
+}
+
+run_restic() {
+  KAUL_PILOT_RESTIC_REPOSITORY_VALUE="$RESTIC_REPOSITORY_VALUE" \
+    KAUL_PILOT_RESTIC_PASSWORD_FILE_VALUE="$RESTIC_PASSWORD_FILE_VALUE" \
+    perl -e '
+      use strict;
+      use warnings;
+
+      my $repository = delete($ENV{KAUL_PILOT_RESTIC_REPOSITORY_VALUE});
+      my $password_file = delete($ENV{KAUL_PILOT_RESTIC_PASSWORD_FILE_VALUE});
+      my %rest_backend_auth;
+      for my $key (qw(RESTIC_REST_USERNAME RESTIC_REST_PASSWORD)) {
+        $rest_backend_auth{$key} = $ENV{$key} if exists $ENV{$key};
+      }
+      delete @ENV{grep { /^RESTIC_/ } keys %ENV};
+      $ENV{RESTIC_REPOSITORY} = $repository;
+      $ENV{RESTIC_PASSWORD_FILE} = $password_file;
+      $ENV{$_} = $rest_backend_auth{$_} for keys %rest_backend_auth;
+      exec @ARGV;
+      die "ERROR: Could not start Restic.\n";
+    ' restic "$@"
+}
+
 preflight() {
   load_compose_project
   [ -r "$COMPOSE_FILE" ] || die "Pilot Compose file not found: $COMPOSE_FILE"
@@ -278,9 +370,11 @@ preflight() {
   command -v awk >/dev/null 2>&1 || die "awk is required."
   command -v grep >/dev/null 2>&1 || die "grep is required."
   command -v mktemp >/dev/null 2>&1 || die "mktemp is required."
+  command -v mkfifo >/dev/null 2>&1 || die "mkfifo is required."
   command -v perl >/dev/null 2>&1 || die "Perl with Fcntl locking support is required."
   command -v realpath >/dev/null 2>&1 || die "realpath is required."
-  command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required."
+  command -v restic >/dev/null 2>&1 || die "restic $PINNED_RESTIC_VERSION is required."
+  command -v sed >/dev/null 2>&1 || die "sed is required."
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required."
 
   deployment_environment=$(environment_value DEPLOYMENT_ENV)
@@ -342,19 +436,83 @@ preflight() {
   expected_database_url="postgresql://$app_user:$app_password@postgres:5432/$database"
   [ "$database_url" = "$expected_database_url" ] || die "DATABASE_URL must use the private postgres service and the dedicated application credentials."
 
+  load_restic_configuration
+
   compose config --quiet
   note "Pilot preflight passed for $hostname using immutable image $image."
 }
 
-validate_archive() {
-  archive=$1
-  [ -f "$archive" ] || die "Backup archive not found: $archive"
-  [ -f "$archive.sha256" ] || die "Backup checksum not found: $archive.sha256"
-  archive_directory=$(CDPATH= cd -- "$(dirname -- "$archive")" && pwd)
-  archive_name=$(basename -- "$archive")
-  (cd "$archive_directory" && sha256sum --check --status "$archive_name.sha256") || die "Backup checksum validation failed."
-  compose exec -T postgres sh -ec 'pg_restore --list >/dev/null' < "$archive" || die "PostgreSQL could not read the backup archive."
-  note "Backup checksum and archive readability passed: $archive"
+validate_snapshot_catalog() {
+  snapshot=$1
+  validate_snapshot_id "$snapshot"
+
+  snapshot_json=$(run_restic snapshots --json "$snapshot") ||
+    die "Restic could not read the requested snapshot catalog entry."
+  catalog_ids=$(printf '%s\n' "$snapshot_json" |
+    grep -o '"id":"[0-9a-f]\{64\}"' |
+    sed 's/^"id":"//; s/"$//')
+  [ "$(printf '%s\n' "$catalog_ids" | grep -c .)" -eq 1 ] &&
+    [ "$catalog_ids" = "$snapshot" ] ||
+    die "Restic catalog did not resolve to exactly the requested snapshot ID."
+
+  listing_json=$(run_restic ls --json "$snapshot") ||
+    die "Restic could not list the requested snapshot."
+  expected_entries=$(printf '%s\n' "$listing_json" |
+    grep -F '"path":"/kaul-pilot.dump"' |
+    grep -F '"type":"file"' || true)
+  [ "$(printf '%s\n' "$expected_entries" | grep -c .)" -eq 1 ] ||
+    die "The requested snapshot must contain exactly one /$BACKUP_FILENAME file."
+  printf '%s\n' "$expected_entries" | grep -Eq '"size":[1-9][0-9]*' ||
+    die "The requested snapshot contains an empty database archive."
+}
+
+stream_snapshot_to_postgres() {
+  snapshot=$1
+  mode=$2
+  database=${3:-}
+
+  umask 077
+  RESTIC_STREAM_DIRECTORY=$(mktemp -d)
+  RESTIC_STREAM_FIFO="$RESTIC_STREAM_DIRECTORY/database.dump.pipe"
+  mkfifo -m 600 "$RESTIC_STREAM_FIFO"
+
+  run_restic dump "$snapshot" "/$BACKUP_FILENAME" > "$RESTIC_STREAM_FIFO" &
+  RESTIC_DUMP_PID=$!
+
+  if [ "$mode" = list ]; then
+    if compose exec -T postgres sh -ec 'pg_restore --list >/dev/null' < "$RESTIC_STREAM_FIFO"; then
+      postgres_status=0
+    else
+      postgres_status=$?
+    fi
+  elif [ "$mode" = restore ]; then
+    if compose exec -T postgres sh -ec 'pg_restore --username="$KAUL_DB_USER" --dbname="$1" --exit-on-error --single-transaction --no-owner --no-acl' sh "$database" < "$RESTIC_STREAM_FIFO"; then
+      postgres_status=0
+    else
+      postgres_status=$?
+    fi
+  else
+    die "Invalid internal snapshot stream mode."
+  fi
+
+  if wait "$RESTIC_DUMP_PID"; then
+    restic_status=0
+  else
+    restic_status=$?
+  fi
+  RESTIC_DUMP_PID=
+  cleanup_temporary_resources
+
+  [ "$restic_status" -eq 0 ] || return "$restic_status"
+  [ "$postgres_status" -eq 0 ] || return "$postgres_status"
+}
+
+validate_snapshot() {
+  snapshot=$1
+  validate_snapshot_catalog "$snapshot"
+  stream_snapshot_to_postgres "$snapshot" list ||
+    die "PostgreSQL could not read the exact Restic snapshot archive."
+  note "Exact Restic snapshot and PostgreSQL archive validation passed: $snapshot"
 }
 
 validate_restore_database_name() {
@@ -385,35 +543,41 @@ restore_database_url() {
 }
 
 create_backup() {
-  [ -n "$BACKUP_DIRECTORY" ] || die "--backup-dir is required."
-  mkdir -p -- "$BACKUP_DIRECTORY"
-  chmod 700 "$BACKUP_DIRECTORY"
-  umask 077
-  timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
-  database=$(environment_value KAUL_DB_NAME)
-  archive="$BACKUP_DIRECTORY/${database}_${timestamp}.dump"
-  BACKUP_RESERVATION="$archive.reserve"
-  mkdir -- "$BACKUP_RESERVATION" 2>/dev/null || die "Backup destination is already reserved: $archive"
-  if [ -e "$archive" ] || [ -e "$archive.sha256" ]; then
-    die "Backup destination already exists; refusing to replace it: $archive"
-  fi
-  TEMPORARY_BACKUP=$(mktemp "$BACKUP_DIRECTORY/.${database}_${timestamp}.dump.partial.XXXXXX")
-  compose exec -T postgres sh -ec 'pg_dump --username="$KAUL_DB_USER" --dbname="$KAUL_DB_NAME" --format=custom --no-owner --no-acl' > "$TEMPORARY_BACKUP" || die "PostgreSQL backup failed; partial file retained at $TEMPORARY_BACKUP"
-  [ -s "$TEMPORARY_BACKUP" ] || die "PostgreSQL backup produced an empty archive."
-  if ! mv -n -- "$TEMPORARY_BACKUP" "$archive"; then
-    die "Could not finalize backup; partial file retained at $TEMPORARY_BACKUP"
-  fi
-  if [ -e "$TEMPORARY_BACKUP" ]; then
-    die "Backup destination already exists; refusing to replace it: $archive"
-  fi
-  TEMPORARY_BACKUP=
-  archive_directory=$(CDPATH= cd -- "$(dirname -- "$archive")" && pwd)
-  archive_name=$(basename -- "$archive")
-  (cd "$archive_directory" && sha256sum "$archive_name" > "$archive_name.sha256")
-  validate_archive "$archive"
-  cleanup_backup_reservation
-  note "Backup created: $archive"
-  CREATED_BACKUP=$archive
+  backup_json=$(run_restic backup \
+    --json \
+    --quiet \
+    --host "$PILOT_COMPOSE_PROJECT" \
+    --tag kaul-pilot-database \
+    --tag "compose-project-$PILOT_COMPOSE_PROJECT" \
+    --stdin-filename "$BACKUP_FILENAME" \
+    --stdin-from-command \
+    -- \
+    perl -e '
+      use strict;
+      use warnings;
+
+      my ($keys, @command) = @ARGV;
+      my @keys = grep { length } split /\s+/, $keys;
+      delete @ENV{@keys};
+      exec @command;
+      die "ERROR: Could not start the PostgreSQL backup command.\n";
+    ' "$COMPOSE_INTERPOLATION_KEYS" docker compose \
+    --project-name "$PILOT_COMPOSE_PROJECT" \
+    --project-directory "$REPOSITORY_ROOT" \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    exec -T postgres sh -ec \
+    'exec pg_dump --username="$KAUL_DB_USER" --dbname="$KAUL_DB_NAME" --format=custom --no-owner --no-acl') ||
+    die "PostgreSQL backup failed; Restic did not publish a successful snapshot."
+
+  snapshot_ids=$(printf '%s\n' "$backup_json" |
+    grep -o '"snapshot_id":"[0-9a-f]\{64\}"' |
+    sed 's/^"snapshot_id":"//; s/"$//')
+  [ "$(printf '%s\n' "$snapshot_ids" | grep -c .)" -eq 1 ] ||
+    die "Restic backup succeeded without one unambiguous snapshot ID."
+  CREATED_SNAPSHOT=$snapshot_ids
+  validate_snapshot "$CREATED_SNAPSHOT"
+  note "Backup snapshot created and validated: $CREATED_SNAPSHOT"
 }
 
 run_migrations() {
@@ -425,16 +589,16 @@ run_migrations() {
 }
 
 restore_backup() {
-  [ -n "$ARCHIVE" ] || die "--archive is required."
+  [ -n "$SNAPSHOT" ] || die "--snapshot is required."
   [ -n "$RESTORE_DATABASE" ] || die "--database is required."
   validate_restore_database_name "$RESTORE_DATABASE"
-  validate_archive "$ARCHIVE"
+  validate_snapshot "$SNAPSHOT"
 
   exists=$(database_exists "$RESTORE_DATABASE")
   [ -z "$exists" ] || die "Restore destination already exists; refusing to overwrite it."
 
   compose exec -T postgres sh -ec 'createdb --username="$POSTGRES_USER" --owner="$KAUL_DB_USER" --template=template0 "$1"' sh "$RESTORE_DATABASE"
-  if ! compose exec -T postgres sh -ec 'pg_restore --username="$KAUL_DB_USER" --dbname="$1" --exit-on-error --single-transaction --no-owner --no-acl' sh "$RESTORE_DATABASE" < "$ARCHIVE"; then
+  if ! stream_snapshot_to_postgres "$SNAPSHOT" restore "$RESTORE_DATABASE"; then
     die "Restore failed. The destination was not dropped; preserve it and the logs for review."
   fi
 
@@ -506,7 +670,6 @@ stop_restore_check() {
 }
 
 update_application() {
-  [ -n "$BACKUP_DIRECTORY" ] || die "--backup-dir is required."
   current_container=$(compose ps -q kaul 2>/dev/null || true)
   if [ -n "$current_container" ]; then
     current_image=$(docker inspect --format '{{.Config.Image}}' "$current_container")
@@ -520,7 +683,7 @@ update_application() {
   compose stop caddy || die "Caddy could not be stopped. Update did not proceed."
   compose stop kaul || die "Kaul could not be stopped. Caddy remains stopped and update did not proceed."
   create_backup
-  note "Quiesced pre-update backup: $CREATED_BACKUP"
+  note "Quiesced pre-update backup snapshot: $CREATED_SNAPSHOT"
   run_migrations
   if ! compose up -d --no-deps kaul; then
     if ! compose stop kaul; then
@@ -564,8 +727,8 @@ case "$COMMAND" in
     ;;
   validate-backup)
     preflight
-    [ -n "$ARCHIVE" ] || die "--archive is required."
-    validate_archive "$ARCHIVE"
+    [ -n "$SNAPSHOT" ] || die "--snapshot is required."
+    validate_snapshot "$SNAPSHOT"
     ;;
   restore)
     preflight
@@ -581,7 +744,6 @@ case "$COMMAND" in
     ;;
   migrate)
     preflight
-    [ -n "$BACKUP_DIRECTORY" ] || die "--backup-dir is required."
     compose stop kaul
     create_backup
     run_migrations
