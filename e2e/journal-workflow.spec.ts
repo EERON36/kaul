@@ -252,6 +252,16 @@ async function openNewDraft(page: Page, clientId: string) {
   ).toBeVisible();
 }
 
+async function expectJournalInputHydrated(content: Locator) {
+  await expect
+    .poll(() =>
+      content.evaluate((element) =>
+        Object.prototype.hasOwnProperty.call(element, "value"),
+      ),
+    )
+    .toBe(true);
+}
+
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
@@ -647,6 +657,7 @@ test("Browser Back and Forward protect unsaved Journal work without trapping cle
   await expect(page).toHaveURL(journalUrl);
   await page.evaluate(() => window.history.forward());
   await expect(page).toHaveURL(editorUrl);
+  await expectJournalInputHydrated(content);
   expect(cleanDialogs).toEqual([]);
   page.off("dialog", collectCleanDialog);
 
@@ -698,6 +709,7 @@ test("Browser Back and Forward protect unsaved Journal work without trapping cle
   await expect(page).toHaveURL(overviewUrl);
   await page.evaluate(() => window.history.back());
   await expect(page).toHaveURL(editorUrl);
+  await expectJournalInputHydrated(content);
 
   const forwardContent =
     "Fiktiv osparad anteckning som skyddas vid webbläsarens Framåt.";
