@@ -10,6 +10,17 @@ permissions:
   contents: read
 
 jobs:
+  ingress-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Rehearse private and future public Caddy ingress
+        run: bash scripts/pilot-ingress-rehearsal.sh
+
   backup-rehearsal:
     runs-on: ubuntu-latest
     timeout-minutes: 15

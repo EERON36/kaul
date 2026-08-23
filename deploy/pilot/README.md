@@ -50,6 +50,21 @@ automatic fallback.
 - `pilot.env.example` is a secret-free contract, not a usable environment.
 - `scripts/pilot-ops.sh` provides preflight, backup, restore, migration, and
   update commands.
+- `scripts/pilot-ingress-rehearsal.sh` runs a disposable Linux CI check of the
+  real Compose/Caddy ingress contract with fictional test-only peers.
+
+The ingress rehearsal starts the pinned Caddy image in NPM mode on an isolated
+Docker network. It proves that only a synthetic exact `/32` peer reaches the
+private listener, spoofed forwarding metadata is sanitized, Kaul and PostgreSQL
+publish no host ports, and the future public Caddy configuration validates
+without starting public listeners or requesting certificates. It uses a small
+header-echo stub instead of the Kaul application and does not start PostgreSQL.
+It always removes its disposable containers, networks, and volumes.
+
+This CI evidence does not identify or approve the real NPM peer, configure a
+firewall, inspect the Ubuntu VM/NPM installation, or prove Internet routing,
+TLS, secure cookies, rate-limit separation, or application/database runtime
+behaviour. Those remain later authorised runtime gates.
 
 Copy `pilot.env.example` to an operator-controlled path outside the repository,
 for example `/etc/kaul/pilot.env`. Set ownership to the Kaul operator and mode
