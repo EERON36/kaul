@@ -853,6 +853,16 @@ The pilot must still provide:
 
 The system should be built under the assumption that a user may accidentally enter sensitive information despite the warning.
 
+The reviewed host pattern uses UFW only for host `INPUT` services and a
+repository-owned, original-destination conntrack rule in `DOCKER-USER` for the
+Docker-published Caddy listener. The Kaul chain returns the exact NPM
+source/interface to Docker's normal policy and rejects every other source for
+the original private host/port tuple. It contains no broad established-flow
+exception, never flushes foreign Docker/user state, and must remain installed
+until Docker, its proxy processes, listener, and target DNAT are proven absent.
+Caddy's exact direct-peer check remains independent defense in depth. See
+`deploy/pilot/firewall/README.md` for the rule and failure model.
+
 Invited stakeholders may test real workflows, but Client and case content must
 remain fictional, sanitised, or otherwise non-sensitive under the current
 Milestone 7 governance. The unchanged dependency-audit policy and every open

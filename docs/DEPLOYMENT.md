@@ -1044,6 +1044,16 @@ off-VM retention, exact-snapshot restore, monitoring, incident ownership, and
 user-workflow evidence must still be obtained with fictional or sanitised data
 before a controlled Pilot begins.
 
+The repository-owned Gate C firewall operator, Docker start hooks, fixed timed
+rollback units, exact commands, and three-perspective verification procedure
+are documented in `deploy/pilot/firewall/README.md`. Its digest-pinned nested
+Docker rehearsal can prove Docker 29.7.2 DNAT/`DOCKER-USER` behavior and daemon
+restart behavior. A separate disposable systemd rehearsal can prove bounded
+post-start failure semantics, including stop-post execution and socket
+shutdown. Neither can prove the real VM's installed units, Docker boot/reboot
+timing, UFW state, NPM-observed peer, or physical network path; those remain
+manual Homelab gates.
+
 ## Current Production / Cloud status
 
 Production hosting, database operations, data residency, credential separation,

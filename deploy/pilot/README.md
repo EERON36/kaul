@@ -52,6 +52,10 @@ automatic fallback.
   update commands.
 - `scripts/pilot-ingress-rehearsal.sh` runs a disposable Linux CI check of the
   real Compose/Caddy ingress contract with fictional test-only peers.
+- `firewall/` contains the separately installed root operator, Docker systemd
+  drop-in, timed rollback units, and manual Gate C runbook.
+- `scripts/pilot-firewall-rehearsal.sh` exercises the original-DNAT rule model
+  against a digest-pinned Docker Engine 29.7.2 daemon.
 
 The ingress rehearsal starts the pinned Caddy image in NPM mode on an isolated
 Docker network. It proves that only a synthetic exact `/32` peer reaches the
@@ -197,9 +201,11 @@ the Caddy-observed NPM peer and generated headers; a Docker-aware firewall
 boundary; no access to Proxmox, router, NPM administration, NAS administration,
 or unrelated private services; and reboot persistence. Docker-published ports
 can bypass ordinary UFW input handling, so UFW alone is not sufficient evidence.
-Use a reviewed `DOCKER-USER`,
-Proxmox-firewall, or router/firewall rule and verify both allowed NPM traffic
-and denied non-NPM LAN traffic.
+The reviewed Gate C implementation is in `deploy/pilot/firewall/README.md`. It
+uses UFW for host `INPUT`, one narrowly owned `DOCKER-USER` chain/jump for the
+Docker-published private Caddy listener, and Caddy's exact-peer check as defense
+in depth. It does not require activating the currently unused Proxmox firewall.
+Run its installation or mutation commands only after a separate operator gate.
 
 Docker access is effectively root-level host authority. Limit the operator to
 the approved administrative source, use key-based SSH, disable public/root SSH,

@@ -45,7 +45,7 @@ the release surface requires.
   not-found, accessibility, and first-session orientation slices, plus the
   reviewed dependency, private restore-check, encrypted off-host Restic, strict
   rest-server parsing, and deterministic Journal navigation remediations. The
-  current RC tip is `73ab27007c7be59cb47d65236691ec0b7c3b5ac7`.
+  current RC tip is `0ffe620344e75236276743071c4d0173611a4a44`.
 - The release candidate is not approved for merge, tag, publication,
   deployment, or real or sensitive data.
 
@@ -77,9 +77,12 @@ Current status against the Homelab minimum:
 2. **Ubuntu host and network isolation:** an existing Ubuntu VM in Proxmox is
    the intended host. The repository now prepares a read-only host preflight
    for supported LTS/amd64, resources, Docker, updates, time, private binding,
-   and the NPM route. The VM has not been accessed or inspected; restricted
-   SSH, Docker-aware firewall enforcement, denied management-service access,
-   and reboot behavior have no runtime evidence. A VLAN is optional unless
+   and the NPM route. Codex has not accessed the VM. Operator-supplied passive
+   inventory reports restricted SSH and the target firewall backend; a
+   repository-owned Gate C candidate now prepares strict `DOCKER-USER`
+   enforcement and rollback. Installation, denied management-service access,
+   and reboot behavior have no real-host runtime evidence. A VLAN is optional
+   unless
    these simpler controls cannot establish the required boundary.
 3. **Domain, DNS, and HTTPS:** the Homelab design retains the existing Nginx
    Proxy Manager as the public TLS edge and Caddy as Kaul's native proxy. NPM

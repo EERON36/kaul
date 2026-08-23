@@ -405,6 +405,23 @@ load_ingress_configuration() {
     die "Pilot ingress Compose file not found: $INGRESS_COMPOSE_FILE"
 }
 
+validate_gate_c_policy_if_installed() {
+  gate_c_policy=/etc/kaul/pilot-firewall.conf
+  [ -e "$gate_c_policy" ] || [ -L "$gate_c_policy" ] || return 0
+
+  gate_c_project=$(environment_value COMPOSE_PROJECT_NAME)
+  gate_c_env_file=$(realpath "$ENV_FILE")
+  gate_c_bind="$PILOT_CADDY_BIND_IP_VALUE:$PILOT_CADDY_HTTP_PORT_VALUE"
+  gate_c_proxy="$PILOT_NPM_PROXY_IP_VALUE"
+
+  KAUL_GATE_C_INGRESS_MODE="$(environment_value PILOT_INGRESS_MODE)" \
+  KAUL_GATE_C_PROJECT="$gate_c_project" \
+  KAUL_GATE_C_ENV_FILE="$gate_c_env_file" \
+  KAUL_GATE_C_BIND="$gate_c_bind" \
+  KAUL_GATE_C_PROXY="$gate_c_proxy" \
+  perl "$SCRIPT_DIR/pilot-gate-c-policy.pl" "$gate_c_policy" || exit 1
+}
+
 validate_snapshot_id() {
   value=$1
   if ! printf '%s\n' "$value" | grep -Eq '^[0-9a-f]{64}$'; then
@@ -500,6 +517,7 @@ host_preflight() {
   [ "$ingress_mode" = npm ] ||
     die "The current Homelab host preflight requires PILOT_INGRESS_MODE=npm."
   load_ingress_configuration
+  validate_gate_c_policy_if_installed
   bind_ip=$PILOT_CADDY_BIND_IP_VALUE
   npm_ip=$PILOT_NPM_PROXY_IP_VALUE
   http_port=$PILOT_CADDY_HTTP_PORT_VALUE
@@ -535,7 +553,7 @@ validate_restic_password_file() {
     use warnings;
 
     my ($path) = @ARGV;
-    sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW)
+    sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
       or die "ERROR: RESTIC_PASSWORD_FILE must be a readable regular file and not a symlink.\n";
     my @stat = stat($file);
     S_ISREG($stat[2])
@@ -628,6 +646,7 @@ preflight() {
       ;;
   esac
   load_ingress_configuration
+  validate_gate_c_policy_if_installed
 
   auth_url=$(environment_value BETTER_AUTH_URL)
   case "$auth_url" in
