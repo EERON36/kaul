@@ -260,6 +260,8 @@ describe("Pilot Docker firewall contract", () => {
     expect(operator).toContain(
       "Running Docker containers could not be enumerated",
     );
+    expect(operator.match(/\|\| return 0/g)).toHaveLength(2);
+    expect(operator).not.toMatch(/\|\| return\r?\n/);
     expect(operator).toContain(
       "Raw-table NOTRACK rules require separate review",
     );

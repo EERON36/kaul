@@ -803,7 +803,7 @@ validate_project_publications() {
   local container_output
   local -a container_ids
   container_output=$(docker ps --quiet) || die "Running Docker containers could not be enumerated."
-  [ -n "$container_output" ] || return
+  [ -n "$container_output" ] || return 0
   mapfile -t container_ids <<< "$container_output"
 
   docker inspect "${container_ids[@]}" |
@@ -861,7 +861,7 @@ validate_project_networks() {
   network_output=$(docker network ls \
     --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --quiet) ||
     die "Pilot Docker networks could not be enumerated."
-  [ -n "$network_output" ] || return
+  [ -n "$network_output" ] || return 0
   mapfile -t network_ids <<< "$network_output"
 
   docker network inspect "${network_ids[@]}" |
