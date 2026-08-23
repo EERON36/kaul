@@ -117,6 +117,19 @@ dump_owned_filter_state() {
   inner iptables -w 10 -t filter -S DOCKER-USER >&2 || true
 }
 
+run_verify() {
+  local verify_output
+  if ! verify_output=$(run_operator verify 2>&1); then
+    printf '%s\n' "$verify_output" >&2
+    dump_owned_filter_state
+    printf '%s\n' "Actual disposable FORWARD state:" >&2
+    inner iptables -w 10 -t filter -S FORWARD >&2 || true
+    inner sh -c 'tail -100 /tmp/dockerd.log' >&2 || true
+    die "A required firewall verification failed."
+  fi
+  printf '%s\n' "$verify_output"
+}
+
 insert_owned_jump() {
   inner iptables -w 10 -t filter -I DOCKER-USER 1 \
     -p tcp -m conntrack \
@@ -293,7 +306,7 @@ inner iptables -w 10 -t filter -D DOCKER-USER -g "$OWNED_CHAIN" ||
 printf '%s\n' "Pre-Docker idempotence and foreign-state checks passed."
 
 start_inner_docker
-run_operator verify
+run_verify
 inner iptables -w 10 -t filter -S FORWARD | sed -n '2p' |
   grep -Fxq -- '-A FORWARD -j DOCKER-USER'
 inner docker network create \
@@ -318,7 +331,7 @@ docker exec "$NPM_NAME" sh -c \
   'mkdir -p /tmp/egress; printf "%s\n" egress-ok > /tmp/egress/index.html'
 docker exec --detach "$NPM_NAME" httpd -f -p 18080 -h /tmp/egress
 sleep 2
-run_operator verify
+run_verify
 inner iptables -w 10 -t nat -I PREROUTING 1 -d "$HOST_IP/32" \
   -p tcp --dport 8080 -j DNAT --to-destination 192.168.1.250:8080
 if run_operator verify >/dev/null 2>&1; then
@@ -342,7 +355,7 @@ fi
 inner iptables -w 10 -t nat -D PREROUTING -d "$HOST_IP/32" \
   -p tcp -m multiport --dports 8000:9000 \
   -j DNAT --to-destination 192.168.1.250:8080
-run_operator verify
+run_verify
 probe_allowed || die "The synthetic NPM peer was not allowed."
 probe_denied
 
@@ -387,7 +400,7 @@ docker exec "$LAN_NAME" touch /tmp/stop-restart-probe
 wait "$restart_probe_pid"
 docker exec "$LAN_NAME" test ! -e /tmp/restart-window ||
   die "An unauthorized connection succeeded while Docker restored its restart-policy workload."
-run_operator verify
+run_verify
 probe_allowed
 probe_denied
 printf '%s\n' "Docker restart recreated its first FORWARD jump before the denied restart-policy workload became reachable."
@@ -397,7 +410,7 @@ if run_operator verify >/dev/null 2>&1; then
   die "Intentional duplicate-jump corruption was not detected."
 fi
 inner iptables -w 10 -t filter -D DOCKER-USER 1
-run_operator verify
+run_verify
 
 stop_inner_docker
 inner rm -f /var/run/docker.sock
