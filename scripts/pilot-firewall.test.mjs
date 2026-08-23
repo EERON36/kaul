@@ -228,6 +228,12 @@ describe("Pilot Docker firewall contract", () => {
     expect(operator).toContain('-i "$INGRESS_INTERFACE"');
     expect(operator).toContain('-s "$TRUSTED_NPM_IPV4/32"');
     expect(operator).toContain('-d "$TRUSTED_NPM_IPV4/32"');
+    expect(operator).toContain(
+      '"-A $OWNED_CHAIN -s $TRUSTED_NPM_IPV4/32 -i $INGRESS_INTERFACE -m conntrack --ctdir ORIGINAL -j RETURN"',
+    );
+    expect(operator).toContain(
+      '"-A $OWNED_CHAIN -d $TRUSTED_NPM_IPV4/32 -o $INGRESS_INTERFACE -m conntrack --ctdir REPLY -j RETURN"',
+    );
     expect(
       operator.match(/-p tcp -m tcp -j REJECT --reject-with tcp-reset/g),
     ).toHaveLength(2);

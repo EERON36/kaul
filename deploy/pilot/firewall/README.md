@@ -35,9 +35,9 @@ DNAT are absent while the Kaul guard remains installed.
 -A DOCKER-USER -p tcp -m conntrack \
   --ctorigdst 192.168.1.120 --ctorigdstport 8080 \
   -m comment --comment kaul-pilot-private-caddy -j KAUL-PILOT-CADDY
--A KAUL-PILOT-CADDY -i ens18 -s 192.168.1.100/32 \
+-A KAUL-PILOT-CADDY -s 192.168.1.100/32 -i ens18 \
   -m conntrack --ctdir ORIGINAL -j RETURN
--A KAUL-PILOT-CADDY -o ens18 -d 192.168.1.100/32 \
+-A KAUL-PILOT-CADDY -d 192.168.1.100/32 -o ens18 \
   -m conntrack --ctdir REPLY -j RETURN
 -A KAUL-PILOT-CADDY -p tcp -m tcp -j REJECT --reject-with tcp-reset
 ```
