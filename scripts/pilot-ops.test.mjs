@@ -790,6 +790,23 @@ describe("Pilot operator safety controls", () => {
     expect(backupRehearsal).not.toContain("restic dump latest");
   });
 
+  it("waits for the final PostgreSQL server before the backup fixture", () => {
+    const readiness = backupRehearsal.match(
+      /wait_for_postgres\(\) \{[\s\S]*?\n\}/,
+    )?.[0];
+    expect(readiness).toBeDefined();
+    expect(readiness).toContain("for _ in $(seq 1 60)");
+    expect(readiness).toContain('cat /proc/1/comm)" = postgres');
+    expect(readiness).toContain("pg_isready");
+    expect(readiness).toContain('--command="SELECT 1;"');
+    expect(readiness.indexOf("cat /proc/1/comm")).toBeLessThan(
+      readiness.indexOf("pg_isready"),
+    );
+    expect(readiness.indexOf("pg_isready")).toBeLessThan(
+      readiness.indexOf("psql"),
+    );
+  });
+
   it("serializes every state-mutating or recovery operator workflow", () => {
     expect(script).toContain("LOCK_EX | LOCK_NB");
     expect(script).toContain(

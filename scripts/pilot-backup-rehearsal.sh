@@ -26,8 +26,18 @@ compose() {
 
 wait_for_postgres() {
   for _ in $(seq 1 60); do
-    if compose exec -T postgres pg_isready \
-      --username=kaul_pilot_admin --dbname=kaul_pilot_ci >/dev/null 2>&1; then
+    if compose exec -T postgres sh -ec '
+      [ "$(cat /proc/1/comm)" = postgres ] || exit 1
+      pg_isready --username="$KAUL_DB_USER" --dbname="$KAUL_DB_NAME" >/dev/null 2>&1
+      query_result=$(psql \
+        --username="$KAUL_DB_USER" \
+        --dbname="$KAUL_DB_NAME" \
+        --tuples-only \
+        --no-align \
+        --set=ON_ERROR_STOP=1 \
+        --command="SELECT 1;")
+      [ "$query_result" = 1 ]
+    '; then
       return
     fi
     sleep 1
