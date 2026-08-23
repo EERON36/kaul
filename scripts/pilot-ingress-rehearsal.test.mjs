@@ -67,6 +67,11 @@ describe("Pilot ingress rehearsal contract", () => {
     expect(rehearsal).toContain("wait_for_caddy_upstream");
     expect(rehearsal).toContain("wait_for_trusted_ingress");
     expect(rehearsal).toContain('cap_add: ["NET_BIND_SERVICE"]');
+    expect(rehearsal).toContain('chmod 644 "$STUB_CADDYFILE"');
+    expect(rehearsal).toContain('chmod 600 "$ENV_FILE" "$OVERRIDE_FILE"');
+    expect(rehearsal).not.toContain(
+      'chmod 600 "$ENV_FILE" "$OVERRIDE_FILE" "$STUB_CADDYFILE"',
+    );
     expect(rehearsal.indexOf("wait_for_stub\n")).toBeLessThan(
       rehearsal.indexOf("compose_npm up -d --no-deps caddy"),
     );

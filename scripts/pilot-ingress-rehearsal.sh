@@ -186,7 +186,12 @@ networks:
       config:
         - subnet: 172.31.251.0/24
 EOF
-chmod 600 "$ENV_FILE" "$OVERRIDE_FILE" "$STUB_CADDYFILE"
+# The stub contains only the static fictional response contract. Its
+# capability-dropped container cannot bypass host ownership on a 0600 bind
+# mount, so make that one non-secret file readable while keeping generated
+# environment and Compose inputs operator-only.
+chmod 644 "$STUB_CADDYFILE"
+chmod 600 "$ENV_FILE" "$OVERRIDE_FILE"
 DIAGNOSTICS_ENABLED=true
 
 export PILOT_INGRESS_MODE=public
