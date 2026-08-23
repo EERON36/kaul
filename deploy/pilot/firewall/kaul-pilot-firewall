@@ -627,7 +627,7 @@ expected_owned_chain() {
     "-N $OWNED_CHAIN" \
     "-A $OWNED_CHAIN -i $INGRESS_INTERFACE -s $TRUSTED_NPM_IPV4/32 -m conntrack --ctdir ORIGINAL -j RETURN" \
     "-A $OWNED_CHAIN -o $INGRESS_INTERFACE -d $TRUSTED_NPM_IPV4/32 -m conntrack --ctdir REPLY -j RETURN" \
-    "-A $OWNED_CHAIN -p tcp -j REJECT --reject-with tcp-reset"
+    "-A $OWNED_CHAIN -p tcp -m tcp -j REJECT --reject-with tcp-reset"
 }
 
 owned_chain_is_exact() {
@@ -759,7 +759,7 @@ apply_firewall() {
       -o "$INGRESS_INTERFACE" -d "$TRUSTED_NPM_IPV4/32" \
       -m conntrack --ctdir REPLY -j RETURN
     iptables -w 10 -t filter -A "$OWNED_CHAIN" \
-      -p tcp -j REJECT --reject-with tcp-reset
+      -p tcp -m tcp -j REJECT --reject-with tcp-reset
   fi
 
   local reference_count

@@ -39,7 +39,7 @@ DNAT are absent while the Kaul guard remains installed.
   -m conntrack --ctdir ORIGINAL -j RETURN
 -A KAUL-PILOT-CADDY -o ens18 -d 192.168.1.100/32 \
   -m conntrack --ctdir REPLY -j RETURN
--A KAUL-PILOT-CADDY -p tcp -j REJECT --reject-with tcp-reset
+-A KAUL-PILOT-CADDY -p tcp -m tcp -j REJECT --reject-with tcp-reset
 ```
 
 Docker has already applied DNAT before `DOCKER-USER`, so the jump matches the
