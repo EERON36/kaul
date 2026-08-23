@@ -180,10 +180,11 @@ export function NavigationHistoryTracker({
       if (returnDelta === 0) return;
 
       // popstate cannot be cancelled. Keep Next on the editor, then traverse
-      // back to the source entry; the restorative popstate is allowed above.
+      // back to the source entry after this event finishes dispatching; the
+      // restorative popstate is allowed above.
       event.stopImmediatePropagation();
       restoringCurrentEntry = true;
-      window.history.go(returnDelta);
+      queueMicrotask(() => window.history.go(returnDelta));
     };
 
     history.pushState = trackedPushState;

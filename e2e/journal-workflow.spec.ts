@@ -684,9 +684,9 @@ test("Browser Back and Forward protect unsaved Journal work without trapping cle
     element.dispatchEvent(new InputEvent("input", { bubbles: true }));
     window.history.back();
   }, backContent);
+  await expect.poll(() => backWarningCount).toBe(1);
   await expect(page).toHaveURL(editorUrl);
   await expect(content).toHaveValue(backContent);
-  expect(backWarningCount).toBe(1);
 
   await page.evaluate(() => window.history.back());
   await expect(page).toHaveURL(journalUrl);
@@ -734,9 +734,9 @@ test("Browser Back and Forward protect unsaved Journal work without trapping cle
     element.dispatchEvent(new InputEvent("input", { bubbles: true }));
     window.history.forward();
   }, forwardContent);
+  await expect.poll(() => guardedForwardWarningCount).toBe(1);
   await expect(page).toHaveURL(editorUrl);
   await expect(content).toHaveValue(forwardContent);
-  expect(guardedForwardWarningCount).toBe(1);
 
   await page.evaluate(() => window.history.forward());
   await expect(page).toHaveURL(overviewUrl);
