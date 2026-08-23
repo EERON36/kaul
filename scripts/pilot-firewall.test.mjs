@@ -295,6 +295,7 @@ describe("Pilot Docker firewall contract", () => {
       "alpine@sha256:7c8cb692ae09657cbc4a3f3cbd0e8d5a2690ba38386aaaf252dbb060bf5eb2e6",
     );
     expect(rehearsal).toContain('Server.Version}}\')" = "29.7.2"');
+    expect(rehearsal).toContain("install -d -m 0755 /etc/docker");
     expect(rehearsal).toContain("foreign-sentinel");
     expect(rehearsal).toContain('docker volume rm "$DIND_VOLUME"');
     expect(rehearsal).toContain("forged forwarded headers");

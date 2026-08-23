@@ -143,6 +143,7 @@ inner install -d -m 0755 /usr/local/libexec
 inner install -m 0755 /source/deploy/pilot/firewall/kaul-pilot-firewall \
   /usr/local/libexec/kaul-pilot-firewall
 inner install -d -m 0700 /etc/kaul
+inner install -d -m 0755 /etc/docker
 inner sh -c 'umask 077; printf "%s\n" \
   "COMPOSE_PROJECT_NAME=kaul-pilot" \
   "PILOT_ENV_FILE=/etc/kaul/pilot.env" \
