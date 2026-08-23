@@ -27,14 +27,22 @@ function readHistoryPosition(state: unknown) {
 }
 
 function readBrowserHistoryPosition() {
-  const navigation = Reflect.get(window, "navigation") as
-    { currentEntry?: { index?: unknown } } | undefined;
+  const navigation = readBrowserNavigation();
   const position = navigation?.currentEntry?.index;
   return typeof position === "number" &&
     Number.isSafeInteger(position) &&
     position >= 0
     ? position
     : null;
+}
+
+function readBrowserNavigation() {
+  return Reflect.get(window, "navigation") as Navigation | undefined;
+}
+
+function readBrowserHistoryEntryKey() {
+  const key = readBrowserNavigation()?.currentEntry?.key;
+  return typeof key === "string" && key !== "" ? key : null;
 }
 
 function withHistoryPosition(state: unknown, position: number) {
@@ -137,6 +145,7 @@ export function NavigationHistoryTracker({
   useLayoutEffect(() => {
     const history = window.history;
     let currentPosition = ensureCurrentHistoryPosition();
+    let currentEntryKey = readBrowserHistoryEntryKey();
     let restoringCurrentEntry = false;
     const originalPushState = history.pushState.bind(history);
     const originalReplaceState = history.replaceState.bind(history);
@@ -145,6 +154,7 @@ export function NavigationHistoryTracker({
       const nextPosition = currentPosition + 1;
       originalPushState(withHistoryPosition(data, nextPosition), unused, url);
       currentPosition = nextPosition;
+      currentEntryKey = readBrowserHistoryEntryKey();
     };
     const trackedReplaceState: History["replaceState"] = (
       data,
@@ -165,6 +175,7 @@ export function NavigationHistoryTracker({
       if (restoringCurrentEntry) {
         restoringCurrentEntry = false;
         currentPosition = destinationPosition;
+        currentEntryKey = readBrowserHistoryEntryKey();
         return;
       }
 
@@ -173,18 +184,36 @@ export function NavigationHistoryTracker({
         window.confirm(guard.current.confirmationMessage)
       ) {
         currentPosition = destinationPosition;
+        currentEntryKey = readBrowserHistoryEntryKey();
         return;
       }
 
       const returnDelta = currentPosition - destinationPosition;
-      if (returnDelta === 0) return;
+      const sourceEntryKey = currentEntryKey;
+      if (returnDelta === 0 && sourceEntryKey === null) return;
 
       // popstate cannot be cancelled. Keep Next on the editor, then traverse
       // back to the source entry after this event finishes dispatching; the
       // restorative popstate is allowed above.
       event.stopImmediatePropagation();
       restoringCurrentEntry = true;
-      queueMicrotask(() => window.history.go(returnDelta));
+      queueMicrotask(() => {
+        const navigation = readBrowserNavigation();
+        const traverseTo = navigation?.traverseTo?.bind(navigation);
+        if (sourceEntryKey !== null && traverseTo) {
+          const traversal = traverseTo(sourceEntryKey);
+          if (traversal.committed) {
+            void traversal.committed.catch(() => {
+              if (returnDelta !== 0) window.history.go(returnDelta);
+            });
+          }
+          if (traversal.finished) {
+            void traversal.finished.catch(() => undefined);
+          }
+          return;
+        }
+        window.history.go(returnDelta);
+      });
     };
 
     history.pushState = trackedPushState;
