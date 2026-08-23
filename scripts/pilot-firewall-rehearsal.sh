@@ -278,14 +278,19 @@ fi
 [ "$first_state" = "$(inner iptables-save -t filter)" ] ||
   die "The idempotent application changed the ruleset."
 inner iptables -w 10 -t filter -S DOCKER-USER |
-  sed -n '2p' | grep -Fq -- "--comment $OWNED_COMMENT -j $OWNED_CHAIN"
+  sed -n '2p' | grep -Fq -- "--comment $OWNED_COMMENT -j $OWNED_CHAIN" ||
+  die "The Kaul-owned DOCKER-USER jump was not exact and first."
 inner iptables -w 10 -t filter -S DOCKER-USER |
-  grep -Fq -- '--comment foreign-sentinel -j RETURN'
-inner iptables -w 10 -t filter -A DOCKER-USER -g "$OWNED_CHAIN"
+  grep -Fq -- '--comment foreign-sentinel -j RETURN' ||
+  die "The foreign DOCKER-USER sentinel was not preserved."
+inner iptables -w 10 -t filter -A DOCKER-USER -g "$OWNED_CHAIN" ||
+  die "The foreign goto rehearsal rule could not be installed."
 if run_operator apply >/dev/null 2>&1; then
   die "A foreign goto reference to the Kaul-owned chain was accepted."
 fi
-inner iptables -w 10 -t filter -D DOCKER-USER -g "$OWNED_CHAIN"
+inner iptables -w 10 -t filter -D DOCKER-USER -g "$OWNED_CHAIN" ||
+  die "The foreign goto rehearsal rule could not be removed."
+printf '%s\n' "Pre-Docker idempotence and foreign-state checks passed."
 
 start_inner_docker
 run_operator verify
