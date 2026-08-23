@@ -130,6 +130,10 @@ run_verify() {
   printf '%s\n' "$verify_output"
 }
 
+saved_filter_state() {
+  inner iptables-save -t filter | grep -v '^#'
+}
+
 insert_owned_jump() {
   inner iptables -w 10 -t filter -I DOCKER-USER 1 \
     -p tcp -m conntrack \
@@ -278,7 +282,7 @@ if ! apply_output=$(run_operator apply 2>&1); then
   exit 1
 fi
 printf '%s\n' "$apply_output"
-if ! first_state=$(inner iptables-save -t filter); then
+if ! first_state=$(saved_filter_state); then
   die "The first applied filter state could not be captured."
 fi
 if ! second_apply=$(run_operator apply 2>&1); then
@@ -288,7 +292,10 @@ if ! second_apply=$(run_operator apply 2>&1); then
 fi
 [ "$second_apply" = "Kaul-owned firewall state is already exact; no rules changed." ] ||
   die "The second application was not an explicit no-op."
-[ "$first_state" = "$(inner iptables-save -t filter)" ] ||
+if ! second_state=$(saved_filter_state); then
+  die "The second applied filter state could not be captured."
+fi
+[ "$first_state" = "$second_state" ] ||
   die "The idempotent application changed the ruleset."
 inner iptables -w 10 -t filter -S DOCKER-USER |
   sed -n '2p' | grep -Fq -- "--comment $OWNED_COMMENT -j $OWNED_CHAIN" ||
