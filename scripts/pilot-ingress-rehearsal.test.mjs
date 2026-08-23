@@ -31,6 +31,10 @@ describe("Pilot ingress rehearsal contract", () => {
     expect(workflow).toContain("bash scripts/pilot-ingress-rehearsal.sh");
     expect(rehearsal).toContain("trap cleanup EXIT");
     expect(rehearsal).toContain("compose_npm down --volumes --remove-orphans");
+    expect(rehearsal).toContain("compose_npm ps --all");
+    expect(rehearsal).toContain(
+      "compose_npm logs --no-color --tail 100 kaul caddy",
+    );
   });
 
   it("has valid Bash syntax", () => {
@@ -58,6 +62,13 @@ describe("Pilot ingress rehearsal contract", () => {
     );
     expect(rehearsal.indexOf("compose_public run --rm --no-deps")).toBeLessThan(
       rehearsal.indexOf("compose_npm up -d --no-deps"),
+    );
+    expect(rehearsal).toContain("wait_for_stub");
+    expect(rehearsal).toContain("wait_for_caddy_upstream");
+    expect(rehearsal).toContain("wait_for_trusted_ingress");
+    expect(rehearsal).toContain('cap_add: ["NET_BIND_SERVICE"]');
+    expect(rehearsal.indexOf("wait_for_stub\n")).toBeLessThan(
+      rehearsal.indexOf("compose_npm up -d --no-deps caddy"),
     );
   });
 

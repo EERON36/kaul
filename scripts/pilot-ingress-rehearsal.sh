@@ -15,6 +15,7 @@ STUB_CADDYFILE="$WORK_DIRECTORY/Caddyfile.stub"
 NPM_PEER_IP=172.31.251.10
 UNTRUSTED_PEER_IP=172.31.251.11
 CADDY_IP=172.31.251.20
+DIAGNOSTICS_ENABLED=false
 
 compose_npm() {
   docker compose \
@@ -39,14 +40,56 @@ compose_public() {
 }
 
 cleanup() {
+  exit_status=$?
+  trap - EXIT
+  if [ "$exit_status" -ne 0 ] && [ "$DIAGNOSTICS_ENABLED" = true ]; then
+    printf '%s\n' 'Ingress rehearsal failed. Disposable service status:' >&2
+    compose_npm ps --all >&2 || true
+    printf '%s\n' 'Disposable Kaul-stub and Caddy logs:' >&2
+    compose_npm logs --no-color --tail 100 kaul caddy >&2 || true
+  fi
   compose_npm down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf -- "$WORK_DIRECTORY"
+  exit "$exit_status"
 }
 trap cleanup EXIT
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
+}
+
+wait_for_stub() {
+  for _ in $(seq 1 30); do
+    if compose_npm exec -T kaul wget -q -O /dev/null \
+      http://127.0.0.1:3000/; then
+      return
+    fi
+    sleep 1
+  done
+  fail "The disposable Kaul header-echo stub did not become ready."
+}
+
+wait_for_caddy_upstream() {
+  for _ in $(seq 1 30); do
+    if compose_npm exec -T caddy wget -q -O /dev/null \
+      http://kaul:3000/; then
+      return
+    fi
+    sleep 1
+  done
+  fail "Caddy could not reach the disposable Kaul stub on the private network."
+}
+
+wait_for_trusted_ingress() {
+  for _ in $(seq 1 30); do
+    if compose_npm exec -T npm-probe wget -q -O /dev/null \
+      --header='Host: pilot-ci.invalid' http://caddy:8080/; then
+      return
+    fi
+    sleep 1
+  done
+  fail "The trusted synthetic NPM peer could not reach Kaul through Caddy."
 }
 
 for command_name in curl docker grep mktemp python3 sed uname; do
@@ -108,6 +151,10 @@ services:
     image: $CADDY_IMAGE
     entrypoint: ["caddy"]
     command: ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    # The official Caddy binary carries cap_net_bind_service=ep. The Kaul
+    # service drops every capability, so the rehearsal stub must add back the
+    # same single capability as the real Caddy service to execute that binary.
+    cap_add: ["NET_BIND_SERVICE"]
     volumes:
       - $STUB_CADDYFILE:/etc/caddy/Caddyfile:ro
     healthcheck:
@@ -140,6 +187,7 @@ networks:
         - subnet: 172.31.251.0/24
 EOF
 chmod 600 "$ENV_FILE" "$OVERRIDE_FILE" "$STUB_CADDYFILE"
+DIAGNOSTICS_ENABLED=true
 
 export PILOT_INGRESS_MODE=public
 PUBLIC_RENDERED="$WORK_DIRECTORY/public-compose.json"
@@ -194,16 +242,14 @@ if (
     raise SystemExit("The rehearsal Caddy port is not a loopback-only TCP 8080 binding")
 PY
 
-compose_npm up -d --no-deps kaul npm-probe untrusted-probe
+compose_npm run --rm --no-deps --entrypoint caddy kaul \
+  validate --config /etc/caddy/Caddyfile --adapter caddyfile
+compose_npm up -d --no-deps kaul
+wait_for_stub
+compose_npm up -d --no-deps npm-probe untrusted-probe
 compose_npm up -d --no-deps caddy
-
-for _ in $(seq 1 30); do
-  if compose_npm exec -T npm-probe wget -q -O /dev/null \
-    --header='Host: pilot-ci.invalid' http://caddy:8080/; then
-    break
-  fi
-  sleep 1
-done
+wait_for_caddy_upstream
+wait_for_trusted_ingress
 
 EXPECTED_RESPONSE='pilot-ci.invalid|198.51.100.23|198.51.100.23|pilot-ci.invalid|https|||'
 ACTUAL_RESPONSE=$(compose_npm exec -T npm-probe wget -q -O - \
