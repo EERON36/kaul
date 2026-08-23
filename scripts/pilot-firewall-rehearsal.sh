@@ -110,6 +110,13 @@ run_operator() {
     --config /etc/kaul/pilot-firewall.conf
 }
 
+dump_owned_filter_state() {
+  printf '%s\n' "Actual disposable $OWNED_CHAIN state:" >&2
+  inner iptables -w 10 -t filter -S "$OWNED_CHAIN" >&2 || true
+  printf '%s\n' "Actual disposable DOCKER-USER state:" >&2
+  inner iptables -w 10 -t filter -S DOCKER-USER >&2 || true
+}
+
 insert_owned_jump() {
   inner iptables -w 10 -t filter -I DOCKER-USER 1 \
     -p tcp -m conntrack \
@@ -254,15 +261,18 @@ inner rm /etc/docker/daemon.json
 run_operator preflight
 if ! apply_output=$(run_operator apply 2>&1); then
   printf '%s\n' "$apply_output" >&2
-  printf '%s\n' "Actual disposable $OWNED_CHAIN state:" >&2
-  inner iptables -w 10 -t filter -S "$OWNED_CHAIN" >&2 || true
-  printf '%s\n' "Actual disposable DOCKER-USER state:" >&2
-  inner iptables -w 10 -t filter -S DOCKER-USER >&2 || true
+  dump_owned_filter_state
   exit 1
 fi
 printf '%s\n' "$apply_output"
-first_state=$(inner iptables-save -t filter)
-second_apply=$(run_operator apply)
+if ! first_state=$(inner iptables-save -t filter); then
+  die "The first applied filter state could not be captured."
+fi
+if ! second_apply=$(run_operator apply 2>&1); then
+  printf '%s\n' "$second_apply" >&2
+  dump_owned_filter_state
+  die "The idempotent second firewall application failed."
+fi
 [ "$second_apply" = "Kaul-owned firewall state is already exact; no rules changed." ] ||
   die "The second application was not an explicit no-op."
 [ "$first_state" = "$(inner iptables-save -t filter)" ] ||
