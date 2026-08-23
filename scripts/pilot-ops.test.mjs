@@ -665,6 +665,9 @@ describe("Pilot operator safety controls", () => {
     expect(script).toContain("--stdin-from-command");
     expect(script).toContain('run_restic dump "$snapshot"');
     expect(script).toContain("pg_restore --list");
+    expect(script.indexOf('run_restic dump "$snapshot"')).toBeLessThan(
+      script.indexOf("pg_restore --list"),
+    );
     expect(script).toContain("mkfifo -m 600");
     expect(script).toContain("Snapshot ID must contain exactly 64");
     expect(script).toContain("delete @ENV{grep { /^RESTIC_/ } keys %ENV}");
@@ -1397,9 +1400,12 @@ describe("Pilot Restic backup and restore behavior", () => {
     expect(commandPosition(result.commandLog, "pg_dump")).toBeLessThan(
       commandPosition(result.commandLog, "restic snapshots"),
     );
-    expect(commandPosition(result.commandLog, "restic dump")).toBeLessThan(
-      commandPosition(result.commandLog, "pg_restore --list"),
+    expect(commandPosition(result.commandLog, "restic dump")).toBeGreaterThan(
+      -1,
     );
+    expect(
+      commandPosition(result.commandLog, "pg_restore --list"),
+    ).toBeGreaterThan(-1);
   }, 60_000);
 
   it("publishes no successful snapshot when pg_dump fails", () => {
