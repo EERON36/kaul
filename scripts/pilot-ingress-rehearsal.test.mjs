@@ -31,6 +31,18 @@ describe("Pilot ingress rehearsal contract", () => {
     expect(workflow).toContain("bash scripts/pilot-ingress-rehearsal.sh");
     expect(rehearsal).toContain("trap cleanup EXIT");
     expect(rehearsal).toContain("compose_npm down --volumes --remove-orphans");
+    expect(rehearsal).toContain("project_resources_remain");
+    expect(rehearsal).toContain(
+      "label=com.docker.compose.project=$PROJECT_NAME",
+    );
+    expect(rehearsal).toContain(
+      "Disposable ingress container, network, and volume teardown verified.",
+    );
+    expect(rehearsal.match(/\|\| return 2/g)).toHaveLength(3);
+    expect(rehearsal).toContain('if [ "$resource_status" -eq 1 ]');
+    expect(rehearsal).toContain(
+      "ERROR: Disposable ingress teardown could not be verified.",
+    );
     expect(rehearsal).toContain("compose_npm ps --all");
     expect(rehearsal).toContain(
       "compose_npm logs --no-color --tail 100 kaul caddy",

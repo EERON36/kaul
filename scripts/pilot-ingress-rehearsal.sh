@@ -39,6 +39,16 @@ compose_public() {
     "$@"
 }
 
+project_resources_remain() {
+  container_ids=$(docker ps --all --quiet \
+    --filter "label=com.docker.compose.project=$PROJECT_NAME") || return 2
+  network_ids=$(docker network ls --quiet \
+    --filter "label=com.docker.compose.project=$PROJECT_NAME") || return 2
+  volume_ids=$(docker volume ls --quiet \
+    --filter "label=com.docker.compose.project=$PROJECT_NAME") || return 2
+  [ -n "$container_ids$network_ids$volume_ids" ]
+}
+
 cleanup() {
   exit_status=$?
   trap - EXIT
@@ -48,7 +58,23 @@ cleanup() {
     printf '%s\n' 'Disposable Kaul-stub and Caddy logs:' >&2
     compose_npm logs --no-color --tail 100 kaul caddy >&2 || true
   fi
-  compose_npm down --volumes --remove-orphans >/dev/null 2>&1 || true
+  if [ "$DIAGNOSTICS_ENABLED" = true ]; then
+    if ! compose_npm down --volumes --remove-orphans >/dev/null 2>&1; then
+      printf '%s\n' 'ERROR: Disposable ingress teardown failed.' >&2
+      [ "$exit_status" -ne 0 ] || exit_status=1
+    elif project_resources_remain; then
+      printf '%s\n' 'ERROR: Disposable ingress resources remain after teardown.' >&2
+      [ "$exit_status" -ne 0 ] || exit_status=1
+    else
+      resource_status=$?
+      if [ "$resource_status" -eq 1 ]; then
+        printf '%s\n' 'Disposable ingress container, network, and volume teardown verified.'
+      else
+        printf '%s\n' 'ERROR: Disposable ingress teardown could not be verified.' >&2
+        [ "$exit_status" -ne 0 ] || exit_status=1
+      fi
+    fi
+  fi
   rm -rf -- "$WORK_DIRECTORY"
   exit "$exit_status"
 }
