@@ -317,7 +317,7 @@ describe("Pilot Docker firewall contract", () => {
     expect(rehearsal).toContain("foreign-sentinel");
     expect(rehearsal).toContain('docker volume rm "$DIND_VOLUME"');
     expect(rehearsal).toContain("forged forwarded headers");
-    expect(rehearsal).toContain("busybox httpd -f -p 18080");
+    expect(rehearsal).toContain("nc -ll -p 18080 -e cat");
     expect(rehearsal).toContain("Executable-looking configuration input");
     expect(rehearsal).toContain("A symlinked root configuration was accepted");
     expect(rehearsal).toContain("A FIFO root configuration blocked preflight");

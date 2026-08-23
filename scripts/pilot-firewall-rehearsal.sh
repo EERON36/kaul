@@ -334,9 +334,7 @@ docker run --detach --network "$NETWORK_NAME" --ip "$NPM_IP" \
   --name "$NPM_NAME" "$PEER_IMAGE" sleep infinity >/dev/null
 docker run --detach --network "$NETWORK_NAME" --ip "$LAN_IP" \
   --name "$LAN_NAME" "$PEER_IMAGE" sleep infinity >/dev/null
-docker exec "$NPM_NAME" sh -c \
-  'mkdir -p /tmp/egress; printf "%s\n" egress-ok > /tmp/egress/index.html'
-docker exec --detach "$NPM_NAME" busybox httpd -f -p 18080 -h /tmp/egress
+docker exec --detach "$NPM_NAME" nc -ll -p 18080 -e cat
 sleep 2
 run_verify
 inner iptables -w 10 -t nat -I PREROUTING 1 -d "$HOST_IP/32" \
@@ -381,8 +379,8 @@ fi
 printf '%s\n' "The unauthorized established connection was cut off without a broad established-flow exception."
 probe_denied
 
-inner docker run --rm "$PEER_IMAGE" wget -qO- \
-  "http://$NPM_IP:18080" | grep -Fxq egress-ok
+inner docker run --rm "$PEER_IMAGE" sh -c \
+  "printf '%s\\n' egress-ok | nc -w 3 $NPM_IP 18080" | grep -Fxq egress-ok
 [ -z "$(inner ss -H -ltn '( sport = :3000 or sport = :5432 )')" ] ||
   die "Kaul or PostgreSQL rehearsal ports were exposed."
 
