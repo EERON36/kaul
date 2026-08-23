@@ -4,8 +4,10 @@ set -Eeuo pipefail
 
 readonly DIND_IMAGE="docker@sha256:ab772b0eaf0b01e5843f6574e50ccdfc34a7bdcb82bbf2decafde54a0ee884a9"
 readonly PEER_IMAGE="alpine@sha256:7c8cb692ae09657cbc4a3f3cbd0e8d5a2690ba38386aaaf252dbb060bf5eb2e6"
+readonly DIND_RUNTIME_IMAGE="$PEER_IMAGE"
 readonly NETWORK_NAME="kaul-firewall-rehearsal-${GITHUB_RUN_ID:-local}-$$"
 readonly DIND_NAME="${NETWORK_NAME}-dind"
+readonly DIND_SOURCE_NAME="${NETWORK_NAME}-docker-source"
 readonly DIND_VOLUME="${NETWORK_NAME}-data"
 readonly DIRECT_NETWORK_NAME="${NETWORK_NAME}-direct"
 readonly NPM_NAME="${NETWORK_NAME}-npm"
@@ -32,11 +34,12 @@ cleanup() {
   if docker exec "$DIND_NAME" docker network inspect "$DIRECT_NETWORK_NAME" >/dev/null 2>&1; then
     cleanup_failed=true
   fi
-  docker rm --force --volumes "$NPM_NAME" "$LAN_NAME" "$DIND_NAME" >/dev/null 2>&1
+  docker rm --force --volumes \
+    "$NPM_NAME" "$LAN_NAME" "$DIND_SOURCE_NAME" "$DIND_NAME" >/dev/null 2>&1
   docker network rm "$NETWORK_NAME" >/dev/null 2>&1
   docker volume rm "$DIND_VOLUME" >/dev/null 2>&1
   local resource
-  for resource in "$NPM_NAME" "$LAN_NAME" "$DIND_NAME"; do
+  for resource in "$NPM_NAME" "$LAN_NAME" "$DIND_SOURCE_NAME" "$DIND_NAME"; do
     if docker inspect "$resource" >/dev/null 2>&1; then
       cleanup_failed=true
     fi
@@ -89,7 +92,7 @@ wait_for_inner_docker_stop() {
 
 start_inner_docker() {
   docker exec --detach "$DIND_NAME" sh -c \
-    'dockerd-entrypoint.sh --host=unix:///var/run/docker.sock --firewall-backend=iptables > /tmp/dockerd.log 2>&1'
+    '/usr/local/bin/dockerd --host=unix:///var/run/docker.sock --firewall-backend=iptables > /tmp/dockerd.log 2>&1'
   wait_for_inner_docker
   [ "$(inner docker version --format '{{.Server.Version}}')" = "29.7.2" ] ||
     die "The pinned rehearsal image did not run Docker Engine 29.7.2."
@@ -136,9 +139,20 @@ docker volume create "$DIND_VOLUME" >/dev/null
 docker run --detach --privileged --network "$NETWORK_NAME" --ip "$HOST_IP" \
   --name "$DIND_NAME" --volume "$ROOT_DIRECTORY:/source:ro" \
   --volume "$DIND_VOLUME:/var/lib/docker" \
-  "$DIND_IMAGE" sleep infinity >/dev/null
+  "$DIND_RUNTIME_IMAGE" sleep infinity >/dev/null
 
-inner apk add --no-cache bash iproute2 perl procps curl >/dev/null
+case $(inner cat /etc/alpine-release) in
+  3.22.*) ;;
+  *) die "The pinned firewall runtime is not Alpine 3.22." ;;
+esac
+inner apk add --no-cache bash ca-certificates curl iproute2 \
+  "iptables=1.8.11-r1" perl procps >/dev/null
+docker run --rm --name "$DIND_SOURCE_NAME" \
+  --volume "$DIND_VOLUME:/var/lib/docker" \
+  --entrypoint tar "$DIND_IMAGE" \
+  -C /usr/local/bin -cf - \
+  containerd containerd-shim-runc-v2 ctr docker docker-init docker-proxy dockerd runc |
+  docker exec -i "$DIND_NAME" tar -C /usr/local/bin -xf -
 inner install -d -m 0755 /usr/local/libexec
 inner install -m 0755 /source/deploy/pilot/firewall/kaul-pilot-firewall \
   /usr/local/libexec/kaul-pilot-firewall

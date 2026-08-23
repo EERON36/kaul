@@ -294,6 +294,13 @@ describe("Pilot Docker firewall contract", () => {
     expect(rehearsal).toContain(
       "alpine@sha256:7c8cb692ae09657cbc4a3f3cbd0e8d5a2690ba38386aaaf252dbb060bf5eb2e6",
     );
+    expect(rehearsal).toContain('DIND_RUNTIME_IMAGE="$PEER_IMAGE"');
+    expect(rehearsal).toContain('"iptables=1.8.11-r1"');
+    expect(rehearsal).toContain('--entrypoint tar "$DIND_IMAGE"');
+    expect(rehearsal).toContain('--name "$DIND_SOURCE_NAME"');
+    expect(rehearsal).toContain(
+      'docker exec -i "$DIND_NAME" tar -C /usr/local/bin -xf -',
+    );
     expect(rehearsal).toContain('Server.Version}}\')" = "29.7.2"');
     expect(rehearsal).toContain("install -d -m 0755 /etc/docker");
     expect(rehearsal).toContain("foreign-sentinel");
