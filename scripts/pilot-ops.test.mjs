@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -680,6 +681,20 @@ describe("Pilot operator safety controls", () => {
     expect(script).toContain("The environment file is parsed as data");
   });
 
+  it("enforces the Pilot environment file ownership and permission contract", () => {
+    const validator = script.slice(
+      script.indexOf("validate_environment_file()"),
+      script.indexOf("load_compose_project()"),
+    );
+    expect(validator).toContain("O_RDONLY | O_NOFOLLOW | O_NONBLOCK");
+    expect(script).toContain(
+      "The Pilot environment file must be owned by the current operator.",
+    );
+    expect(script).toContain(
+      "The Pilot environment file must not grant group or other permissions.",
+    );
+  });
+
   it("streams portable PostgreSQL backups into exact Restic snapshots", () => {
     expect(script).toContain("--format=custom");
     expect(script).toContain("--stdin-from-command");
@@ -858,6 +873,10 @@ describe("Pilot operator safety controls", () => {
     expect(npmIngressCompose).toContain(
       "${PILOT_CADDY_PRIVATE_BIND:?Set PILOT_CADDY_PRIVATE_BIND to the VM private IP and port}:8080",
     );
+    expect(npmIngressCompose).toContain(
+      "${PILOT_NPM_TRUSTED_PROXY_CIDR:?Set PILOT_NPM_TRUSTED_PROXY_CIDR to the verified Caddy-observed NPM peer /32}",
+    );
+    expect(compose).not.toContain("PILOT_NPM_TRUSTED_PROXY_CIDR");
     expect(npmIngressCompose).not.toContain(":80:80");
     expect(npmIngressCompose).not.toContain(":443:443");
     expect(publicIngressCompose).toContain('"80:80"');
@@ -989,6 +1008,56 @@ describe("Pilot operator safety controls", () => {
 });
 
 describe("Pilot preflight behavior", () => {
+  it.skipIf(process.platform === "win32")(
+    "rejects a Pilot environment file with group or other permissions",
+    () => {
+      const fixture = createPilotCommandFixture();
+      chmodSync(fixture.environmentPath, 0o640);
+
+      const result = executePilotCommand("preflight", { fixture });
+
+      expect(result.status).not.toBe(0);
+      expect(outputOf(result)).toContain(
+        "The Pilot environment file must not grant group or other permissions.",
+      );
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "rejects a symlinked Pilot environment file",
+    () => {
+      const fixture = createPilotCommandFixture();
+      const symlinkPath = join(fixture.directory, "pilot-symlink.env");
+      symlinkSync(fixture.environmentPath, symlinkPath);
+      fixture.environmentPath = symlinkPath;
+
+      const result = executePilotCommand("preflight", { fixture });
+
+      expect(result.status).not.toBe(0);
+      expect(outputOf(result)).toContain(
+        "The Pilot environment file must be readable and not a symlink.",
+      );
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "rejects a Pilot environment FIFO without blocking",
+    () => {
+      const fixture = createPilotCommandFixture();
+      const fifoPath = join(fixture.directory, "pilot.env.fifo");
+      const fifoResult = spawnSync("mkfifo", [fifoPath], { encoding: "utf8" });
+      expect(fifoResult.status, fifoResult.stderr).toBe(0);
+      fixture.environmentPath = fifoPath;
+
+      const result = executePilotCommand("preflight", { fixture });
+
+      expect(result.status).not.toBe(0);
+      expect(outputOf(result)).toContain(
+        "The Pilot environment file must be a regular file.",
+      );
+    },
+  );
+
   it("accepts a fully valid Pilot configuration with generated-length secrets", () => {
     const result = executePilotCommand("preflight");
 
@@ -1005,6 +1074,18 @@ describe("Pilot preflight behavior", () => {
 
   it("accepts the future direct-public Caddy ingress contract", () => {
     const result = executePilotCommand("preflight", {
+      overrides: {
+        PILOT_INGRESS_MODE: "public",
+      },
+    });
+
+    expect(result.status, outputOf(result)).toBe(0);
+    expect(result.commandLog.join("\n")).toContain("compose.pilot.public.yaml");
+  }, 15_000);
+
+  it("keeps direct-public Caddy independent of NPM trust input", () => {
+    const result = executePilotCommand("preflight", {
+      omittedKey: "PILOT_NPM_TRUSTED_PROXY_CIDR",
       overrides: {
         PILOT_INGRESS_MODE: "public",
       },

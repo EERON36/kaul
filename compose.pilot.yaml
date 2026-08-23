@@ -10,7 +10,6 @@ services:
     environment:
       PILOT_HOSTNAME: ${PILOT_HOSTNAME:?Set PILOT_HOSTNAME in the Pilot environment file}
       PILOT_INGRESS_MODE: ${PILOT_INGRESS_MODE:?Set PILOT_INGRESS_MODE in the Pilot environment file}
-      PILOT_NPM_TRUSTED_PROXY_CIDR: ${PILOT_NPM_TRUSTED_PROXY_CIDR:-127.0.0.1/32}
     volumes:
       - ./deploy/pilot/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./deploy/pilot/Caddyfile.npm:/etc/caddy/Caddyfile.npm:ro

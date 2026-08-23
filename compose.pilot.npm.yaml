@@ -1,4 +1,6 @@
 services:
   caddy:
+    environment:
+      PILOT_NPM_TRUSTED_PROXY_CIDR: ${PILOT_NPM_TRUSTED_PROXY_CIDR:?Set PILOT_NPM_TRUSTED_PROXY_CIDR to the verified Caddy-observed NPM peer /32}
     ports:
       - "${PILOT_CADDY_PRIVATE_BIND:?Set PILOT_CADDY_PRIVATE_BIND to the VM private IP and port}:8080"
