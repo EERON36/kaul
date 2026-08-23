@@ -336,7 +336,7 @@ docker run --detach --network "$NETWORK_NAME" --ip "$LAN_IP" \
   --name "$LAN_NAME" "$PEER_IMAGE" sleep infinity >/dev/null
 docker exec "$NPM_NAME" sh -c \
   'mkdir -p /tmp/egress; printf "%s\n" egress-ok > /tmp/egress/index.html'
-docker exec --detach "$NPM_NAME" httpd -f -p 18080 -h /tmp/egress
+docker exec --detach "$NPM_NAME" busybox httpd -f -p 18080 -h /tmp/egress
 sleep 2
 run_verify
 inner iptables -w 10 -t nat -I PREROUTING 1 -d "$HOST_IP/32" \
