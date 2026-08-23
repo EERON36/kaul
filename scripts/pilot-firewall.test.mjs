@@ -228,7 +228,9 @@ describe("Pilot Docker firewall contract", () => {
     expect(operator).toContain('-i "$INGRESS_INTERFACE"');
     expect(operator).toContain('-s "$TRUSTED_NPM_IPV4/32"');
     expect(operator).toContain('-d "$TRUSTED_NPM_IPV4/32"');
-    expect(operator).toContain("-j REJECT --reject-with tcp-reset");
+    expect(
+      operator.match(/-p tcp -j REJECT --reject-with tcp-reset/g),
+    ).toHaveLength(2);
     expect(operator).not.toMatch(/ESTABLISHED|RELATED/);
     expect(operator).not.toContain("iptables -F DOCKER-USER");
     expect(operator).not.toContain("-D FORWARD -j DOCKER-USER");
