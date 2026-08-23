@@ -181,6 +181,44 @@ sole-Administrator recovery procedure remain unresolved.
 
 Multi-factor authentication is not required for the first pilot milestone, but may be required before sensitive production use following a security review.
 
+### Homelab proxy and client-identity boundary
+
+The Homelab Pilot uses two reviewed proxy hops: the existing Nginx Proxy
+Manager terminates public TLS, then Caddy receives private-LAN HTTP and remains
+the only proxy connected to Kaul. The router does not forward public 80/443 to
+the Kaul VM.
+
+Caddy must accept the private listener only from the actual NPM network peer
+observed during authorised runtime inspection. That address is a required
+deployment input and must be used as an exact `/32` for both Caddy trust and
+NPM-only ingress enforcement. Access control is based on the direct network
+peer, never a forwarded header. Caddy must not trust all private networks. NPM
+appends the public peer to `X-Forwarded-For`; Caddy parses that chain strictly
+from right to left only for the trusted NPM peer. Caddy then overwrites the
+Host, public HTTPS scheme, `X-Forwarded-For`, and `X-Real-IP` sent to Kaul and
+strips alternative identity headers. Kaul trusts only the Caddy-provided
+`X-Real-IP` for Better Auth login rate limiting.
+
+This boundary requires runtime negative tests. A client-prepended forwarding
+value must not become the rate-limit identity, and a non-NPM LAN peer must not
+reach the Caddy listener. The installed NPM version and generated configuration
+must also prove that Host and forwarding headers were not replaced by an
+advanced/custom location. Secure cookies remain derived from Kaul's exact
+HTTPS `BETTER_AUTH_URL`; the internal HTTP hop does not permit an HTTP public
+origin.
+
+Plain HTTP on the NPM-to-Caddy hop is accepted only under the Homelab Pilot
+threat model: public TLS terminates at NPM, the hop stays on the trusted private
+homelab network, the Caddy listener is not directly Internet-reachable and is
+restricted to the verified NPM peer, strict trusted-proxy processing supplies
+the original HTTPS/client metadata, and Kaul plus PostgreSQL remain
+unpublished. Internal PKI or mTLS is not a Pilot prerequisite unless inspection
+shows a concrete untrusted-network risk.
+
+Future direct-public Caddy mode trusts no forwarding proxy and overwrites the
+same identity headers from its direct connection. Adding another proxy, CDN,
+or broad trusted CIDR requires a separate security review.
+
 ---
 
 ## Authorisation
@@ -793,6 +831,13 @@ The pilot must still provide:
 
 - A dedicated or clearly isolated Ubuntu VM separated from unrelated homelab
   services
+- Existing-VM inspection against the supported OS, resource, patch, startup,
+  and Docker preflight contract
+- A Docker-aware firewall or upstream equivalent that permits the private
+  Caddy listener only from the exact Caddy-observed NPM source and denies
+  unrelated homelab management access
+- Verified NPM Host, HTTPS-scheme, and strict client-IP forwarding behavior,
+  including spoofed-header and non-NPM negative tests
 - HTTPS
 - Individual accounts
 - Strong passwords

@@ -5,6 +5,12 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPOSITORY_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 COMPOSE_FILE="$REPOSITORY_ROOT/compose.pilot.yaml"
+NPM_INGRESS_COMPOSE_FILE="$REPOSITORY_ROOT/compose.pilot.npm.yaml"
+PUBLIC_INGRESS_COMPOSE_FILE="$REPOSITORY_ROOT/compose.pilot.public.yaml"
+INGRESS_COMPOSE_FILE=
+PILOT_CADDY_BIND_IP_VALUE=
+PILOT_CADDY_HTTP_PORT_VALUE=
+PILOT_NPM_PROXY_IP_VALUE=
 ENV_FILE=
 SNAPSHOT=
 RESTORE_DATABASE=
@@ -17,6 +23,7 @@ RESTIC_DUMP_PID=
 BACKUP_FILENAME=kaul-pilot.dump
 PINNED_RESTIC_VERSION=0.19.1
 MINIMUM_DATABASE_PASSWORD_LENGTH=32
+CARRIAGE_RETURN=$(printf '\r')
 OPERATION_LOCK_HELD=false
 LOCKED_COMPOSE_PROJECT=
 PILOT_COMPOSE_PROJECT=
@@ -24,9 +31,9 @@ COMPOSE_INTERPOLATION_KEYS='
 COMPOSE_PROJECT_NAME
 KAUL_IMAGE
 PILOT_HOSTNAME
-PILOT_HTTP_BIND
-PILOT_HTTPS_BIND
-PILOT_HTTPS_UDP_BIND
+PILOT_INGRESS_MODE
+PILOT_CADDY_PRIVATE_BIND
+PILOT_NPM_TRUSTED_PROXY_CIDR
 DEPLOYMENT_ENV
 BETTER_AUTH_URL
 BETTER_AUTH_SECRET
@@ -75,6 +82,7 @@ note() {
 usage() {
   cat <<'USAGE'
 Usage:
+  scripts/pilot-ops.sh host-preflight --env-file PATH
   scripts/pilot-ops.sh preflight --env-file PATH
   scripts/pilot-ops.sh backup --env-file PATH
   scripts/pilot-ops.sh validate-backup --env-file PATH --snapshot 64_HEX_CHARACTERS
@@ -122,9 +130,21 @@ parse_options() {
 
 environment_value() {
   key=$1
-  count=$(awk -F= -v wanted="$key" '$1 == wanted { count += 1 } END { print count + 0 }' "$ENV_FILE")
+  count=0
+  value=
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "$key="*)
+        count=$((count + 1))
+        value=${line#*=}
+        case "$value" in
+          *"$CARRIAGE_RETURN") value=${value%"$CARRIAGE_RETURN"} ;;
+        esac
+        ;;
+    esac
+  done < "$ENV_FILE"
   [ "$count" -eq 1 ] || die "$key must occur exactly once in $ENV_FILE."
-  awk -F= -v wanted="$key" '$1 == wanted { value = substr($0, index($0, "=") + 1); sub(/\r$/, "", value); print value }' "$ENV_FILE"
+  printf '%s\n' "$value"
 }
 
 run_sanitized_compose() {
@@ -158,6 +178,7 @@ run_sanitized_compose() {
     --project-directory "$REPOSITORY_ROOT" \
     --env-file "$ENV_FILE" \
     -f "$COMPOSE_FILE" \
+    -f "$INGRESS_COMPOSE_FILE" \
     "$@"
 }
 
@@ -280,11 +301,204 @@ validate_port_binding() {
     die "$key must be between 1 and 65535."
 }
 
+validate_ipv4_address() {
+  key=$1
+  value=$2
+  case "$value" in
+    ""|*[!0-9.]*) die "$key must be one IPv4 address." ;;
+  esac
+  previous_ifs=$IFS
+  IFS=.
+  set -- $value
+  IFS=$previous_ifs
+  [ "$#" -eq 4 ] || die "$key must be one IPv4 address."
+  for octet in "$@"; do
+    case "$octet" in
+      ""|*[!0-9]*) die "$key must be one IPv4 address." ;;
+      0) ;;
+      0*) die "$key must use unambiguous IPv4 octets without leading zeroes." ;;
+    esac
+    [ "$octet" -le 255 ] || die "$key must be one IPv4 address."
+  done
+}
+
+validate_private_ipv4_address() {
+  key=$1
+  value=$2
+  validate_ipv4_address "$key" "$value"
+  previous_ifs=$IFS
+  IFS=.
+  set -- $value
+  IFS=$previous_ifs
+  case "$1" in
+    10) return ;;
+    172)
+      [ "$2" -ge 16 ] && [ "$2" -le 31 ] && return
+      ;;
+    192)
+      [ "$2" -eq 168 ] && return
+      ;;
+  esac
+  die "$key must be a private RFC1918 IPv4 address."
+}
+
+load_ingress_configuration() {
+  ingress_mode=$(environment_value PILOT_INGRESS_MODE)
+
+  case "$ingress_mode" in
+    npm)
+      INGRESS_COMPOSE_FILE=$NPM_INGRESS_COMPOSE_FILE
+      private_bind=$(environment_value PILOT_CADDY_PRIVATE_BIND)
+      case "$private_bind" in
+        *:*:*) die "PILOT_CADDY_PRIVATE_BIND must contain one private IPv4 address and port." ;;
+        *:*)
+          PILOT_CADDY_BIND_IP_VALUE=${private_bind%:*}
+          PILOT_CADDY_HTTP_PORT_VALUE=${private_bind##*:}
+          ;;
+        *) die "PILOT_CADDY_PRIVATE_BIND must use PRIVATE_IPV4:PORT format." ;;
+      esac
+      validate_private_ipv4_address PILOT_CADDY_PRIVATE_BIND "$PILOT_CADDY_BIND_IP_VALUE"
+      validate_port_binding PILOT_CADDY_PRIVATE_BIND "$PILOT_CADDY_HTTP_PORT_VALUE"
+      [ "$PILOT_CADDY_HTTP_PORT_VALUE" -ge 1024 ] ||
+        die "PILOT_CADDY_PRIVATE_BIND must use an unprivileged private-LAN port."
+      case "$PILOT_CADDY_HTTP_PORT_VALUE" in
+        3000|5432) die "PILOT_CADDY_PRIVATE_BIND must not reuse an application or PostgreSQL port." ;;
+      esac
+      trusted_proxy_cidr=$(environment_value PILOT_NPM_TRUSTED_PROXY_CIDR)
+      case "$trusted_proxy_cidr" in
+        */32) PILOT_NPM_PROXY_IP_VALUE=${trusted_proxy_cidr%/32} ;;
+        *) die "PILOT_NPM_TRUSTED_PROXY_CIDR must be one exact private IPv4 /32 for NPM." ;;
+      esac
+      validate_private_ipv4_address PILOT_NPM_TRUSTED_PROXY_CIDR "$PILOT_NPM_PROXY_IP_VALUE"
+      [ "$PILOT_NPM_PROXY_IP_VALUE" != "$PILOT_CADDY_BIND_IP_VALUE" ] ||
+        die "The NPM proxy address and Kaul VM listener address must differ."
+      ;;
+    public)
+      INGRESS_COMPOSE_FILE=$PUBLIC_INGRESS_COMPOSE_FILE
+      ;;
+    *) die "PILOT_INGRESS_MODE must be npm or public." ;;
+  esac
+
+  [ -r "$INGRESS_COMPOSE_FILE" ] ||
+    die "Pilot ingress Compose file not found: $INGRESS_COMPOSE_FILE"
+}
+
 validate_snapshot_id() {
   value=$1
   if ! printf '%s\n' "$value" | grep -Eq '^[0-9a-f]{64}$'; then
     die "Snapshot ID must contain exactly 64 lowercase hexadecimal characters."
   fi
+}
+
+require_host_command() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 is required on the Pilot host."
+}
+
+os_release_value() {
+  key=$1
+  awk -F= -v wanted="$key" '
+    $1 == wanted {
+      value = substr($0, index($0, "=") + 1)
+      gsub(/^"|"$/, "", value)
+      print value
+      exit
+    }
+  ' /etc/os-release
+}
+
+check_free_kibibytes() {
+  path=$1
+  label=$2
+  available=$(df -Pk "$path" | awk 'NR == 2 { print $4 }')
+  case "$available" in
+    ""|*[!0-9]*) die "Could not determine free space for $label." ;;
+  esac
+  [ "$available" -ge 20971520 ] ||
+    die "$label must have at least 20 GiB free before Pilot deployment."
+}
+
+host_preflight() {
+  load_compose_project
+
+  for required_command in awk df docker getconf grep id ip perl realpath restic sed ss systemctl timedatectl uname; do
+    require_host_command "$required_command"
+  done
+
+  [ "$(uname -s)" = Linux ] || die "The Pilot host must run Linux."
+  [ -r /etc/os-release ] || die "The Pilot host must provide /etc/os-release."
+  [ "$(os_release_value ID)" = ubuntu ] || die "The Pilot host must run Ubuntu."
+  ubuntu_version=$(os_release_value VERSION_ID)
+  case "$ubuntu_version" in
+    22.04|24.04|26.04) ;;
+    *) die "Ubuntu 22.04, 24.04, or 26.04 LTS is required." ;;
+  esac
+  case "$(uname -m)" in
+    x86_64|amd64) ;;
+    *) die "The reviewed Pilot supply contract currently requires x86-64/amd64." ;;
+  esac
+  [ "$(id -u)" -ne 0 ] || die "Run Pilot operations as a dedicated non-root operator."
+
+  online_processors=$(getconf _NPROCESSORS_ONLN)
+  case "$online_processors" in
+    ""|*[!0-9]*) die "Could not determine online processor count." ;;
+  esac
+  [ "$online_processors" -ge 2 ] || die "The Pilot VM must provide at least 2 vCPUs."
+
+  memory_kibibytes=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
+  case "$memory_kibibytes" in
+    ""|*[!0-9]*) die "Could not determine host memory." ;;
+  esac
+  [ "$memory_kibibytes" -ge 4194304 ] || die "The Pilot VM must provide at least 4 GiB RAM."
+
+  check_free_kibibytes "$REPOSITORY_ROOT" "Kaul checkout storage"
+
+  systemctl is-active --quiet docker || die "Docker Engine must be running."
+  systemctl is-enabled --quiet docker || die "Docker Engine must start at boot."
+  systemctl is-enabled --quiet apt-daily-upgrade.timer ||
+    die "Automatic Ubuntu security-update checks must be enabled."
+  [ ! -e /var/run/reboot-required ] || die "The Pilot host requires a reboot before deployment."
+  [ "$(timedatectl show --property=NTPSynchronized --value)" = yes ] ||
+    die "The Pilot host clock must be synchronized."
+  docker_data_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null) ||
+    die "The Pilot operator must be able to access Docker without sudo."
+  case "$docker_data_root" in
+    /*) ;;
+    *) die "Docker did not report an absolute data-root directory." ;;
+  esac
+  [ -d "$docker_data_root" ] || die "Docker's reported data-root directory was not found."
+  check_free_kibibytes "$docker_data_root" "Docker data storage"
+  docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required."
+
+  actual_restic_version=$(restic version 2>/dev/null | awk 'NR == 1 { print $2 }')
+  [ "$actual_restic_version" = "$PINNED_RESTIC_VERSION" ] ||
+    die "restic $PINNED_RESTIC_VERSION is required; found ${actual_restic_version:-unknown}."
+  perl -MFcntl=:DEFAULT,:flock -e 'exit 0' || die "Perl Fcntl locking support is required."
+
+  ingress_mode=$(environment_value PILOT_INGRESS_MODE)
+  [ "$ingress_mode" = npm ] ||
+    die "The current Homelab host preflight requires PILOT_INGRESS_MODE=npm."
+  load_ingress_configuration
+  bind_ip=$PILOT_CADDY_BIND_IP_VALUE
+  npm_ip=$PILOT_NPM_PROXY_IP_VALUE
+  http_port=$PILOT_CADDY_HTTP_PORT_VALUE
+
+  ip -4 -o address show | awk -v expected="$bind_ip" '
+    {
+      split($4, address, "/")
+      if (address[1] == expected) found = 1
+    }
+    END { exit found ? 0 : 1 }
+  ' || die "PILOT_CADDY_PRIVATE_BIND address is not configured on this host."
+  route_to_npm=$(ip -4 route get "$npm_ip" 2>/dev/null) ||
+    die "The Pilot host has no IPv4 route to NPM."
+  printf '%s\n' "$route_to_npm" | grep -F "src $bind_ip" >/dev/null ||
+    die "The NPM route does not use the PILOT_CADDY_PRIVATE_BIND address as its source."
+  if ss -H -ltn | awk -v port="$http_port" '$4 ~ (":" port "$") { found = 1 } END { exit found ? 0 : 1 }'; then
+    die "PILOT_CADDY_PRIVATE_BIND port is already listening before deployment."
+  fi
+
+  note "Automated Ubuntu host preflight passed for the existing VM."
+  note "Manual gates remain: Docker-aware firewall proof, restricted SSH, NPM source/header verification, blocked homelab-management access, and reboot persistence rehearsal."
 }
 
 validate_restic_password_file() {
@@ -391,13 +605,7 @@ preflight() {
       die "PILOT_HOSTNAME must be a lowercase hostname without a scheme or path."
       ;;
   esac
-
-  http_bind=$(environment_value PILOT_HTTP_BIND)
-  https_bind=$(environment_value PILOT_HTTPS_BIND)
-  https_udp_bind=$(environment_value PILOT_HTTPS_UDP_BIND)
-  validate_port_binding PILOT_HTTP_BIND "$http_bind"
-  validate_port_binding PILOT_HTTPS_BIND "$https_bind"
-  validate_port_binding PILOT_HTTPS_UDP_BIND "$https_udp_bind"
+  load_ingress_configuration
 
   auth_url=$(environment_value BETTER_AUTH_URL)
   case "$auth_url" in
@@ -718,6 +926,9 @@ if command_requires_operation_lock "$COMMAND" && [ "$OPERATION_LOCK_HELD" != tru
 fi
 
 case "$COMMAND" in
+  host-preflight)
+    host_preflight
+    ;;
   preflight)
     preflight
     ;;

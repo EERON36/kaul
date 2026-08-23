@@ -1,0 +1,4 @@
+services:
+  caddy:
+    ports:
+      - "${PILOT_CADDY_PRIVATE_BIND:?Set PILOT_CADDY_PRIVATE_BIND to the VM private IP and port}:8080"

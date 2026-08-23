@@ -12,22 +12,41 @@ sensitive production use.
 
 ```text
 Internet
-  -> host ports 80/443
-  -> Caddy
+  -> router 80/443
+  -> existing Nginx Proxy Manager (public TLS)
+  -> Kaul VM private-LAN address:8080
+  -> Caddy (trusted NPM peer only)
   -> internal-only Compose network
        -> Kaul :3000
        -> PostgreSQL :5432
 ```
 
-Only Caddy publishes host ports. Kaul uses a dedicated non-superuser database
-role. PostgreSQL, Kaul, Docker, and Proxmox must not be exposed publicly.
+NPM remains the Homelab public edge. On the Kaul VM, only Caddy publishes one
+private-LAN TCP binding. Host and Docker-aware firewall controls must limit that
+binding to the later-verified, Caddy-observed NPM source address. Kaul uses a
+dedicated non-superuser database role. PostgreSQL, Kaul, Docker, SSH, and
+Proxmox must not be exposed publicly.
 PostgreSQL data and Caddy certificate state use named persistent volumes. There
 is no file/upload volume because Client Documents are not implemented.
+
+The future provider mode removes NPM without changing Kaul application code:
+
+```text
+Internet -> Caddy 80/443 and ACME -> Kaul -> PostgreSQL
+```
+
+`PILOT_INGRESS_MODE=npm` selects the Homelab binding and trusted-proxy policy.
+`PILOT_INGRESS_MODE=public` selects direct Caddy 80/443 publication and automatic
+certificate handling. Changing modes is a reviewed deployment change, never an
+automatic fallback.
 
 ## Files and secrets
 
 - `compose.pilot.yaml` defines the Pilot services separately from development.
-- `Caddyfile` defines HTTPS and the conservative reverse proxy.
+- `compose.pilot.npm.yaml` publishes only the NPM-to-Caddy private listener.
+- `compose.pilot.public.yaml` publishes Caddy 80/443 for a future provider.
+- `Caddyfile.npm` and `Caddyfile.public` define separate fail-closed ingress
+  policies behind one selected Caddy entry point.
 - `pilot.env.example` is a secret-free contract, not a usable environment.
 - `scripts/pilot-ops.sh` provides preflight, backup, restore, migration, and
   update commands.
@@ -80,29 +99,131 @@ before any deployment command:
 Proceed only after both identities match the reviewed release record. This
 gate cannot be completed before the image has actually been published.
 
-## Proxy and client IP boundary
+## NPM, Caddy, and client identity
 
-The initial approved shape is direct Caddy with DNS-only records. Caddy
-overwrites `X-Real-IP` with its direct peer address. Kaul trusts only that
-header for authentication rate limiting, and its application port is private.
-A browser therefore cannot supply a trusted identity header itself.
+The Homelab path has two proxies. NPM terminates public TLS and forwards plain
+HTTP over the private LAN to Caddy. The real NPM source address is a required
+deployment input, not a repository default. During the later authorised
+inspection, observe the immediate network peer Caddy actually receives and set
+that exact `/32` in `PILOT_NPM_TRUSTED_PROXY_CIDR`. Use the same observed peer
+for the firewall or equivalent NPM-only ingress rule. Never derive this access
+decision from `X-Forwarded-For`, `X-Real-IP`, or another client-supplied header,
+and do not trust `private_ranges` or a whole LAN subnet.
 
-Do not enable Cloudflare proxying without a separate trusted-proxy review. In
-the current conservative configuration, Cloudflare would become the direct
-peer: spoofing remains blocked, but many users could share one rate-limit IP.
-Any future change must pin reviewed Cloudflare CIDRs, ignore forwarded headers
-from every other peer, and regression-test the Kaul rate-limit identity.
+NPM must forward the Pilot request with:
 
-## Initial bootstrap
+- `Host` set to the exact public Pilot hostname.
+- `X-Forwarded-Proto: https` for the public browser connection.
+- `X-Forwarded-For` appended with the browser peer address.
+- `X-Real-IP` overwritten with NPM's direct browser peer address.
 
-The future VM needs a supported Linux release, Docker Engine with Compose v2,
-restricted SSH, host firewall rules, working DNS, inbound 80/443, `perl` with
-its core `Fcntl` module, `restic` 0.19.1, and the ordinary `realpath`, `mktemp`,
-and `mkfifo` utilities. Install Restic from its official release artifacts and
-verify the reviewed publisher checksum; do not use `self-update` or an unpinned
-package channel on the Pilot host. `COMPOSE_PROJECT_NAME` must start with a lowercase
-letter or digit, contain only lowercase letters, digits, hyphens, and
-underscores, and contain at most 63 characters. Then:
+Current NPM defaults provide these headers, but the installed NPM version and
+generated proxy-host configuration must be inspected before exposure. Do not
+add an NPM advanced/custom location that silently replaces the default proxy
+header or access-control includes.
+
+Caddy does not pass these values through blindly. It trusts `X-Forwarded-For`
+only from the exact observed NPM network peer, parses the chain right-to-left,
+and overwrites the request sent to Kaul with the expected `Host`, HTTPS scheme,
+and one derived client address in both `X-Real-IP` and `X-Forwarded-For`. It
+removes the generic `Forwarded`, `CF-Connecting-IP`, and `True-Client-IP`
+alternatives. Kaul continues trusting only Caddy's `X-Real-IP` for
+authentication rate limiting. Its configured HTTPS base URL keeps Better Auth
+cookies secure even though the private NPM-to-Caddy hop is HTTP.
+
+Before stakeholder access, prove with request and Caddy-log evidence that:
+
+1. A spoofed left-most `X-Forwarded-For` value does not become Kaul's client IP.
+2. Two real external clients produce their own expected rate-limit identities.
+3. A non-NPM LAN peer cannot reach the private Caddy listener.
+4. The application receives the exact public hostname and HTTPS origin.
+
+Do not add a CDN or another proxy hop without a separate trusted-proxy review.
+
+The accepted Pilot threat model assumes public TLS terminates at NPM; the
+NPM-to-Caddy HTTP hop remains on the trusted private homelab network; Caddy's
+private listener is not Internet-reachable and is restricted to the verified
+NPM peer; strict trusted-proxy processing supplies the original HTTPS/client
+metadata; and Kaul plus PostgreSQL remain unpublished. Internal PKI or mTLS is
+not a baseline Pilot requirement. Reassess transport protection if inspection
+shows that this private hop crosses an untrusted or shared network boundary.
+
+## Existing Ubuntu VM inspection and preflight
+
+Do not provision another VM by default. When homelab access is separately
+approved, inspect the existing Ubuntu VM first and bring it into the supported
+state when practical. The automated floor is:
+
+- Ubuntu 22.04, 24.04, or 26.04 LTS on x86-64/amd64.
+- At least 2 vCPUs, 4 GiB RAM, and 20 GiB free on both the Kaul checkout and
+  Docker data storage before deployment.
+- Docker Engine running and enabled at boot, Compose v2, accurate system time,
+  automatic security-update checks, and no pending reboot.
+- A dedicated non-root Kaul operator able to use Docker, restricted SSH, and no
+  public administrative port.
+- `perl` with `Fcntl`, Restic 0.19.1, `awk`, `grep`, `realpath`, `mktemp`,
+  `mkfifo`, `sed`, `ip`, and `ss`.
+
+Run the read-only host inspection before the stack preflight:
+
+```sh
+scripts/pilot-ops.sh host-preflight --env-file /etc/kaul/pilot.env
+scripts/pilot-ops.sh preflight --env-file /etc/kaul/pilot.env
+```
+
+The host check does not install packages, change the firewall, access NPM, or
+declare the manual network gates complete. It verifies the supported OS and
+architecture, resource floor, Docker and update/startup state, Restic version,
+the configured VM address, its route to NPM, and that the private Caddy port is
+unused before deployment.
+
+Manual inspection must still prove current security patches and restricted SSH;
+the Caddy-observed NPM peer and generated headers; a Docker-aware firewall
+boundary; no access to Proxmox, router, NPM administration, NAS administration,
+or unrelated private services; and reboot persistence. Docker-published ports
+can bypass ordinary UFW input handling, so UFW alone is not sufficient evidence.
+Use a reviewed `DOCKER-USER`,
+Proxmox-firewall, or router/firewall rule and verify both allowed NPM traffic
+and denied non-NPM LAN traffic.
+
+Docker access is effectively root-level host authority. Limit the operator to
+the approved administrative source, use key-based SSH, disable public/root SSH,
+and do not reuse the account for ordinary interactive work.
+
+Inventory the application's actual outbound dependencies during deployment
+preparation and runtime inspection. Minimise egress and restrict it to genuinely
+required destinations or service classes where practical. If broad HTTPS
+egress remains necessary for legitimate application, update, backup, or
+monitoring behavior, document that residual access instead of breaking the
+application to satisfy an unverified theoretical allowlist. This does not grant
+access to homelab management services. The VM needs inbound TCP only from the
+verified NPM peer to the configured private Caddy binding and restricted
+administration from the approved admin source. A VLAN is optional, not a Pilot
+gate unless these simpler controls cannot produce the required boundary.
+
+Install Restic from its official release artifacts and verify the reviewed
+publisher checksum; do not use `self-update` or an unpinned package channel on
+the Pilot host. `COMPOSE_PROJECT_NAME` must start with a lowercase letter or
+digit, contain only lowercase letters, digits, hyphens, and underscores, and
+contain at most 63 characters. Then:
+
+## NPM proxy-host preparation
+
+After a domain and homelab access are separately approved:
+
+1. Observe and record the network peer address Caddy receives from NPM; use its
+   exact `/32` for Caddy trust and NPM-only ingress enforcement.
+2. Create one NPM Proxy Host for the exact `pilot.<domain>` hostname.
+3. Terminate a valid public certificate at NPM and force browser HTTP to HTTPS.
+4. Forward with scheme `http` to the Kaul VM's private address and configured
+   private port, normally TCP 8080.
+5. Do not forward the hostname to Kaul, PostgreSQL, SSH, Docker, or a management
+   service directly.
+6. Confirm the generated NPM configuration retains its standard Host and
+   forwarding headers, then run the spoofing and denied-peer checks above.
+
+The router's existing public 80/443 forwarding remains directed to NPM. Do not
+forward public 80/443 to the Kaul VM during the Homelab Pilot.
 
 The Linux x86-64 CI supply contract pins Restic 0.19.1 archive SHA-256
 `f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c`

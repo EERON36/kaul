@@ -1,25 +1,3 @@
-{$PILOT_HOSTNAME} {
-	encode zstd gzip
-
-	log {
-		output stdout
-		format json
-	}
-
-	header {
-		X-Content-Type-Options nosniff
-		Referrer-Policy no-referrer
-		-Server
-	}
-
-	reverse_proxy kaul:3000 {
-		# Kaul trusts only X-Real-IP for authentication rate limiting. This
-		# assignment overwrites any client-supplied value with Caddy's direct
-		# peer address. Do not put a CDN in front without a separate trusted-
-		# proxy review.
-		header_up X-Real-IP {remote_host}
-		header_up -Forwarded
-		header_up -CF-Connecting-IP
-		header_up -True-Client-IP
-	}
-}
+# Environment substitution happens before Caddy parses this import. Only the
+# fail-closed npm and public values are accepted by pilot-ops.sh.
+import Caddyfile.{$PILOT_INGRESS_MODE}

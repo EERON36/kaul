@@ -9,12 +9,12 @@ services:
         condition: service_healthy
     environment:
       PILOT_HOSTNAME: ${PILOT_HOSTNAME:?Set PILOT_HOSTNAME in the Pilot environment file}
-    ports:
-      - "${PILOT_HTTP_BIND:-80}:80"
-      - "${PILOT_HTTPS_BIND:-443}:443"
-      - "${PILOT_HTTPS_UDP_BIND:-443}:443/udp"
+      PILOT_INGRESS_MODE: ${PILOT_INGRESS_MODE:?Set PILOT_INGRESS_MODE in the Pilot environment file}
+      PILOT_NPM_TRUSTED_PROXY_CIDR: ${PILOT_NPM_TRUSTED_PROXY_CIDR:-127.0.0.1/32}
     volumes:
       - ./deploy/pilot/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/pilot/Caddyfile.npm:/etc/caddy/Caddyfile.npm:ro
+      - ./deploy/pilot/Caddyfile.public:/etc/caddy/Caddyfile.public:ro
       - pilot-caddy-data:/data
       - pilot-caddy-config:/config
     networks:

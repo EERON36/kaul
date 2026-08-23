@@ -20,8 +20,24 @@ const compose = readFileSync(
   new URL("../compose.pilot.yaml", import.meta.url),
   "utf8",
 );
+const npmIngressCompose = readFileSync(
+  new URL("../compose.pilot.npm.yaml", import.meta.url),
+  "utf8",
+);
+const publicIngressCompose = readFileSync(
+  new URL("../compose.pilot.public.yaml", import.meta.url),
+  "utf8",
+);
 const caddy = readFileSync(
   new URL("../deploy/pilot/Caddyfile", import.meta.url),
+  "utf8",
+);
+const npmCaddy = readFileSync(
+  new URL("../deploy/pilot/Caddyfile.npm", import.meta.url),
+  "utf8",
+);
+const publicCaddy = readFileSync(
+  new URL("../deploy/pilot/Caddyfile.public", import.meta.url),
   "utf8",
 );
 const dockerfile = readFileSync(
@@ -53,6 +69,10 @@ const backupRehearsal = readFileSync(
 );
 const pilotRunbook = readFileSync(
   new URL("../deploy/pilot/README.md", import.meta.url),
+  "utf8",
+);
+const pilotEnvironmentExample = readFileSync(
+  new URL("../deploy/pilot/pilot.env.example", import.meta.url),
   "utf8",
 );
 const pilotScriptPath = fileURLToPath(
@@ -153,9 +173,9 @@ function validPilotValues(overrides = {}) {
     COMPOSE_PROJECT_NAME: "kaul-pilot-test",
     KAUL_IMAGE: `ghcr.io/example/kaul@sha256:${"a".repeat(64)}`,
     PILOT_HOSTNAME: "pilot.example.test",
-    PILOT_HTTP_BIND: "80",
-    PILOT_HTTPS_BIND: "443",
-    PILOT_HTTPS_UDP_BIND: "443",
+    PILOT_INGRESS_MODE: "npm",
+    PILOT_CADDY_PRIVATE_BIND: "192.168.50.20:8080",
+    PILOT_NPM_TRUSTED_PROXY_CIDR: "192.168.50.10/32",
     DEPLOYMENT_ENV: "pilot",
     BETTER_AUTH_URL: "https://pilot.example.test",
     BETTER_AUTH_SECRET: generatedSecret(),
@@ -210,7 +230,7 @@ function dockerStubLines() {
     'printf \'%s\\n\' "$*" >> "$KAUL_TEST_COMMAND_LOG"',
     'case " $* " in',
     '  *" compose --project-name "*)',
-    "    for key in COMPOSE_PROJECT_NAME KAUL_IMAGE PILOT_HOSTNAME PILOT_HTTP_BIND PILOT_HTTPS_BIND PILOT_HTTPS_UDP_BIND DEPLOYMENT_ENV BETTER_AUTH_URL BETTER_AUTH_SECRET POSTGRES_ADMIN_USER POSTGRES_ADMIN_PASSWORD KAUL_DB_USER KAUL_DB_PASSWORD KAUL_DB_NAME DATABASE_URL; do",
+    "    for key in COMPOSE_PROJECT_NAME KAUL_IMAGE PILOT_HOSTNAME PILOT_INGRESS_MODE PILOT_CADDY_PRIVATE_BIND PILOT_NPM_TRUSTED_PROXY_CIDR DEPLOYMENT_ENV BETTER_AUTH_URL BETTER_AUTH_SECRET POSTGRES_ADMIN_USER POSTGRES_ADMIN_PASSWORD KAUL_DB_USER KAUL_DB_PASSWORD KAUL_DB_NAME DATABASE_URL; do",
     '      if printenv "$key" >/dev/null 2>&1; then source=ambient; else source=env-file; fi',
     '      printf \'%s=%s\\n\' "$key" "$source" >> "$KAUL_TEST_INTERPOLATION_LOG"',
     '      if [ "$key" = DATABASE_URL ] && [ -n "${KAUL_TEST_EXPECTED_DATABASE_URL:-}" ]; then',
@@ -772,7 +792,9 @@ describe("Pilot operator safety controls", () => {
 
   it("sanitizes every variable interpolated by the Pilot Compose contract", () => {
     const composeKeys = [
-      ...compose.matchAll(/(?<!\$)\$\{([A-Z][A-Z0-9_]*)/g),
+      ...[compose, npmIngressCompose, publicIngressCompose].flatMap((file) => [
+        ...file.matchAll(/(?<!\$)\$\{([A-Z][A-Z0-9_]*)/g),
+      ]),
     ].map((match) => match[1]);
     const contract = script.match(
       /COMPOSE_INTERPOLATION_KEYS='([\s\S]*?)'\r?\n/,
@@ -824,7 +846,7 @@ describe("Pilot operator safety controls", () => {
     );
   });
 
-  it("exposes only Caddy and overwrites the trusted client IP header", () => {
+  it("publishes only Caddy through the selected ingress contract", () => {
     const publicPortServices = [
       ...compose.matchAll(
         /^  ([a-z][a-z0-9-]*):\r?\n([\s\S]*?)(?=^  [a-z][a-z0-9-]*:|^networks:)/gm,
@@ -832,7 +854,14 @@ describe("Pilot operator safety controls", () => {
     ]
       .filter(([, , block]) => /^    ports:/m.test(block))
       .map((match) => match[1]);
-    expect(publicPortServices).toEqual(["caddy"]);
+    expect(publicPortServices).toEqual([]);
+    expect(npmIngressCompose).toContain(
+      "${PILOT_CADDY_PRIVATE_BIND:?Set PILOT_CADDY_PRIVATE_BIND to the VM private IP and port}:8080",
+    );
+    expect(npmIngressCompose).not.toContain(":80:80");
+    expect(npmIngressCompose).not.toContain(":443:443");
+    expect(publicIngressCompose).toContain('"80:80"');
+    expect(publicIngressCompose).toContain('"443:443"');
     expect(compose).toContain("internal: true");
     const restoreCheckService = compose.match(
       /^  kaul-restore-check:\r?\n([\s\S]*?)(?=^  postgres:)/m,
@@ -840,9 +869,59 @@ describe("Pilot operator safety controls", () => {
     expect(restoreCheckService).toContain("- restore-check");
     expect(restoreCheckService).toContain('restart: "no"');
     expect(restoreCheckService).not.toMatch(/^    ports:/m);
-    expect(caddy).not.toContain("kaul-restore-check");
-    expect(caddy).toContain("header_up X-Real-IP {remote_host}");
-    expect(caddy).toContain("header_up -CF-Connecting-IP");
+    expect(caddy).toContain("import Caddyfile.{$PILOT_INGRESS_MODE}");
+    expect(npmCaddy).not.toContain("kaul-restore-check");
+    expect(npmCaddy).toContain(
+      "trusted_proxies static {$PILOT_NPM_TRUSTED_PROXY_CIDR}",
+    );
+    expect(npmCaddy).toContain("trusted_proxies_strict");
+    expect(npmCaddy).toContain(
+      "@unexpectedPeer not remote_ip {$PILOT_NPM_TRUSTED_PROXY_CIDR}",
+    );
+    expect(npmCaddy).toContain("header_up X-Real-IP {client_ip}");
+    expect(npmCaddy).toContain("header_up X-Forwarded-For {client_ip}");
+    expect(npmCaddy).toContain("header_up X-Forwarded-Proto https");
+    expect(npmCaddy).toContain("header_up -CF-Connecting-IP");
+    expect(publicCaddy).toContain("header_up X-Real-IP {remote_host}");
+    expect(publicCaddy).not.toContain("trusted_proxies");
+  });
+
+  it("keeps the existing-VM host preflight read-only and explicit", () => {
+    const hostPreflightFunction = script.slice(
+      script.indexOf("host_preflight()"),
+      script.indexOf("validate_restic_password_file()"),
+    );
+
+    expect(script).toContain(
+      "scripts/pilot-ops.sh host-preflight --env-file PATH",
+    );
+    expect(script).toContain("Ubuntu 22.04, 24.04, or 26.04 LTS is required");
+    expect(script).toContain("at least 2 vCPUs");
+    expect(script).toContain("at least 4 GiB RAM");
+    expect(script).toContain("at least 20 GiB free");
+    expect(script).toContain(
+      "PILOT_CADDY_PRIVATE_BIND address is not configured",
+    );
+    expect(script).toContain("The Pilot host has no IPv4 route to NPM");
+    expect(script).toContain("Docker-aware firewall proof");
+    expect(hostPreflightFunction).not.toMatch(
+      /\b(?:apt|apt-get)\s+(?:install|upgrade)\b/,
+    );
+    expect(hostPreflightFunction).not.toMatch(
+      /\bsystemctl\s+(?:enable|start|stop|restart)\b/,
+    );
+    expect(hostPreflightFunction).not.toMatch(
+      /\bdocker\s+compose\s+(?:up|down|run|start|stop|rm)\b/,
+    );
+    expect(hostPreflightFunction).not.toMatch(
+      /\b(?:ufw|iptables|nft)\b|\bip\s+(?:address|addr|route)\s+(?:add|delete|del|replace)\b/,
+    );
+    expect(pilotEnvironmentExample).toContain(
+      "PILOT_NPM_TRUSTED_PROXY_CIDR=REPLACE_WITH_CADDY_OBSERVED_NPM_PEER_IPV4/32",
+    );
+    expect(pilotEnvironmentExample).not.toMatch(
+      /^PILOT_NPM_TRUSTED_PROXY_CIDR=\d/m,
+    );
   });
 
   it("builds a pinned non-root application image without environment files", () => {
@@ -922,6 +1001,59 @@ describe("Pilot preflight behavior", () => {
         result.values.KAUL_DB_PASSWORD,
       ].some((secret) => outputOf(result).includes(secret)),
     ).toBe(false);
+  }, 15_000);
+
+  it("accepts the future direct-public Caddy ingress contract", () => {
+    const result = executePilotCommand("preflight", {
+      overrides: {
+        PILOT_INGRESS_MODE: "public",
+      },
+    });
+
+    expect(result.status, outputOf(result)).toBe(0);
+    expect(result.commandLog.join("\n")).toContain("compose.pilot.public.yaml");
+  }, 15_000);
+
+  it("rejects a broad NPM trusted-proxy subnet", () => {
+    const result = executePilotCommand("preflight", {
+      overrides: {
+        PILOT_NPM_TRUSTED_PROXY_CIDR: "192.168.50.0/24",
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain("one exact private IPv4 /32");
+  });
+
+  it("rejects a listener address reused as the trusted proxy", () => {
+    const result = executePilotCommand("preflight", {
+      overrides: {
+        PILOT_NPM_TRUSTED_PROXY_CIDR: "192.168.50.20/32",
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain(
+      "NPM proxy address and Kaul VM listener address must differ",
+    );
+  });
+
+  it("rejects a malformed NPM private listener", () => {
+    const result = executePilotCommand("preflight", {
+      overrides: { PILOT_CADDY_PRIVATE_BIND: "192.168.50.20" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain("must use PRIVATE_IPV4:PORT format");
+  });
+
+  it("rejects ambiguous IPv4 octets with leading zeroes", () => {
+    const result = executePilotCommand("preflight", {
+      overrides: { PILOT_CADDY_PRIVATE_BIND: "192.168.050.20:8080" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain("without leading zeroes");
   });
 
   it("rejects local Restic repositories", () => {
@@ -975,7 +1107,11 @@ describe("Pilot preflight behavior", () => {
       { COMPOSE_PROJECT_NAME: "a".repeat(64) },
       "COMPOSE_PROJECT_NAME",
     ],
-    ["HTTPS binding", { PILOT_HTTPS_BIND: "443/tcp" }, "PILOT_HTTPS_BIND"],
+    [
+      "Caddy private port",
+      { PILOT_CADDY_PRIVATE_BIND: "192.168.50.20:443/tcp" },
+      "PILOT_CADDY_PRIVATE_BIND",
+    ],
     [
       "administrator username",
       { POSTGRES_ADMIN_USER: "kaul-admin" },
@@ -1013,7 +1149,7 @@ describe("Pilot preflight behavior", () => {
     },
   );
 
-  it.each(["KAUL_DB_USER", "PILOT_HTTPS_BIND"])(
+  it.each(["KAUL_DB_USER", "PILOT_NPM_TRUSTED_PROXY_CIDR"])(
     "rejects a missing required %s value",
     (key) => {
       const result = executePilotCommand("preflight", {
@@ -1070,7 +1206,7 @@ describe("Pilot Compose environment isolation", () => {
         DATABASE_URL: "postgresql://ambient:ambient@127.0.0.1:5432/kaul",
         DEPLOYMENT_ENV: "production",
         BETTER_AUTH_SECRET: hostileSecret,
-        PILOT_HTTPS_BIND: "9443",
+        PILOT_CADDY_PRIVATE_BIND: "192.168.50.20:9443",
       },
     });
 
@@ -1081,7 +1217,7 @@ describe("Pilot Compose environment isolation", () => {
       "DATABASE_URL",
       "DEPLOYMENT_ENV",
       "BETTER_AUTH_SECRET",
-      "PILOT_HTTPS_BIND",
+      "PILOT_CADDY_PRIVATE_BIND",
     ]) {
       const sources = result.interpolationSources.filter((entry) =>
         entry.startsWith(`${key}=`),
@@ -1131,6 +1267,7 @@ describe("Pilot Compose environment isolation", () => {
         protectedSources.every((entry) => entry.endsWith("=env-file")),
       ).toBe(true);
     },
+    15_000,
   );
 });
 
@@ -1431,7 +1568,7 @@ describe("Pilot Restic backup and restore behavior", () => {
       "Snapshot ID must contain exactly 64 lowercase hexadecimal characters",
     );
     expect(commandPosition(result.commandLog, "restic snapshots")).toBe(-1);
-  });
+  }, 15_000);
 
   it("restores the selected snapshot only into a new guarded database", () => {
     const result = executePilotCommand("restore", {

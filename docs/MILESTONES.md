@@ -879,7 +879,8 @@ The concise repository/operations snapshot and current evidence boundaries are
 maintained in `docs/PROJECT_STATE.md`. This milestone remains the authority for
 scope and completion.
 
-Live GHCR image verification, a disposable Linux VM, DNS and HTTPS/ACME,
+Live GHCR image verification, inspection and rehearsal on the existing Ubuntu
+VM, NPM-backed DNS and HTTPS,
 encrypted off-host backup and restore, monitoring, operational ownership, and
 critical user-workflow acceptance remain outstanding. Real or sensitive data
 is not approved.
@@ -900,6 +901,8 @@ This milestone includes:
 - Production-style Docker image
 - Pilot Docker Compose configuration
 - Caddy reverse proxy
+- Existing Nginx Proxy Manager as the Homelab public TLS edge, without making
+  Kaul application behavior depend on NPM
 - HTTPS
 - Domain configuration
 - Pilot environment warning
@@ -935,8 +938,14 @@ The warning should remain visible and should not depend solely on verbal instruc
 Milestone 7 is complete when:
 
 - Kaul can be deployed from documented instructions.
+- The existing Ubuntu VM passes the supported host preflight or a concrete
+  incompatibility is reviewed before any replacement VM is considered.
 - HTTPS works correctly.
-- Only the required public ports are exposed.
+- The router's public 80/443 path remains on NPM; the Kaul VM's private Caddy
+  listener is bound to its LAN address and accepts only the exact NPM peer
+  observed during authorised runtime inspection.
+- NPM-to-Caddy Host, scheme, and client-IP handling passes spoofed-header and
+  non-NPM negative tests; future direct-public Caddy remains configuration-driven.
 - PostgreSQL is not publicly exposed.
 - Proxmox is not exposed through the Kaul domain.
 - Development and pilot use separate credentials and databases.

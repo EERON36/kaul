@@ -43,8 +43,9 @@ the release surface requires.
 - `pilot/release-candidate` is a separate, unmerged integration candidate. It
   combines the Pilot deployment foundation with the approved form-safety,
   not-found, accessibility, and first-session orientation slices, plus the
-  reviewed dependency, private restore-check, and encrypted off-host Restic
-  remediations in `da550c4`, `49bea8f`, and `3ea91b5`.
+  reviewed dependency, private restore-check, encrypted off-host Restic, strict
+  rest-server parsing, and deterministic Journal navigation remediations. The
+  current RC tip is `73ab27007c7be59cb47d65236691ec0b7c3b5ac7`.
 - The release candidate is not approved for merge, tag, publication,
   deployment, or real or sensitive data.
 
@@ -73,12 +74,21 @@ Current status against the Homelab minimum:
    The integrated dependency remediation updates Next/PostCSS/Sharp to supported
    patched versions and removes their obsolete exceptions, but it cannot clear
    this Prisma gate.
-2. **Ubuntu host and network isolation:** repository requirements exist, but no
-   dedicated supported Ubuntu VM, restricted SSH path, host/router firewall,
-   or isolation from unrelated homelab services has runtime evidence.
-3. **Domain, DNS, and HTTPS:** Caddy and the private Compose topology are
-   implemented. No personal subdomain, DNS record, public reachability, ACME
-   certificate, or external HTTPS check has been configured or verified.
+2. **Ubuntu host and network isolation:** an existing Ubuntu VM in Proxmox is
+   the intended host. The repository now prepares a read-only host preflight
+   for supported LTS/amd64, resources, Docker, updates, time, private binding,
+   and the NPM route. The VM has not been accessed or inspected; restricted
+   SSH, Docker-aware firewall enforcement, denied management-service access,
+   and reboot behavior have no runtime evidence. A VLAN is optional unless
+   these simpler controls cannot establish the required boundary.
+3. **Domain, DNS, and HTTPS:** the Homelab design retains the existing Nginx
+   Proxy Manager as the public TLS edge and Caddy as Kaul's native proxy. NPM
+   mode publishes only a private Caddy listener and requires the later
+   Caddy-observed NPM peer as one exact trusted `/32`; future public mode returns
+   ports 80/443 and ACME to Caddy without an application fork. No domain, NPM
+   Proxy Host, DNS record, certificate,
+   trusted-peer observation, spoofing test, firewall rule, or external HTTPS
+   check has been configured or verified.
 4. **Secrets and authentication:** separate Pilot configuration, secure-session
    controls, no public signup, server-side authorisation, rate limiting, audit,
    and individual-account workflows are implemented. Real Pilot secrets,
@@ -108,10 +118,13 @@ Current status against the Homelab minimum:
 9. **Logging, monitoring, health, and reboot:** bounded container logs and
    database/application health contracts exist. Uptime monitoring, backup and
    disk alerts, incident ownership, and startup/reboot evidence are absent.
-10. **Clean Linux/Docker rehearsal:** the new GitHub Actions job defines a real
-    Docker/PostgreSQL/rest-server rehearsal, but it has not run. CI evidence is
-    valuable repository compatibility evidence, not proof of the actual VM,
-    network, off-host backend, or operator schedule.
+10. **Clean Linux/Docker rehearsal:** GitHub Actions run `32607996247` passed
+    the Ubuntu/Docker/PostgreSQL/rest-server/Restic append-only backup and exact
+    restore rehearsal. The same run passed install, generation, migrations,
+    formatting, lint (with three existing warnings), typecheck, 432 unit tests,
+    173 integration tests, build, and 42 browser tests. CI remains red only at
+    the unchanged Prisma/deepmerge audit gate. This evidence is not proof of the
+    actual VM, NPM, network, off-host backend, or operator schedule.
 11. **Data migration:** PostgreSQL logical backup/restore and host-independent
     application configuration provide the intended migration path. No
     cross-host rehearsal has yet proved that accounts, Clients, Assignments,
@@ -190,11 +203,11 @@ request, merge, and cleanup remain explicit decisions.
 
 ## Next decision point
 
-The next human review should approve or revise this two-level readiness
-classification. Under the unchanged current governance, the supported upstream
-Prisma correction is required before Homelab Pilot approval; changing that
-classification would require an explicit Milestone 7/security-policy decision,
-not an operational workaround.
+The next human review should assess the existing-VM/NPM/Caddy preparation diff
+and its remaining runtime decisions. Under the unchanged current governance,
+the supported upstream Prisma correction is required before Homelab Pilot
+approval; changing that classification would require an explicit Milestone
+7/security-policy decision, not an operational workaround.
 
 Draft PR #41 already provides the required `pull_request` `synchronize` path
 for Linux evidence, so no RC-specific push trigger is required while that PR

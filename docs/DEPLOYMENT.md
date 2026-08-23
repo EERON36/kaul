@@ -161,7 +161,7 @@ The first pilot will run on the existing Proxmox homelab.
 The pilot is temporary and is not automatically approved for sensitive production information.
 
 This is Phase 1: invited stakeholders test real Kaul workflows on the owner's
-isolated Ubuntu VM through a personal domain or subdomain, using only fictional,
+existing Ubuntu VM through a personal domain or subdomain, using only fictional,
 sanitised, or otherwise non-sensitive case data. Phase 2 is the separate
 Production / Cloud Launch governed by Milestone 8.
 
@@ -174,7 +174,9 @@ Internet
    ↓
 Home router and firewall
    ↓
-Caddy reverse proxy
+Existing Nginx Proxy Manager (public TLS)
+   ↓ private LAN, restricted to the NPM peer
+Caddy reverse proxy on the Kaul VM
    ↓
 Kaul application container
    ↓
@@ -191,7 +193,9 @@ Encrypted off-host backups
 
 ## Pilot Host
 
-Kaul should run inside a dedicated Linux virtual machine on Proxmox.
+Kaul should run inside the existing Ubuntu Linux virtual machine on Proxmox
+unless later inspection finds a concrete incompatibility or unsafe shared use.
+Do not provision a replacement merely to obtain a fresh host.
 
 The pilot should not run directly on the Proxmox host.
 
@@ -200,6 +204,26 @@ Recommended operating system:
 - Supported Ubuntu Server LTS release
 
 The virtual machine should be dedicated to Kaul or clearly isolated from unrelated experimental services.
+The supported preparation floor is Ubuntu 22.04, 24.04, or 26.04 LTS on
+x86-64/amd64, 2 vCPUs, 4 GiB RAM, and at least 20 GiB free for both Docker data
+and the deployment checkout. These are starting floors, not capacity evidence;
+disk and memory alerts and observed Pilot load remain required.
+
+A dedicated VLAN is optional. The minimum boundary may instead be supplied by
+the private VM address, a Caddy listener bound only to that address, an exact
+NPM-source allow rule implemented where Docker-published traffic is filtered,
+restricted SSH, and denied access to Proxmox, router, NPM, NAS, and unrelated
+homelab management services. Docker-published ports can bypass ordinary UFW
+input rules, so UFW configuration alone is not proof of this boundary.
+Because Docker access is effectively root-level host authority, the dedicated
+operator account must be key-only, source-restricted, and unavailable through
+public SSH.
+
+The read-only `scripts/pilot-ops.sh host-preflight` command checks the
+automatable host floor without installing, reconfiguring, or deploying
+anything. Current package-patch status, firewall effectiveness, NPM behavior,
+prohibited management access, and reboot persistence require later runtime
+evidence.
 
 ## Pilot Services
 
@@ -210,6 +234,44 @@ The pilot Docker Compose deployment is expected to include:
 - Caddy
 
 Additional services should be introduced only when required.
+
+## Homelab ingress and future provider mode
+
+Nginx Proxy Manager owns public ports 80/443 and public certificate renewal for
+the Homelab Pilot. The router continues forwarding those ports to NPM, not the
+Kaul VM. NPM forwards the exact Pilot hostname by private HTTP to Caddy,
+normally on TCP 8080 bound to the VM's private-LAN address. PostgreSQL and SSH
+are not part of this ingress path.
+
+The real NPM network peer is a required deployment input established by later
+runtime inspection. The NPM-to-Caddy listener accepts only that Caddy-observed
+peer's exact `/32`; the same peer controls the firewall or equivalent allow
+rule. Forwarded headers never grant access to the listener. Caddy uses strict
+right-to-left parsing of NPM's appended `X-Forwarded-For`,
+then replaces the Host, `X-Forwarded-Proto`, `X-Forwarded-For`, and
+`X-Real-IP` values sent to Kaul. This preserves the public HTTPS origin and a
+non-spoofable rate-limit identity. The installed NPM version and generated
+header configuration must be inspected and tested before exposure.
+
+The deployment selects this path with `PILOT_INGRESS_MODE=npm`. The separate
+`public` mode publishes Caddy 80/443 and lets Caddy own ACME and redirects for a
+future provider. The Kaul application, private application port, database,
+session configuration, and data model do not fork between these modes. See ADR
+0002 and `deploy/pilot/README.md` for the exact boundary.
+
+For the Homelab Pilot, the private HTTP hop is accepted because public TLS
+terminates at NPM, the path stays on the trusted private homelab network,
+Caddy's listener is not Internet-reachable and accepts only the verified NPM
+peer, forwarded metadata is processed through the strict trust model, and both
+Kaul and PostgreSQL remain unpublished. Internal PKI or mTLS is not required
+without evidence that this hop crosses an untrusted boundary.
+
+Outbound restrictions must follow observed need. Inventory required external
+dependencies during preparation and runtime inspection; restrict genuinely
+required destinations or classes where practical; and document any broad HTTPS
+egress that remains necessary. Do not break legitimate application behavior to
+satisfy an unverified theoretical allowlist. Homelab management services remain
+outside the permitted dependency set.
 
 ## Pilot Warning
 
@@ -342,15 +404,14 @@ Responsibilities:
 
 ### Caddy
 
-Provides the public web entry point.
+Provides Kaul's application-facing web entry point.
 
 Responsibilities:
 
-- HTTPS certificates
-- HTTP-to-HTTPS redirection
+- HTTPS certificates and HTTP-to-HTTPS redirection when Caddy is the public edge
 - Reverse proxying
 - Selected security headers
-- Public routing to the Kaul application
+- A stable boundary in front of the private Kaul application
 
 ## Container Rules
 
@@ -368,9 +429,13 @@ Responsibilities:
 
 ## Network Exposure
 
-Only the public web service should be reachable from the internet.
+Only the selected public web edge should be reachable from the internet.
 
-Expected public ports:
+In the Homelab Pilot, router ports 80/443 terminate at NPM. The Kaul VM exposes
+no public port and publishes only its reviewed private NPM-to-Caddy binding.
+
+When Caddy becomes the public edge in a future provider, its expected public
+ports are:
 
 - `80` for HTTP redirection and certificate handling
 - `443` for HTTPS
@@ -879,6 +944,11 @@ The pilot may begin only when:
 - A supported Ubuntu VM is dedicated to or clearly isolated for Kaul, with
   restricted SSH, host/router firewall rules, and no route exposing Proxmox or
   unrelated homelab services.
+- The existing VM passed the automated host preflight, and its Docker-aware
+  firewall permits the private Caddy listener only from the exact NPM peer.
+- The installed NPM version and generated Proxy Host configuration preserve the
+  exact Pilot Host, public HTTPS scheme, and appended client address; spoofed
+  forwarding headers and direct non-NPM LAN access are denied in runtime tests.
 - The workflows selected for the controlled pilot are complete and verified.
 - Deferred Documents, reports, global search, exports, and uploaded-file
   operations are required only if the approved pilot workflow genuinely needs
@@ -960,9 +1030,16 @@ environment contract, digest-only manual update flow, one-shot migrations, and
 guarded encrypted off-host Restic backup/restore tooling. The exact operator commands and
 remaining gates are in `deploy/pilot/README.md`.
 
+The prepared Homelab topology now reflects the actual environment: the existing
+NPM installation remains the public TLS edge, while mode-selected Caddy
+configuration preserves Kaul's native proxy and future direct-public provider
+path. Repository validation is not evidence that the existing VM, NPM headers,
+firewall, DNS, certificate, or private peer identity are configured correctly.
+
 Homelab Pilot Readiness is not complete and no pilot deployment is approved yet. The
 repository contract and CI rehearsal do not configure or prove a real off-host
-provider. Live VM, HTTPS, network, scheduled append-only backup, alerting,
+provider. Existing-VM inspection, NPM/HTTPS and trusted-proxy verification,
+network enforcement, scheduled append-only backup, alerting,
 off-VM retention, exact-snapshot restore, monitoring, incident ownership, and
 user-workflow evidence must still be obtained with fictional or sanitised data
 before a controlled Pilot begins.
