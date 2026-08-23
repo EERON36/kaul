@@ -252,7 +252,15 @@ fi
 inner rm /etc/docker/daemon.json
 
 run_operator preflight
-run_operator apply
+if ! apply_output=$(run_operator apply 2>&1); then
+  printf '%s\n' "$apply_output" >&2
+  printf '%s\n' "Actual disposable $OWNED_CHAIN state:" >&2
+  inner iptables -w 10 -t filter -S "$OWNED_CHAIN" >&2 || true
+  printf '%s\n' "Actual disposable DOCKER-USER state:" >&2
+  inner iptables -w 10 -t filter -S DOCKER-USER >&2 || true
+  exit 1
+fi
+printf '%s\n' "$apply_output"
 first_state=$(inner iptables-save -t filter)
 second_apply=$(run_operator apply)
 [ "$second_apply" = "Kaul-owned firewall state is already exact; no rules changed." ] ||
