@@ -200,7 +200,7 @@ cancel_rollback_timer_race_safely() {
 }
 
 start_protected_service() {
-  systemctl reset-failed "$SERVICE" "$ROLLBACK_SERVICE"
+  systemctl reset-failed "$SERVICE"
   systemctl start "$SOCKET"
   systemctl start "$SERVICE"
   systemctl is-active --quiet "$SERVICE" || {

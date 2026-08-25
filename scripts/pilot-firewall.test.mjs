@@ -441,6 +441,9 @@ describe("Pilot Docker firewall contract", () => {
     expect(systemdRehearsal).toContain(
       "Process state could not be inspected while checking",
     );
+    expect(systemdRehearsal).not.toContain(
+      'systemctl reset-failed "$SERVICE" "$ROLLBACK_SERVICE"',
+    );
     expect(systemdRehearsal).toContain('[ "$process_status" -eq 1 ]');
     expect(systemdRehearsal).not.toContain('! pgrep -f -- "$HELPER_PATH"');
     expect(systemdRehearsal).toContain(
