@@ -410,13 +410,11 @@ validate_gate_c_policy_if_installed() {
   [ -e "$gate_c_policy" ] || [ -L "$gate_c_policy" ] || return 0
 
   gate_c_project=$(environment_value COMPOSE_PROJECT_NAME)
-  gate_c_env_file=$(realpath "$ENV_FILE")
   gate_c_bind="$PILOT_CADDY_BIND_IP_VALUE:$PILOT_CADDY_HTTP_PORT_VALUE"
   gate_c_proxy="$PILOT_NPM_PROXY_IP_VALUE"
 
   KAUL_GATE_C_INGRESS_MODE="$(environment_value PILOT_INGRESS_MODE)" \
   KAUL_GATE_C_PROJECT="$gate_c_project" \
-  KAUL_GATE_C_ENV_FILE="$gate_c_env_file" \
   KAUL_GATE_C_BIND="$gate_c_bind" \
   KAUL_GATE_C_PROXY="$gate_c_proxy" \
   perl "$SCRIPT_DIR/pilot-gate-c-policy.pl" "$gate_c_policy" || exit 1

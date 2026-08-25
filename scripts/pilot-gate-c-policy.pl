@@ -42,7 +42,6 @@ S_ISREG($stat[2]) && $stat[4] == $expected_owner && ($stat[2] & 07777) == 0644
 
 my %allowed = map { $_ => 1 } qw(
   COMPOSE_PROJECT_NAME
-  PILOT_ENV_FILE
   INGRESS_INTERFACE
   HOST_IPV4_CIDR
   TRUSTED_NPM_IPV4
@@ -77,8 +76,6 @@ defined $host_packed && inet_ntop(AF_INET, $host_packed) eq $host
 
 $values{COMPOSE_PROJECT_NAME} =~ /\A[a-z][a-z0-9_-]{0,62}\z/
   or die "ERROR: Gate C COMPOSE_PROJECT_NAME is invalid.\n";
-$values{PILOT_ENV_FILE} =~ /\A\/[A-Za-z0-9._\/-]+\z/
-  or die "ERROR: Gate C PILOT_ENV_FILE must be a simple absolute path.\n";
 $values{INGRESS_INTERFACE} =~ /\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,14}\z/
   or die "ERROR: Gate C INGRESS_INTERFACE is invalid.\n";
 
@@ -105,13 +102,11 @@ $port >= 1024 && $port <= 65535 && $port != 3000 && $port != 5432
   or die "ERROR: Gate C PUBLISHED_TCP_PORT is unsafe or invalid.\n";
 my %expected = (
   COMPOSE_PROJECT_NAME => $ENV{KAUL_GATE_C_PROJECT} // q{},
-  PILOT_ENV_FILE => $ENV{KAUL_GATE_C_ENV_FILE} // q{},
   PILOT_CADDY_PRIVATE_BIND => $ENV{KAUL_GATE_C_BIND} // q{},
   PILOT_NPM_TRUSTED_PROXY_CIDR => ($ENV{KAUL_GATE_C_PROXY} // q{}) . q{/32},
 );
 my %actual = (
   COMPOSE_PROJECT_NAME => $values{COMPOSE_PROJECT_NAME},
-  PILOT_ENV_FILE => $values{PILOT_ENV_FILE},
   PILOT_CADDY_PRIVATE_BIND => $host . q{:} . $values{PUBLISHED_TCP_PORT},
   PILOT_NPM_TRUSTED_PROXY_CIDR => $values{TRUSTED_NPM_IPV4} . q{/32},
 );

@@ -54,6 +54,13 @@ const firewallRunbook = readFileSync(
   new URL("../deploy/pilot/firewall/README.md", import.meta.url),
   "utf8",
 );
+const firewallConfigExample = readFileSync(
+  new URL(
+    "../deploy/pilot/firewall/pilot-firewall.conf.example",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const workflow = readFileSync(
   new URL("../.github/workflows/validate.yml", import.meta.url),
   "utf8",
@@ -98,13 +105,13 @@ function checkGateCPolicy(overrides = {}) {
   const policyPath = join(directory, "pilot-firewall.conf");
   const values = {
     COMPOSE_PROJECT_NAME: "kaul-pilot",
-    PILOT_ENV_FILE: "/etc/kaul/pilot.env",
     INGRESS_INTERFACE: "ens18",
     HOST_IPV4_CIDR: "192.168.1.120/24",
     TRUSTED_NPM_IPV4: "192.168.1.100",
     PUBLISHED_TCP_PORT: "8080",
     ...overrides.policy,
   };
+  for (const key of overrides.omit ?? []) delete values[key];
   writeFileSync(
     policyPath,
     `${Object.entries(values)
@@ -130,7 +137,6 @@ function checkGateCPolicy(overrides = {}) {
           ...process.env,
           KAUL_GATE_C_INGRESS_MODE: "npm",
           KAUL_GATE_C_PROJECT: "kaul-pilot",
-          KAUL_GATE_C_ENV_FILE: "/etc/kaul/pilot.env",
           KAUL_GATE_C_BIND: "192.168.1.120:8080",
           KAUL_GATE_C_PROXY: "192.168.1.100",
           ...overrides.environment,
@@ -162,11 +168,20 @@ describe("Pilot Docker firewall contract", () => {
     expect(operator).toContain("Duplicate firewall configuration key");
     expect(operator).toContain("Unknown firewall configuration key");
     expect(operator).toContain("forbidden control character");
-    expect(operator).toContain("does not match the root firewall policy");
-    expect(operator).toContain("PILOT_ENV_FILE");
+    expect(operator).not.toContain("PILOT_ENV_FILE");
+    expect(operator).not.toContain("validate_pilot_environment_alignment");
+    expect(firewallConfigExample).not.toContain("PILOT_ENV_FILE");
+    expect(firewallConfigExample.match(/^[A-Z][A-Z0-9_]*=/gm)).toEqual([
+      "COMPOSE_PROJECT_NAME=",
+      "INGRESS_INTERFACE=",
+      "HOST_IPV4_CIDR=",
+      "TRUSTED_NPM_IPV4=",
+      "PUBLISHED_TCP_PORT=",
+    ]);
     expect(operator).not.toMatch(/(^|\n)\s*(source|eval)\s/);
     expect(operator).not.toContain(". $CONFIG_FILE");
     expect(pilotOperator).toContain("validate_gate_c_policy_if_installed");
+    expect(pilotOperator).not.toContain("KAUL_GATE_C_ENV_FILE");
     expect(
       pilotOperator.match(/validate_gate_c_policy_if_installed/g),
     ).toHaveLength(3);
@@ -183,7 +198,7 @@ describe("Pilot Docker firewall contract", () => {
   it.each([
     ["public ingress", { environment: { KAUL_GATE_C_INGRESS_MODE: "public" } }],
     ["project", { environment: { KAUL_GATE_C_PROJECT: "other-project" } }],
-    ["environment file", { policy: { PILOT_ENV_FILE: "/tmp/pilot.env" } }],
+    ["missing required key", { omit: ["TRUSTED_NPM_IPV4"] }],
     ["private bind", { policy: { PUBLISHED_TCP_PORT: "8081" } }],
     ["trusted proxy", { policy: { TRUSTED_NPM_IPV4: "192.168.1.101" } }],
     ["public host address", { policy: { HOST_IPV4_CIDR: "203.0.113.120/24" } }],
@@ -217,7 +232,6 @@ describe("Pilot Docker firewall contract", () => {
               ...process.env,
               KAUL_GATE_C_INGRESS_MODE: "npm",
               KAUL_GATE_C_PROJECT: "kaul-pilot",
-              KAUL_GATE_C_ENV_FILE: "/etc/kaul/pilot.env",
               KAUL_GATE_C_BIND: "192.168.1.120:8080",
               KAUL_GATE_C_PROXY: "192.168.1.100",
             },
@@ -350,9 +364,7 @@ describe("Pilot Docker firewall contract", () => {
     expect(rollbackTimer).toContain("OnActiveSec=10min");
     expect(rollbackTimer).not.toContain("Persistent=true");
     expect(operator.indexOf('if [ "$COMMAND" = rollback ]')).toBeLessThan(
-      operator.indexOf(
-        "validate_pilot_environment_alignment\nvalidate_iptables_frontend",
-      ),
+      operator.indexOf("validate_iptables_frontend\nvalidate_no_raw_notrack"),
     );
   });
 
@@ -411,7 +423,11 @@ describe("Pilot Docker firewall contract", () => {
     expect(rehearsal).toContain("Executable-looking configuration input");
     expect(rehearsal).toContain("A symlinked root configuration was accepted");
     expect(rehearsal).toContain("A FIFO root configuration blocked preflight");
-    expect(rehearsal).toContain("A FIFO Pilot environment blocked preflight");
+    expect(rehearsal).toContain(
+      "A Gate C configuration with a missing required key was accepted.",
+    );
+    expect(rehearsal).toContain("assert_no_pilot_environment");
+    expect(rehearsal).not.toContain('"PILOT_ENV_FILE=/etc/kaul/pilot.env"');
     expect(rehearsal).toContain(
       "A conditional FORWARD transfer to DOCKER-USER was accepted",
     );

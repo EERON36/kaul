@@ -110,6 +110,11 @@ run_operator() {
     --config /etc/kaul/pilot-firewall.conf
 }
 
+assert_no_pilot_environment() {
+  inner test ! -e /etc/kaul/pilot.env ||
+    die "Gate C rehearsal unexpectedly created or required a Pilot environment file."
+}
+
 dump_owned_filter_state() {
   printf '%s\n' "Actual disposable $OWNED_CHAIN state:" >&2
   inner iptables -w 10 -t filter -S "$OWNED_CHAIN" >&2 || true
@@ -184,17 +189,12 @@ inner install -d -m 0700 /etc/kaul
 inner install -d -m 0755 /etc/docker
 inner sh -c 'umask 077; printf "%s\n" \
   "COMPOSE_PROJECT_NAME=kaul-pilot" \
-  "PILOT_ENV_FILE=/etc/kaul/pilot.env" \
   "INGRESS_INTERFACE=eth0" \
   "HOST_IPV4_CIDR=192.168.1.120/24" \
   "TRUSTED_NPM_IPV4=192.168.1.100" \
   "PUBLISHED_TCP_PORT=8080" > /etc/kaul/pilot-firewall.conf'
 inner chmod 0644 /etc/kaul/pilot-firewall.conf
-inner sh -c 'umask 077; printf "%s\n" \
-  "COMPOSE_PROJECT_NAME=kaul-pilot" \
-  "PILOT_INGRESS_MODE=npm" \
-  "PILOT_CADDY_PRIVATE_BIND=192.168.1.120:8080" \
-  "PILOT_NPM_TRUSTED_PROXY_CIDR=192.168.1.100/32" > /etc/kaul/pilot.env'
+assert_no_pilot_environment
 inner sh -c 'cat > /usr/local/bin/systemctl <<"EOF"
 #!/bin/sh
 case "$1:$2" in
@@ -262,17 +262,12 @@ fifo_status=$?
 set -e
 [ "$fifo_status" -ne 0 ] || die "A FIFO root configuration was accepted."
 [ "$fifo_status" -ne 124 ] || die "A FIFO root configuration blocked preflight."
-inner mv /etc/kaul/pilot.env /etc/kaul/pilot.env.regular
-inner mkfifo -m 0600 /etc/kaul/pilot.env
-set +e
-inner timeout 2 /usr/local/libexec/kaul-pilot-firewall preflight \
-  --config /etc/kaul/pilot-firewall.conf >/dev/null 2>&1
-fifo_status=$?
-set -e
-[ "$fifo_status" -ne 0 ] || die "A FIFO Pilot environment was accepted."
-[ "$fifo_status" -ne 124 ] || die "A FIFO Pilot environment blocked preflight."
-inner rm /etc/kaul/pilot.env
-inner mv /etc/kaul/pilot.env.regular /etc/kaul/pilot.env
+inner cp /etc/kaul/pilot-firewall.conf /etc/kaul/missing-firewall-key.conf
+inner sed -i '/TRUSTED_NPM_IPV4=/d' /etc/kaul/missing-firewall-key.conf
+if inner /usr/local/libexec/kaul-pilot-firewall preflight \
+  --config /etc/kaul/missing-firewall-key.conf >/dev/null 2>&1; then
+  die "A Gate C configuration with a missing required key was accepted."
+fi
 inner chmod 0666 /etc/kaul/pilot-firewall.conf
 if run_operator preflight >/dev/null 2>&1; then
   die "A loosely permissioned root configuration was accepted."
@@ -313,12 +308,14 @@ fi
 inner rm /etc/docker/daemon.json
 
 run_operator preflight
+assert_no_pilot_environment
 if ! apply_output=$(run_operator apply 2>&1); then
   printf '%s\n' "$apply_output" >&2
   dump_owned_filter_state
   exit 1
 fi
 printf '%s\n' "$apply_output"
+assert_no_pilot_environment
 if ! first_state=$(saved_filter_state); then
   die "The first applied filter state could not be captured."
 fi
@@ -357,6 +354,7 @@ printf '%s\n' "Pre-Docker idempotence and foreign-state checks passed."
 
 start_inner_docker
 run_verify
+assert_no_pilot_environment
 inner iptables -w 10 -t filter -S FORWARD | sed -n '2p' |
   grep -Fxq -- '-A FORWARD -j DOCKER-USER'
 inner docker network create \
@@ -380,6 +378,7 @@ docker run --detach --network "$NETWORK_NAME" --ip "$LAN_IP" \
 docker exec --detach "$NPM_NAME" nc -ll -p 18080 -e cat
 sleep 2
 run_verify
+assert_no_pilot_environment
 inner iptables -w 10 -t nat -I PREROUTING 1 -d "$HOST_IP/32" \
   -p tcp --dport 8080 -j DNAT --to-destination 192.168.1.250:8080
 if run_operator verify >/dev/null 2>&1; then
@@ -404,6 +403,7 @@ inner iptables -w 10 -t nat -D PREROUTING -d "$HOST_IP/32" \
   -p tcp -m multiport --dports 8000:9000 \
   -j DNAT --to-destination 192.168.1.250:8080
 run_verify
+assert_no_pilot_environment
 probe_allowed || die "The synthetic NPM peer was not allowed."
 probe_denied
 
@@ -451,12 +451,14 @@ inner iptables -w 10 -t filter -A DOCKER-USER \
 inner iptables -w 10 -t filter -D FORWARD -j DOCKER-USER
 run_operator preflight
 run_operator apply
+assert_no_pilot_environment
 inner iptables -w 10 -t filter -S FORWARD | sed -n '2p' |
   grep -Fxq -- '-A FORWARD -j DOCKER-USER' ||
   die "The canonical FORWARD transfer was absent before the Docker restart probe."
 start_inner_docker
 sleep 2
 run_verify
+assert_no_pilot_environment
 probe_allowed
 probe_denied
 docker exec "$LAN_NAME" touch /tmp/stop-restart-probe
@@ -473,6 +475,7 @@ if run_operator verify >/dev/null 2>&1; then
 fi
 inner iptables -w 10 -t filter -D DOCKER-USER 1
 run_verify
+assert_no_pilot_environment
 
 stop_inner_docker
 inner rm -f /var/run/docker.sock

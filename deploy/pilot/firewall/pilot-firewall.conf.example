@@ -1,6 +1,5 @@
 # Install as /etc/kaul/pilot-firewall.conf with root:root ownership and mode 0644.
 COMPOSE_PROJECT_NAME=kaul-pilot
-PILOT_ENV_FILE=/etc/kaul/pilot.env
 INGRESS_INTERFACE=ens18
 HOST_IPV4_CIDR=192.168.1.120/24
 TRUSTED_NPM_IPV4=192.168.1.100

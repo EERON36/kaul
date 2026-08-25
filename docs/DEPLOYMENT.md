@@ -1056,6 +1056,11 @@ post-start failure semantics, including stop-post execution and socket
 shutdown. Neither can prove the real VM's installed units, Docker boot/reboot
 timing, UFW state, NPM-observed peer, or physical network path; those remain
 manual Homelab gates.
+The Gate C policy itself is non-secret and independent of the complete
+`pilot.env`, so it may be prepared and verified first. The later deployment
+preflight remains strict and cross-checks the installed policy against the
+complete Pilot environment's project, `npm` ingress mode, private bind, and
+trusted NPM `/32`.
 The installation gate therefore stops Docker before activating its drop-in,
 requires enabled/live UFW with the exact reviewed user rule for every subsequent
 Docker start, and requires manual

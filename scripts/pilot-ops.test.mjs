@@ -1247,17 +1247,20 @@ describe("Pilot preflight behavior", () => {
     },
   );
 
-  it.each(["KAUL_DB_USER", "PILOT_NPM_TRUSTED_PROXY_CIDR"])(
-    "rejects a missing required %s value",
-    (key) => {
-      const result = executePilotCommand("preflight", {
-        omittedKey: key,
-      });
+  it.each([
+    "KAUL_DB_USER",
+    "PILOT_NPM_TRUSTED_PROXY_CIDR",
+    "KAUL_IMAGE",
+    "BETTER_AUTH_SECRET",
+    "RESTIC_REPOSITORY",
+  ])("rejects a missing required %s value", (key) => {
+    const result = executePilotCommand("preflight", {
+      omittedKey: key,
+    });
 
-      expect(result.status).not.toBe(0);
-      expect(outputOf(result)).toContain(`${key} must occur exactly once`);
-    },
-  );
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain(`${key} must occur exactly once`);
+  });
 
   it.each(["POSTGRES_ADMIN_PASSWORD", "KAUL_DB_PASSWORD"])(
     "rejects a too-short %s without printing it",

@@ -77,6 +77,13 @@ secrets. Both PostgreSQL passwords must contain at least 32 characters. Never
 paste the rendered Compose configuration into tickets or logs because it
 contains environment values.
 
+The Gate C firewall policy is a separate non-secret host configuration. It may
+be installed and verified before this complete deployment environment exists.
+When `host-preflight` or `preflight` later runs, it cross-checks the installed
+Gate C project, `npm` mode, private bind, and trusted NPM `/32`. Full deployment
+`preflight` and every deployment operation still require the complete Pilot
+environment, including the image, application, database, and backup values.
+
 `KAUL_IMAGE` must be a GHCR image pinned by `@sha256:<digest>`. Tags help humans
 find a release, but the Pilot is promoted by digest. The image label
 `org.opencontainers.image.revision` identifies its Git commit:

@@ -136,7 +136,6 @@ load_configuration() {
 
     my %allowed = map { $_ => 1 } qw(
       COMPOSE_PROJECT_NAME
-      PILOT_ENV_FILE
       INGRESS_INTERFACE
       HOST_IPV4_CIDR
       TRUSTED_NPM_IPV4
@@ -165,8 +164,6 @@ load_configuration() {
 
     $values{COMPOSE_PROJECT_NAME} =~ /\A[a-z][a-z0-9_-]{0,62}\z/
       or die "ERROR: COMPOSE_PROJECT_NAME is invalid.\n";
-    $values{PILOT_ENV_FILE} =~ /\A\/[A-Za-z0-9._\/-]+\z/
-      or die "ERROR: PILOT_ENV_FILE must be a simple absolute path.\n";
     $values{INGRESS_INTERFACE} =~ /\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,14}\z/
       or die "ERROR: INGRESS_INTERFACE is invalid.\n";
     $values{HOST_IPV4_CIDR} =~ /\A([^\/]+)\/(\d{1,2})\z/
@@ -208,7 +205,6 @@ load_configuration() {
 
     print join("\n",
       $values{COMPOSE_PROJECT_NAME},
-      $values{PILOT_ENV_FILE},
       $values{INGRESS_INTERFACE},
       $host_ip,
       $prefix,
@@ -219,68 +215,15 @@ load_configuration() {
   ' "$CONFIG_FILE") || exit 1
 
   mapfile -t CONFIG_VALUES <<< "$parsed"
-  [ "${#CONFIG_VALUES[@]}" -eq 8 ] || die "The firewall configuration parser returned an invalid result."
+  [ "${#CONFIG_VALUES[@]}" -eq 7 ] || die "The firewall configuration parser returned an invalid result."
   readonly COMPOSE_PROJECT_NAME=${CONFIG_VALUES[0]}
-  readonly PILOT_ENV_FILE=${CONFIG_VALUES[1]}
-  readonly INGRESS_INTERFACE=${CONFIG_VALUES[2]}
-  readonly HOST_IPV4=${CONFIG_VALUES[3]}
-  readonly HOST_IPV4_PREFIX=${CONFIG_VALUES[4]}
-  readonly MANAGEMENT_IPV4_CIDR=${CONFIG_VALUES[5]}
-  readonly TRUSTED_NPM_IPV4=${CONFIG_VALUES[6]}
-  readonly PUBLISHED_TCP_PORT=${CONFIG_VALUES[7]}
+  readonly INGRESS_INTERFACE=${CONFIG_VALUES[1]}
+  readonly HOST_IPV4=${CONFIG_VALUES[2]}
+  readonly HOST_IPV4_PREFIX=${CONFIG_VALUES[3]}
+  readonly MANAGEMENT_IPV4_CIDR=${CONFIG_VALUES[4]}
+  readonly TRUSTED_NPM_IPV4=${CONFIG_VALUES[5]}
+  readonly PUBLISHED_TCP_PORT=${CONFIG_VALUES[6]}
   readonly HOST_IPV4_CIDR="$HOST_IPV4/$HOST_IPV4_PREFIX"
-}
-
-validate_pilot_environment_alignment() {
-  KAUL_FIREWALL_PROJECT="$COMPOSE_PROJECT_NAME" \
-  KAUL_FIREWALL_BIND="$HOST_IPV4:$PUBLISHED_TCP_PORT" \
-  KAUL_FIREWALL_PROXY="$TRUSTED_NPM_IPV4/32" \
-  perl -MFcntl=:DEFAULT,:mode -MFile::Basename=dirname -e '
-    use strict;
-    use warnings;
-
-    my ($path) = @ARGV;
-    my $directory = dirname($path);
-    while (1) {
-      my @directory_stat = lstat($directory);
-      @directory_stat && S_ISDIR($directory_stat[2])
-        or die "ERROR: Every Pilot environment parent must be a directory.\n";
-      $directory_stat[4] == 0 && ($directory_stat[2] & 0022) == 0
-        or die "ERROR: Pilot environment parents must be root-owned and not writable by group/others.\n";
-      last if $directory eq q{/};
-      $directory = dirname($directory);
-    }
-
-    sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
-      or die "ERROR: The Pilot environment must be readable and not a symlink.\n";
-    my @stat = stat($file);
-    S_ISREG($stat[2]) && ($stat[2] & 07777) == 0600
-      or die "ERROR: The Pilot environment must be a regular file with mode 0600.\n";
-
-    my %values;
-    while (my $line = <$file>) {
-      chomp $line;
-      $line =~ /[\r\0]/ and die "ERROR: Pilot environment contains a forbidden control character.\n";
-      next if $line eq q{} || $line =~ /^#/;
-      $line =~ /^([A-Z][A-Z0-9_]*)=(.*)$/
-        or die "ERROR: Every Pilot environment line must use KEY=VALUE syntax.\n";
-      my ($key, $value) = ($1, $2);
-      !exists $values{$key}
-        or die "ERROR: Duplicate Pilot environment key: $key\n";
-      $values{$key} = $value;
-    }
-
-    my %expected = (
-      COMPOSE_PROJECT_NAME => delete $ENV{KAUL_FIREWALL_PROJECT},
-      PILOT_INGRESS_MODE => q{npm},
-      PILOT_CADDY_PRIVATE_BIND => delete $ENV{KAUL_FIREWALL_BIND},
-      PILOT_NPM_TRUSTED_PROXY_CIDR => delete $ENV{KAUL_FIREWALL_PROXY},
-    );
-    for my $key (sort keys %expected) {
-      exists $values{$key} && $values{$key} eq $expected{$key}
-        or die "ERROR: Pilot environment $key does not match the root firewall policy.\n";
-    }
-  ' "$PILOT_ENV_FILE" || exit 1
 }
 
 require_command() {
@@ -1105,7 +1048,6 @@ fi
 for command_name in docker ip; do
   require_command "$command_name"
 done
-validate_pilot_environment_alignment
 validate_iptables_frontend
 validate_no_raw_notrack
 validate_docker_daemon_file

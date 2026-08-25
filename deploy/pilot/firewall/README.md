@@ -88,14 +88,19 @@ modes, global IPv6, unsafe Docker publications, raw-table `NOTRACK` or
 `CT --notrack`, duplicate owned references, and foreign jump/goto rules in its
 chain.
 
-The root policy points to the existing operator-owned `pilot.env` and refuses
-preflight, apply, or verify unless its project name, `npm` ingress mode, private
-bind, and trusted proxy `/32` exactly match. Create and validate
-`/etc/kaul/pilot.env` before this Gate C installation. Changing ingress mode or
+The root policy contains only non-secret Gate C values: the Compose project,
+ingress interface, private host CIDR, trusted NPM peer, and published TCP port.
+The firewall operator does not read `pilot.env`; its `preflight`, `apply`, and
+`verify` commands validate this policy and the host/runtime state directly.
+The later host and deployment preflights cross-check the installed policy
+against the selected environment for `npm` ingress, project name, private bind,
+and trusted proxy `/32`. Full deployment preflight additionally requires every
+deployment value. Create and validate `/etc/kaul/pilot.env` before that
+deployment preflight, not before preparing Gate C. Changing ingress mode or
 either peer/bind value is a reviewed stop-and-reapply operation, never a live
-Compose-only change. Recovery deliberately does not depend on `pilot.env`:
-`remove` and timed rollback can still stop Docker and remove exact Kaul-owned
-state if the operator environment has drifted or disappeared.
+Compose-only change. Recovery remains independent of the deployment
+environment: `remove` and timed rollback can still stop Docker and remove exact
+Kaul-owned state if that environment is absent or has drifted.
 
 ## Later manual installation gate
 
