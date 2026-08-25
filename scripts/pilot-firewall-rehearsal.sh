@@ -17,6 +17,11 @@ readonly NPM_IP="192.168.1.100"
 readonly LAN_IP="192.168.1.101"
 readonly OWNED_CHAIN="KAUL-PILOT-CADDY"
 readonly OWNED_COMMENT="kaul-pilot-private-caddy"
+readonly UFW_INPUT_CHAIN="KAUL-REHEARSAL-UFW"
+readonly UFW_INPUT_COMMENT="kaul-rehearsal-ufw-input"
+readonly DIRECT_PROXY_SOURCE_PORT="48080"
+readonly DIRECT_PROXY_TUPLE_COMMENT="kaul-rehearsal-direct-proxy-tuple"
+readonly DIRECT_PROXY_SETUP_COMMENT="kaul-rehearsal-pre-dnat-setup"
 
 ROOT_DIRECTORY=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
@@ -122,6 +127,99 @@ dump_owned_filter_state() {
   inner iptables -w 10 -t filter -S DOCKER-USER >&2 || true
 }
 
+set_restart_phase() {
+  local phase=$1
+  inner sh -c \
+    "printf '%s phase=%s mode=modeled-docker-service-transition\\n' \"\$(date -u +'%Y-%m-%dT%H:%M:%S.%N')\" '$phase' >> /tmp/restart-phases.log; printf '%s\\n' '$phase' > /tmp/restart-phase"
+  docker exec "$LAN_NAME" sh -c \
+    "printf '%s\\n' '$phase' > /tmp/restart-phase"
+}
+
+start_restart_diagnostics() {
+  inner rm -f /tmp/restart-conntrack.log /tmp/restart-conntrack.pid \
+    /tmp/restart-packets.log /tmp/restart-packets.pid \
+    /tmp/restart-first-success.log /tmp/restart-phases.log /tmp/restart-phase \
+    /tmp/restart-xtables.log /tmp/restart-xtables.pid
+
+  docker exec --detach "$DIND_NAME" sh -c \
+    "printf '%s\\n' \$\$ > /tmp/restart-packets.pid; exec tcpdump -i eth0 -nn -tttt -U -l -s 0 -A 'tcp and host $LAN_IP and port 8080' > /tmp/restart-packets.log 2>&1"
+  docker exec --detach "$DIND_NAME" sh -c \
+    "printf '%s\\n' \$\$ > /tmp/restart-conntrack.pid; exec conntrack -E -o timestamp,extended > /tmp/restart-conntrack.log 2>&1"
+  docker exec --detach "$DIND_NAME" sh -c \
+    'printf "%s\n" $$ > /tmp/restart-xtables.pid; xtables-monitor --event 2>&1 | while IFS= read -r event; do printf "%s phase=%s %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%S.%N")" "$(cat /tmp/restart-phase 2>/dev/null)" "$event"; done > /tmp/restart-xtables.log'
+
+  local diagnostic
+  for diagnostic in restart-packets restart-conntrack restart-xtables; do
+    inner sh -c "test -s /tmp/$diagnostic.pid && kill -0 \$(cat /tmp/$diagnostic.pid)" ||
+      die "The $diagnostic diagnostic did not start."
+  done
+}
+
+stop_restart_diagnostics() {
+  inner sh -c '
+    if test -s /tmp/restart-packets.pid; then
+      kill -INT "$(cat /tmp/restart-packets.pid)" 2>/dev/null || :
+    fi
+    if test -s /tmp/restart-conntrack.pid; then
+      kill -TERM "$(cat /tmp/restart-conntrack.pid)" 2>/dev/null || :
+    fi
+    pkill -TERM -x xtables-monitor 2>/dev/null || :
+  '
+  sleep 1
+}
+
+dump_restart_diagnostics() {
+  printf '%s\n' 'Gate C restart phase log:' >&2
+  inner cat /tmp/restart-phases.log >&2 || true
+  printf '%s\n' 'Unauthorized probe attempt log:' >&2
+  docker exec "$LAN_NAME" sh -c '
+    printf "%s\n" "First uniquely echoed attempt:"
+    cat /tmp/restart-first-success.log
+    printf "%s\n" "Attempt outcome counts by phase:"
+    awk "{ phase=\"\"; result=\"\"; for (field=1; field<=NF; field+=1) { if (\$field ~ /^phase=/) phase=\$field; if (\$field ~ /^result=/) result=\$field } counts[phase \" \" result]+=1 } END { for (key in counts) print counts[key], key }" /tmp/restart-attempts.log | sort
+    printf "%s\n" "Attempts surrounding the first success:"
+    grep -B 5 -A 5 -F "result=echoed-new-connection" /tmp/restart-attempts.log | head -30
+  ' >&2 || true
+  printf '%s\n' 'TCP/8080 packet trace surrounding echoed payload:' >&2
+  inner sh -c \
+    "grep -B 12 -A 5 -F 'kaul-restart-' /tmp/restart-packets.log | head -120" >&2 || true
+  printf '%s\n' 'TCP/8080 conntrack state and events:' >&2
+  inner conntrack -L -p tcp --orig-src "$LAN_IP" --orig-dst "$HOST_IP" \
+    --dport 8080 -o extended >&2 || true
+  inner sh -c \
+    "success_port=\$(awk -v source='$LAN_IP.' -v destination='$HOST_IP.8080:' '\$3 == \"IP\" && index(\$4, source) == 1 && \$6 == destination && /Flags \\[P.\\]/ { count=split(\$4, fields, \".\"); print fields[count]; exit }' /tmp/restart-packets.log); printf 'successful_source_port=%s\\n' \"\$success_port\"; grep -F \"sport=\$success_port \" /tmp/restart-conntrack.log | tail -40" >&2 || true
+  printf '%s\n' 'iptables mutation trace:' >&2
+  inner sh -c \
+    "grep -E -- '(-D|-I|-A).*FORWARD.*DOCKER-USER|$OWNED_CHAIN|dport 8080|ctorigdstport 8080' /tmp/restart-xtables.log | tail -120" >&2 || true
+  printf '%s\n' 'Docker process, socket, workload, and publication state:' >&2
+  inner sh -c '
+    pgrep -a dockerd || :
+    pgrep -a docker-proxy || :
+    if test -S /var/run/docker.sock; then printf "%s\n" "docker.socket=present"; else printf "%s\n" "docker.socket=absent"; fi
+    ss -H -ltnp "sport = :8080" || :
+    if docker info >/dev/null 2>&1; then
+      docker inspect --format "container={{.Name}} status={{.State.Status}} running={{.State.Running}} restart={{.HostConfig.RestartPolicy.Name}} ports={{json .NetworkSettings.Ports}}" caddy || :
+    else
+      printf "%s\n" "docker.service=not-ready"
+    fi
+  ' >&2 || true
+  printf '%s\n' 'Relevant filter state with counters:' >&2
+  inner iptables -w 10 -t filter -L INPUT -n -v -x --line-numbers >&2 || true
+  inner iptables -w 10 -t filter -L FORWARD -n -v -x --line-numbers >&2 || true
+  inner iptables -w 10 -t filter -L DOCKER-USER -n -v -x --line-numbers >&2 || true
+  inner iptables -w 10 -t filter -L "$OWNED_CHAIN" -n -v -x --line-numbers >&2 || true
+  inner iptables -w 10 -t filter -S INPUT >&2 || true
+  inner iptables -w 10 -t filter -S FORWARD >&2 || true
+  inner iptables -w 10 -t filter -S DOCKER-USER >&2 || true
+  inner iptables -w 10 -t filter -S "$OWNED_CHAIN" >&2 || true
+  printf '%s\n' 'TCP/8080 NAT publication state:' >&2
+  inner sh -c \
+    "iptables -w 10 -t nat -S | grep -E '8080|(^-P)|(^-N DOCKER)'" >&2 || true
+  printf '%s\n' 'Relevant Docker startup/restoration log:' >&2
+  inner sh -c \
+    "grep -E 'Starting up|Restoring containers|sbJoin|Loading containers: done|Daemon has completed initialization|API listen' /tmp/dockerd.log" >&2 || true
+}
+
 run_verify() {
   local verify_output
   if ! verify_output=$(run_operator verify 2>&1); then
@@ -144,6 +242,83 @@ insert_owned_jump() {
     -p tcp -m conntrack \
     --ctorigdst "$HOST_IP" --ctorigdstport 8080 \
     -m comment --comment "$OWNED_COMMENT" -j "$OWNED_CHAIN"
+}
+
+install_ufw_input_model() {
+  inner iptables -w 10 -t filter -N "$UFW_INPUT_CHAIN"
+  inner iptables -w 10 -t filter -A "$UFW_INPUT_CHAIN" \
+    -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+  inner iptables -w 10 -t filter -A "$UFW_INPUT_CHAIN" \
+    -i eth0 -s 192.168.1.0/24 -d "$HOST_IP/32" \
+    -p tcp --dport 22 -j RETURN
+  inner iptables -w 10 -t filter -A "$UFW_INPUT_CHAIN" -i eth0 -j DROP
+  inner iptables -w 10 -t filter -I INPUT 1 \
+    -m comment --comment "$UFW_INPUT_COMMENT" -j "$UFW_INPUT_CHAIN"
+
+  local actual expected
+  actual=$(inner iptables -w 10 -t filter -S "$UFW_INPUT_CHAIN")
+  expected=$(printf '%s\n' \
+    "-N $UFW_INPUT_CHAIN" \
+    "-A $UFW_INPUT_CHAIN -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN" \
+    "-A $UFW_INPUT_CHAIN -s 192.168.1.0/24 -d $HOST_IP/32 -i eth0 -p tcp -m tcp --dport 22 -j RETURN" \
+    "-A $UFW_INPUT_CHAIN -i eth0 -j DROP")
+  [ "$actual" = "$expected" ] ||
+    die "The disposable UFW INPUT model was not exact."
+  inner iptables -w 10 -t filter -S INPUT | sed -n '2p' |
+    grep -Fxq -- "-A INPUT -m comment --comment $UFW_INPUT_COMMENT -j $UFW_INPUT_CHAIN" ||
+    die "The disposable UFW INPUT model was not first."
+}
+
+ufw_input_drop_count() {
+  inner iptables -w 10 -t filter -L "$UFW_INPUT_CHAIN" -n -v -x |
+    awk '$3 == "DROP" { print $1 }'
+}
+
+assert_docker_proxy_listener() {
+  local proxy_processes listeners
+  proxy_processes=$(inner pgrep -a -x docker-proxy) ||
+    die "The Docker-published workload had no live docker-proxy process."
+  printf '%s\n' "$proxy_processes" |
+    grep -F -- "-host-ip $HOST_IP" |
+    grep -F -- "-host-port 8080" |
+    grep -Fq -- "-proto tcp" ||
+    die "The live docker-proxy process did not own the expected TCP/8080 publication."
+
+  listeners=$(inner ss -H -ltnp 'sport = :8080') ||
+    die "The Docker-published TCP/8080 listener could not be inspected."
+  printf '%s\n' "$listeners" | grep -F "$HOST_IP:8080" |
+    grep -Fq 'docker-proxy' ||
+    die "The expected docker-proxy TCP/8080 listener was not live."
+}
+
+publication_dnat_rule() {
+  inner iptables -w 10 -t nat "$@" DOCKER -d "$HOST_IP/32" ! -i docker0 \
+    -p tcp -m tcp --dport 8080 -j DNAT --to-destination "$protected_ip:8080"
+}
+
+direct_proxy_conntrack_entry() {
+  inner conntrack -L -p tcp --orig-src "$LAN_IP" --orig-dst "$HOST_IP" \
+    --sport "$DIRECT_PROXY_SOURCE_PORT" --dport 8080 -o extended 2>/dev/null
+}
+
+assert_direct_proxy_conntrack_entry() {
+  local entry expected_original
+  entry=$(direct_proxy_conntrack_entry) ||
+    die "The fixed direct-proxy conntrack tuple could not be inspected."
+  expected_original="src=$LAN_IP dst=$HOST_IP sport=$DIRECT_PROXY_SOURCE_PORT dport=8080"
+  if [ "$(printf '%s\n' "$entry" | grep -Fc "$expected_original")" -ne 1 ]; then
+    printf '%s\n' "Actual fixed direct-proxy conntrack state:" >&2
+    printf '%s\n' "$entry" >&2
+    die "The expected fixed host-local conntrack tuple was not unique."
+  fi
+  printf '%s\n' "$entry" | grep -Fq '[UNREPLIED]' ||
+    die "The fixed host-local conntrack tuple was not NEW/UNREPLIED."
+}
+
+direct_proxy_tuple_count() {
+  inner iptables -w 10 -t filter -L "$UFW_INPUT_CHAIN" -n -v -x |
+    awk -v marker="$DIRECT_PROXY_TUPLE_COMMENT" \
+      'index($0, "/* " marker " */") { print $1 }'
 }
 
 probe_allowed() {
@@ -174,8 +349,8 @@ case $(inner cat /etc/alpine-release) in
   3.22.*) ;;
   *) die "The pinned firewall runtime is not Alpine 3.22." ;;
 esac
-inner apk add --no-cache bash ca-certificates curl iproute2 \
-  "iptables=1.8.11-r1" perl procps >/dev/null
+inner apk add --no-cache bash ca-certificates conntrack-tools coreutils curl \
+  iproute2 "iptables=1.8.11-r1" perl procps tcpdump >/dev/null
 docker run --rm --name "$DIND_SOURCE_NAME" \
   --volume "$DIND_VOLUME:/var/lib/docker" \
   --entrypoint tar "$DIND_IMAGE" \
@@ -375,10 +550,101 @@ docker run --detach --network "$NETWORK_NAME" --ip "$NPM_IP" \
   --name "$NPM_NAME" "$PEER_IMAGE" sleep infinity >/dev/null
 docker run --detach --network "$NETWORK_NAME" --ip "$LAN_IP" \
   --name "$LAN_NAME" "$PEER_IMAGE" sleep infinity >/dev/null
+docker exec "$LAN_NAME" apk add --no-cache coreutils >/dev/null
 docker exec --detach "$NPM_NAME" nc -ll -p 18080 -e cat
+install_ufw_input_model
 sleep 2
 run_verify
 assert_no_pilot_environment
+protected_ip=$(inner docker inspect --format \
+  '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' caddy)
+[ -n "$protected_ip" ] || die "The protected workload IP could not be resolved."
+assert_docker_proxy_listener
+publication_dnat_rule -C ||
+  die "The Docker-published TCP/8080 DNAT rule was absent before the direct-proxy regression."
+if direct_proxy_conntrack_entry | grep -q .; then
+  die "The fixed direct-proxy conntrack tuple existed before the regression."
+fi
+stop_inner_docker
+if publication_dnat_rule -C >/dev/null 2>&1; then
+  die "The TCP/8080 DNAT rule remained during the pre-DNAT tuple setup."
+fi
+if inner pgrep -x docker-proxy >/dev/null 2>&1 ||
+  inner ss -H -ltnp 'sport = :8080' | grep -q .; then
+  die "A Docker proxy or TCP/8080 listener remained during the pre-DNAT tuple setup."
+fi
+inner iptables -w 10 -t raw -I OUTPUT 1 \
+  -s "$HOST_IP/32" -d "$LAN_IP/32" \
+  -p tcp --sport 8080 --dport "$DIRECT_PROXY_SOURCE_PORT" \
+  --tcp-flags RST RST \
+  -m comment --comment "$DIRECT_PROXY_SETUP_COMMENT" -j DROP
+inner iptables -w 10 -t filter -I "$UFW_INPUT_CHAIN" 3 \
+  -i eth0 -s "$LAN_IP/32" -d "$HOST_IP/32" \
+  -p tcp --sport "$DIRECT_PROXY_SOURCE_PORT" --dport 8080 \
+  -m conntrack --ctstate NEW \
+  -m comment --comment "$DIRECT_PROXY_SETUP_COMMENT" -j ACCEPT
+if docker exec "$LAN_NAME" sh -c \
+  "printf '%s' pre-dnat-fixed-tuple | nc -p $DIRECT_PROXY_SOURCE_PORT -w 1 $HOST_IP 8080" \
+  >/dev/null 2>&1; then
+  die "The fixed unauthorized tuple connected while TCP/8080 DNAT was absent."
+fi
+assert_direct_proxy_conntrack_entry
+inner iptables -w 10 -t filter -D "$UFW_INPUT_CHAIN" \
+  -i eth0 -s "$LAN_IP/32" -d "$HOST_IP/32" \
+  -p tcp --sport "$DIRECT_PROXY_SOURCE_PORT" --dport 8080 \
+  -m conntrack --ctstate NEW \
+  -m comment --comment "$DIRECT_PROXY_SETUP_COMMENT" -j ACCEPT
+inner iptables -w 10 -t raw -D OUTPUT \
+  -s "$HOST_IP/32" -d "$LAN_IP/32" \
+  -p tcp --sport 8080 --dport "$DIRECT_PROXY_SOURCE_PORT" \
+  --tcp-flags RST RST \
+  -m comment --comment "$DIRECT_PROXY_SETUP_COMMENT" -j DROP
+if inner iptables -w 10 -t filter -S "$UFW_INPUT_CHAIN" |
+  grep -Fq -- "--comment $DIRECT_PROXY_SETUP_COMMENT" ||
+  inner iptables -w 10 -t raw -S OUTPUT |
+    grep -Fq -- "--comment $DIRECT_PROXY_SETUP_COMMENT"; then
+  die "A pre-DNAT tuple-setup rule remained after tuple creation."
+fi
+start_inner_docker
+sleep 2
+publication_dnat_rule -C ||
+  die "The Docker-published TCP/8080 DNAT rule was not restored."
+assert_docker_proxy_listener
+run_verify
+
+inner iptables -w 10 -t filter -I "$UFW_INPUT_CHAIN" 3 \
+  -i eth0 -s "$LAN_IP/32" -d "$HOST_IP/32" \
+  -p tcp --sport "$DIRECT_PROXY_SOURCE_PORT" --dport 8080 \
+  -m conntrack --ctstate NEW \
+  -m comment --comment "$DIRECT_PROXY_TUPLE_COMMENT"
+tuple_count_before=$(direct_proxy_tuple_count)
+ufw_drop_before=$(ufw_input_drop_count)
+[ "$tuple_count_before" -eq 0 ] ||
+  die "The exact direct-proxy tuple counter was not initially zero."
+if docker exec "$LAN_NAME" sh -c \
+  "printf '%s' restored-dnat-fixed-tuple | nc -p $DIRECT_PROXY_SOURCE_PORT -w 1 $HOST_IP 8080" \
+  >/dev/null 2>&1; then
+  die "The fixed unauthorized tuple reached docker-proxy after DNAT restoration."
+fi
+tuple_count_after=$(direct_proxy_tuple_count)
+ufw_drop_after=$(ufw_input_drop_count)
+[ "$tuple_count_after" -gt "$tuple_count_before" ] ||
+  die "The exact NEW/UNREPLIED tuple did not traverse the UFW INPUT model."
+[ $((ufw_drop_after - ufw_drop_before)) -eq \
+  $((tuple_count_after - tuple_count_before)) ] ||
+  die "The UFW INPUT drop evidence did not correspond to the exact fixed tuple."
+assert_direct_proxy_conntrack_entry
+inner iptables -w 10 -t filter -D "$UFW_INPUT_CHAIN" \
+  -i eth0 -s "$LAN_IP/32" -d "$HOST_IP/32" \
+  -p tcp --sport "$DIRECT_PROXY_SOURCE_PORT" --dport 8080 \
+  -m conntrack --ctstate NEW \
+  -m comment --comment "$DIRECT_PROXY_TUPLE_COMMENT"
+if inner iptables -w 10 -t filter -S "$UFW_INPUT_CHAIN" |
+  grep -Fq -- "--comment $DIRECT_PROXY_TUPLE_COMMENT"; then
+  die "The exact direct-proxy tuple counter remained after the regression."
+fi
+run_verify
+printf '%s\n' "The disposable UFW INPUT model denied the deterministic same-tuple direct Docker proxy path."
 inner iptables -w 10 -t nat -I PREROUTING 1 -d "$HOST_IP/32" \
   -p tcp --dport 8080 -j DNAT --to-destination 192.168.1.250:8080
 if run_operator verify >/dev/null 2>&1; then
@@ -427,19 +693,32 @@ inner docker run --rm "$PEER_IMAGE" sh -c \
 [ -z "$(inner ss -H -ltn '( sport = :3000 or sport = :5432 )')" ] ||
   die "Kaul or PostgreSQL rehearsal ports were exposed."
 
-docker exec "$LAN_NAME" sh -c \
-  "rm -f /tmp/restart-window /tmp/restart-probe-ready /tmp/stop-restart-probe; touch /tmp/restart-probe-ready; while [ ! -e /tmp/stop-restart-probe ]; do if printf probe | nc -w 1 $HOST_IP 8080 >/dev/null 2>&1; then touch /tmp/restart-window; fi; done" &
-restart_probe_pid=$!
+start_restart_diagnostics
+set_restart_phase baseline-protected
+docker exec "$LAN_NAME" rm -f /tmp/restart-window /tmp/stop-restart-probe \
+  /tmp/restart-attempts.log /tmp/restart-first-success.log \
+  /tmp/restart-probe-ready-1 /tmp/restart-probe-ready-2 \
+  /tmp/restart-probe-ready-3 /tmp/restart-probe-ready-4
+restart_probe_pids=()
+for worker in 1 2 3 4; do
+  docker exec "$LAN_NAME" sh -c \
+    "attempt=0; touch /tmp/restart-probe-ready-$worker; while [ ! -e /tmp/stop-restart-probe ]; do attempt=\$((attempt + 1)); phase=\$(cat /tmp/restart-phase); started=\$(date -u +'%Y-%m-%dT%H:%M:%S.%N'); token=kaul-restart-$worker-\${attempt}-\${started}; response=\$(printf '%s' \"\$token\" | nc -w 1 $HOST_IP 8080 2>/dev/null); status=\$?; ended=\$(date -u +'%Y-%m-%dT%H:%M:%S.%N'); result=denied; if [ \"\$response\" = \"\$token\" ]; then result=echoed-new-connection; touch /tmp/restart-window; fi; record=\"\$ended worker=$worker attempt=\$attempt phase=\$phase status=\$status result=\$result token=\$token\"; printf '%s\\n' \"\$record\" >> /tmp/restart-attempts.log; if [ \"\$result\" = echoed-new-connection ] && [ ! -e /tmp/restart-first-success.log ]; then printf '%s\\n' \"\$record\" > /tmp/restart-first-success.log; fi; done" &
+  restart_probe_pids+=("$!")
+done
 for _attempt in $(seq 1 30); do
-  if docker exec "$LAN_NAME" test -e /tmp/restart-probe-ready; then
+  if docker exec "$LAN_NAME" sh -c \
+    'test -e /tmp/restart-probe-ready-1 && test -e /tmp/restart-probe-ready-2 && test -e /tmp/restart-probe-ready-3 && test -e /tmp/restart-probe-ready-4'; then
     break
   fi
   sleep 0.1
 done
-docker exec "$LAN_NAME" test -e /tmp/restart-probe-ready ||
+docker exec "$LAN_NAME" sh -c \
+  'test -e /tmp/restart-probe-ready-1 && test -e /tmp/restart-probe-ready-2 && test -e /tmp/restart-probe-ready-3 && test -e /tmp/restart-probe-ready-4' ||
   die "The continuous unauthorized restart probe did not become ready."
 
+set_restart_phase docker-stopping
 stop_inner_docker
+set_restart_phase docker-stopped
 inner iptables -w 10 -t filter -D DOCKER-USER \
   -p tcp -m conntrack \
   --ctorigdst "$HOST_IP" --ctorigdstport 8080 \
@@ -449,24 +728,38 @@ inner iptables -w 10 -t filter -A DOCKER-USER \
   --ctorigdst "$HOST_IP" --ctorigdstport 8080 \
   -m comment --comment "$OWNED_COMMENT" -j "$OWNED_CHAIN"
 inner iptables -w 10 -t filter -D FORWARD -j DOCKER-USER
+set_restart_phase stopped-firewall-corrupted
+set_restart_phase gate-c-preflight
 run_operator preflight
+set_restart_phase gate-c-apply
 run_operator apply
+set_restart_phase gate-c-applied-before-docker-start
 assert_no_pilot_environment
 inner iptables -w 10 -t filter -S FORWARD | sed -n '2p' |
   grep -Fxq -- '-A FORWARD -j DOCKER-USER' ||
   die "The canonical FORWARD transfer was absent before the Docker restart probe."
+set_restart_phase docker-starting
 start_inner_docker
+set_restart_phase docker-ready-workload-restoring
 sleep 2
+set_restart_phase gate-c-verify
 run_verify
+set_restart_phase gate-c-verified
 assert_no_pilot_environment
 probe_allowed
 probe_denied
+set_restart_phase final-negative-check-complete
 docker exec "$LAN_NAME" touch /tmp/stop-restart-probe
-if ! wait "$restart_probe_pid"; then
-  die "The continuous unauthorized restart probe exited before completing."
+for restart_probe_pid in "${restart_probe_pids[@]}"; do
+  if ! wait "$restart_probe_pid"; then
+    die "A continuous unauthorized restart probe worker exited before completing."
+  fi
+done
+stop_restart_diagnostics
+if ! docker exec "$LAN_NAME" test ! -e /tmp/restart-window; then
+  dump_restart_diagnostics
+  die "A uniquely echoed unauthorized connection succeeded during Docker stop, firewall reconciliation, startup, or restart-policy workload restoration."
 fi
-docker exec "$LAN_NAME" test ! -e /tmp/restart-window ||
-  die "An unauthorized connection succeeded during Docker stop, firewall reconciliation, startup, or restart-policy workload restoration."
 printf '%s\n' "The continuous unauthorized probe never connected during Docker stop, firewall reconciliation, startup, and verified restart-policy workload restoration."
 
 insert_owned_jump

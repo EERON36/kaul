@@ -537,6 +537,66 @@ describe("Pilot Docker firewall contract", () => {
     expect(rehearsal).toContain(
       "An active service with disabled UFW policy was accepted",
     );
+    expectInOrder(rehearsal, [
+      "install_ufw_input_model() {",
+      "-m conntrack --ctstate ESTABLISHED,RELATED -j RETURN",
+      "-p tcp --dport 22 -j RETURN",
+      '-A "$UFW_INPUT_CHAIN" -i eth0 -j DROP',
+      "-I INPUT 1",
+      "install_ufw_input_model",
+    ]);
+    expectInOrder(rehearsal, [
+      "assert_docker_proxy_listener",
+      "publication_dnat_rule -C",
+      "direct_proxy_conntrack_entry | grep -q .",
+      "stop_inner_docker",
+      "if publication_dnat_rule -C",
+      "-t raw -I OUTPUT 1",
+      '--comment "$DIRECT_PROXY_SETUP_COMMENT" -j DROP',
+      '-I "$UFW_INPUT_CHAIN" 3',
+      '--comment "$DIRECT_PROXY_SETUP_COMMENT" -j ACCEPT',
+      "nc -p $DIRECT_PROXY_SOURCE_PORT -w 1 $HOST_IP 8080",
+      "assert_direct_proxy_conntrack_entry",
+      '-t filter -D "$UFW_INPUT_CHAIN"',
+      "-t raw -D OUTPUT",
+      'grep -Fq -- "--comment $DIRECT_PROXY_SETUP_COMMENT"',
+      "start_inner_docker",
+      "publication_dnat_rule -C",
+      "assert_docker_proxy_listener",
+      "run_verify",
+      "tuple_count_before=$(direct_proxy_tuple_count)",
+      "ufw_drop_before=$(ufw_input_drop_count)",
+      "restored-dnat-fixed-tuple",
+      "tuple_count_after=$(direct_proxy_tuple_count)",
+      "ufw_drop_after=$(ufw_input_drop_count)",
+      "The UFW INPUT drop evidence did not correspond to the exact fixed tuple.",
+      "assert_direct_proxy_conntrack_entry",
+      "The disposable UFW INPUT model denied the deterministic same-tuple direct Docker proxy path.",
+    ]);
+    expectInOrder(rehearsal, [
+      "assert_docker_proxy_listener() {",
+      "pgrep -a -x docker-proxy",
+      "ss -H -ltnp",
+      "direct_proxy_conntrack_entry() {",
+      '--sport "$DIRECT_PROXY_SOURCE_PORT" --dport 8080 -o extended',
+      'expected_original="src=$LAN_IP dst=$HOST_IP sport=$DIRECT_PROXY_SOURCE_PORT dport=8080"',
+      "grep -Fq '[UNREPLIED]'",
+      "direct_proxy_tuple_count() {",
+      'index($0, "/* " marker " */") { print $1 }',
+    ]);
+    expectInOrder(rehearsal, [
+      '-I "$UFW_INPUT_CHAIN" 3',
+      '--sport "$DIRECT_PROXY_SOURCE_PORT" --dport 8080',
+      "--ctstate NEW",
+      '--comment "$DIRECT_PROXY_TUPLE_COMMENT"',
+      "tuple_count_before=$(direct_proxy_tuple_count)",
+      "tuple_count_after=$(direct_proxy_tuple_count)",
+      '-D "$UFW_INPUT_CHAIN"',
+      'grep -Fq -- "--comment $DIRECT_PROXY_TUPLE_COMMENT"',
+    ]);
+    expect(rehearsal).not.toContain(
+      "The disposable UFW INPUT model did not deny the direct Docker proxy path.",
+    );
     expect(rehearsal).toContain("A string-valued Docker boolean was accepted");
     expect(rehearsal).toContain(
       "Docker default direct-routing network options were accepted",
@@ -558,11 +618,16 @@ describe("Pilot Docker firewall contract", () => {
       "A FORWARD transfer to DOCKER-USER remained after removal.",
     );
     expectInOrder(rehearsal, [
-      "rm -f /tmp/restart-window /tmp/restart-probe-ready /tmp/stop-restart-probe",
-      "test -e /tmp/restart-probe-ready",
+      "start_restart_diagnostics",
+      "set_restart_phase baseline-protected",
+      "/tmp/restart-probe-ready-1",
+      "docker-stopping",
       "stop_inner_docker",
+      "gate-c-apply",
       "run_operator apply",
+      "docker-starting",
       "start_inner_docker",
+      "gate-c-verify",
       "run_verify",
       "probe_allowed",
       "probe_denied",
@@ -573,8 +638,11 @@ describe("Pilot Docker firewall contract", () => {
       "The continuous unauthorized probe never connected during Docker stop, firewall reconciliation, startup, and verified restart-policy workload restoration.",
     );
     expect(rehearsal).toContain(
-      "The continuous unauthorized restart probe exited before completing.",
+      "A continuous unauthorized restart probe worker exited before completing.",
     );
+    expect(rehearsal).toContain("result=echoed-new-connection");
+    expect(rehearsal).toContain("conntrack -E -o timestamp,extended");
+    expect(rehearsal).toContain("xtables-monitor --event");
     expect(rehearsal).toContain("trap cleanup EXIT");
     expect(rehearsal).toContain(
       "Disposable firewall containers and network cleanup verified.",
