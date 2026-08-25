@@ -204,7 +204,7 @@ case "$1:$2" in
     printf "%s\n" active
     ;;
   is-active:docker.socket|is-active:docker.service) printf "%s\n" inactive; exit 3 ;;
-  stop:docker.socket) exit 0 ;;
+  stop:docker.socket|stop:docker.service) exit 0 ;;
   *) exit 1 ;;
 esac
 EOF

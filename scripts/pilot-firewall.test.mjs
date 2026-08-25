@@ -512,6 +512,9 @@ describe("Pilot Docker firewall contract", () => {
       'docker exec -i "$DIND_NAME" tar -C /usr/local/bin -xf -',
     );
     expect(rehearsal).toContain('Server.Version}}\')" = "29.7.2"');
+    expect(rehearsal).toContain(
+      "stop:docker.socket|stop:docker.service) exit 0 ;;",
+    );
     expect(rehearsal).toContain("install -d -m 0755 /etc/docker");
     expect(rehearsal).toContain("grep -v '^#'");
     expect(rehearsal).toContain("foreign-sentinel");
