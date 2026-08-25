@@ -51,8 +51,8 @@ cleanup() {
   esac
   systemctl stop "$LOAD_ANCHOR" "$ROLLBACK_TIMER" "$ROLLBACK_SERVICE" \
     "$SOCKET" "$SERVICE" "$FIREWALL_SERVICE" >/dev/null 2>&1
-  systemctl reset-failed "$ROLLBACK_SERVICE" "$SERVICE" \
-    "$FIREWALL_SERVICE" >/dev/null 2>&1
+  systemctl reset-failed "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER" "$SOCKET" \
+    "$SERVICE" "$FIREWALL_SERVICE" "$LOAD_ANCHOR" >/dev/null 2>&1
   rm -f -- "$SERVICE_PATH" "$SOCKET_PATH" "$FIREWALL_PATH" \
     "$ROLLBACK_PATH" "$TIMER_PATH" "$LOAD_ANCHOR_PATH" "$DROP_IN_PATH"
   rmdir -- "$DROP_IN_DIRECTORY" >/dev/null 2>&1 || true
@@ -74,15 +74,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
-reset_units_for_reuse() {
-  local anchor_state unit unit_active_state unit_load_state
+pin_units_for_reuse() {
+  local anchor_state unit unit_load_state
 
   [ "$#" -gt 0 ] || {
-    printf '%s\n' "ERROR: No disposable units were supplied for reuse." >&2
+    printf '%s\n' "ERROR: No disposable units were supplied for pinning." >&2
     exit 1
   }
   systemctl daemon-reload
   systemctl start "$LOAD_ANCHOR"
+  anchor_state=$(systemctl show --property=ActiveState --value "$LOAD_ANCHOR") || {
+    printf '%s\n' "ERROR: Disposable load anchor state could not be inspected." >&2
+    exit 1
+  }
+  [ "$anchor_state" = active ] || {
+    printf 'ERROR: Disposable load anchor is %s instead of active.\n' \
+      "$anchor_state" >&2
+    exit 1
+  }
   for unit in "$@"; do
     unit_load_state=$(systemctl show --property=LoadState --value "$unit") || {
       printf 'ERROR: Load state could not be inspected for %s.\n' "$unit" >&2
@@ -93,20 +102,12 @@ reset_units_for_reuse() {
         "$unit" "$unit_load_state" >&2
       exit 1
     }
-    unit_active_state=$(systemctl show --property=ActiveState --value "$unit") || {
-      printf 'ERROR: Active state could not be inspected for %s.\n' "$unit" >&2
-      exit 1
-    }
-    case "$unit_active_state" in
-      failed|inactive) ;;
-      *)
-        printf 'ERROR: Disposable unit %s is %s before reuse.\n' \
-          "$unit" "$unit_active_state" >&2
-        exit 1
-        ;;
-    esac
   done
-  systemctl reset-failed "$@"
+}
+
+release_load_anchor() {
+  local anchor_state
+
   systemctl stop "$LOAD_ANCHOR"
   anchor_state=$(systemctl show --property=ActiveState --value "$LOAD_ANCHOR") || {
     printf '%s\n' "ERROR: Disposable load anchor state could not be inspected." >&2
@@ -116,6 +117,80 @@ reset_units_for_reuse() {
     printf 'ERROR: Disposable load anchor remained %s.\n' "$anchor_state" >&2
     exit 1
   }
+}
+
+prepare_units_for_reuse() {
+  local expected_state index unit unit_active_state
+  local -a expected_states=() failed_units=() units=()
+
+  [ "$#" -gt 0 ] && [ $(( $# % 2 )) -eq 0 ] || {
+    printf '%s\n' "ERROR: Disposable reuse requires unit/state pairs." >&2
+    exit 1
+  }
+  while [ "$#" -gt 0 ]; do
+    unit=$1
+    expected_state=$2
+    case "$expected_state" in
+      failed|inactive|inactive-or-failed) ;;
+      *)
+        printf 'ERROR: Unsupported expected state %s for %s.\n' \
+          "$expected_state" "$unit" >&2
+        exit 1
+        ;;
+    esac
+    units+=("$unit")
+    expected_states+=("$expected_state")
+    shift 2
+  done
+
+  pin_units_for_reuse "${units[@]}"
+  for index in "${!units[@]}"; do
+    unit=${units[$index]}
+    expected_state=${expected_states[$index]}
+    unit_active_state=$(systemctl show --property=ActiveState --value "$unit") || {
+      printf 'ERROR: Active state could not be inspected for %s.\n' "$unit" >&2
+      exit 1
+    }
+    case "$expected_state:$unit_active_state" in
+      failed:failed|inactive:inactive|inactive-or-failed:failed|inactive-or-failed:inactive) ;;
+      *)
+        printf 'ERROR: Disposable unit %s is %s; expected %s before reuse.\n' \
+          "$unit" "$unit_active_state" "$expected_state" >&2
+        exit 1
+        ;;
+    esac
+    [ "$unit_active_state" != failed ] || failed_units+=("$unit")
+  done
+
+  if [ "${#failed_units[@]}" -gt 0 ]; then
+    systemctl reset-failed "${failed_units[@]}"
+  fi
+  for unit in "${units[@]}"; do
+    unit_active_state=$(systemctl show --property=ActiveState --value "$unit") || {
+      printf 'ERROR: Post-reset state could not be inspected for %s.\n' "$unit" >&2
+      exit 1
+    }
+    [ "$unit_active_state" = inactive ] || {
+      printf 'ERROR: Disposable unit %s remained %s after strict reset.\n' \
+        "$unit" "$unit_active_state" >&2
+      exit 1
+    }
+  done
+
+  release_load_anchor
+  wait_for_units_unloaded "${units[@]}"
+  pin_units_for_reuse "${units[@]}"
+  for unit in "${units[@]}"; do
+    unit_active_state=$(systemctl show --property=ActiveState --value "$unit") || {
+      printf 'ERROR: Reloaded state could not be inspected for %s.\n' "$unit" >&2
+      exit 1
+    }
+    [ "$unit_active_state" = inactive ] || {
+      printf 'ERROR: Reloaded disposable unit %s is %s instead of inactive.\n' \
+        "$unit" "$unit_active_state" >&2
+      exit 1
+    }
+  done
 }
 
 wait_for_units_unloaded() {
@@ -143,7 +218,16 @@ wait_for_units_unloaded() {
 }
 
 wait_for_stopped_units() {
-  local service_state socket_state unit_jobs
+  local expected_service_state=$1 service_state socket_state unit_jobs
+
+  case "$expected_service_state" in
+    failed|inactive) ;;
+    *)
+      printf 'ERROR: Unsupported settled service state: %s.\n' \
+        "$expected_service_state" >&2
+      exit 1
+      ;;
+  esac
   for _attempt in $(seq 1 50); do
     service_state=$(systemctl is-active "$SERVICE" 2>/dev/null || true)
     socket_state=$(systemctl is-active "$SOCKET" 2>/dev/null || true)
@@ -151,21 +235,21 @@ wait_for_stopped_units() {
       printf '%s\n' "ERROR: Disposable service/socket jobs could not be inspected." >&2
       exit 1
     }
-    if { [ "$service_state" = failed ] || [ "$service_state" = inactive ]; } &&
+    if [ "$service_state" = "$expected_service_state" ] &&
       [ "$socket_state" = inactive ] &&
       [ -z "$unit_jobs" ]; then
       return
     fi
     sleep 0.1
   done
-  printf 'ERROR: Disposable service/socket did not settle inactive (service=%s, socket=%s).\n' \
-    "$service_state" "$socket_state" >&2
+  printf 'ERROR: Disposable service/socket did not settle as expected (expected service=%s, service=%s, socket=%s).\n' \
+    "$expected_service_state" "$service_state" "$socket_state" >&2
   exit 1
 }
 
 assert_rollback_settled() {
   local rollback_jobs rollback_state
-  wait_for_stopped_units
+  wait_for_stopped_units inactive
   rollback_state=$(systemctl is-active "$ROLLBACK_SERVICE" 2>/dev/null || true)
   [ "$rollback_state" = inactive ] || {
     printf 'ERROR: Rollback service remained %s.\n' "$rollback_state" >&2
@@ -246,13 +330,22 @@ assert_fresh_timer_history() {
   esac
 }
 
-cancel_rollback_timer_race_safely() {
-  local rollback_jobs rollback_state
+stop_rollback_timer_strictly() {
+  local timer_state
+
   systemctl stop "$ROLLBACK_TIMER"
-  [ "$(systemctl is-active "$ROLLBACK_TIMER" 2>/dev/null || true)" = inactive ] || {
-    printf '%s\n' "ERROR: Disposable rollback timer remained active after cancellation." >&2
+  timer_state=$(systemctl is-active "$ROLLBACK_TIMER" 2>/dev/null || true)
+  [ "$timer_state" = inactive ] || {
+    printf 'ERROR: Disposable rollback timer remained %s after stop.\n' \
+      "$timer_state" >&2
     exit 1
   }
+}
+
+cancel_rollback_timer_race_safely() {
+  local rollback_jobs rollback_state
+
+  stop_rollback_timer_strictly
   for _attempt in $(seq 1 50); do
     rollback_state=$(systemctl show --property=ActiveState --value \
       "$ROLLBACK_SERVICE") || exit 1
@@ -262,7 +355,11 @@ cancel_rollback_timer_race_safely() {
       exit 1
     }
     case "$rollback_state" in
-      inactive|failed) [ -z "$rollback_jobs" ] && return ;;
+      inactive) [ -z "$rollback_jobs" ] && return ;;
+      failed)
+        printf '%s\n' "ERROR: Disposable rollback service failed during timer cancellation." >&2
+        exit 1
+        ;;
     esac
     sleep 0.1
   done
@@ -271,7 +368,10 @@ cancel_rollback_timer_race_safely() {
 }
 
 start_protected_service() {
-  reset_units_for_reuse "$SERVICE" "$SOCKET"
+  local expected_service_state=${1:-inactive}
+
+  prepare_units_for_reuse "$SERVICE" "$expected_service_state" \
+    "$SOCKET" inactive
   systemctl start "$SOCKET"
   systemctl start "$SERVICE"
   systemctl is-active --quiet "$SERVICE" || {
@@ -282,6 +382,7 @@ start_protected_service() {
     printf '%s\n' "ERROR: Protected disposable service did not create its simulated state." >&2
     exit 1
   }
+  release_load_anchor
 }
 
 install -d -m 0700 "$WORK_DIRECTORY"
@@ -451,8 +552,14 @@ fi
   printf '%s\n' "ERROR: Failed UFW dependency allowed a simulated publication." >&2
   exit 1
 }
+systemctl stop "$SOCKET"
+[ "$(systemctl is-active "$SOCKET" 2>/dev/null || true)" = inactive ] || {
+  printf '%s\n' "ERROR: Dependency-failure socket did not become inactive." >&2
+  exit 1
+}
 rm -f -- "$WORK_DIRECTORY/events" "$WORK_DIRECTORY/guard"
-reset_units_for_reuse "$SERVICE" "$FIREWALL_SERVICE"
+prepare_units_for_reuse "$SERVICE" inactive-or-failed \
+  "$FIREWALL_SERVICE" failed "$SOCKET" inactive
 touch "$WORK_DIRECTORY/ufw-active" "$WORK_DIRECTORY/verify-failure"
 systemctl start "$FIREWALL_SERVICE"
 systemctl start "$SOCKET"
@@ -460,7 +567,7 @@ if systemctl start "$SERVICE"; then
   printf '%s\n' "ERROR: Intentional post-start verification failure was accepted." >&2
   exit 1
 fi
-wait_for_stopped_units
+wait_for_stopped_units failed
 [ ! -e "$WORK_DIRECTORY/exposure" ] && [ -e "$WORK_DIRECTORY/guard" ] || {
   printf '%s\n' "ERROR: Post-start failure did not remove publication and retain protection." >&2
   exit 1
@@ -474,12 +581,12 @@ case "$post_start_events" in
     exit 1
     ;;
 esac
-wait_for_units_unloaded "$SERVICE"
 
 # Reproduce explicit rollback: request socket shutdown first, then let systemd
 # perform inverse dependency stop ordering before final inactivity proof.
 rm -f -- "$WORK_DIRECTORY/verify-failure"
-start_protected_service
+start_protected_service failed
+prepare_units_for_reuse "$ROLLBACK_SERVICE" inactive
 timeout 10 systemctl start "$ROLLBACK_SERVICE"
 assert_rollback_settled
 explicit_count=$(grep -c '^rollback$' "$WORK_DIRECTORY/events")
@@ -487,23 +594,27 @@ explicit_count=$(grep -c '^rollback$' "$WORK_DIRECTORY/events")
   printf '%s\n' "ERROR: Explicit rollback did not complete exactly once." >&2
   exit 1
 }
-wait_for_units_unloaded "$ROLLBACK_SERVICE"
+release_load_anchor
+wait_for_units_unloaded "$ROLLBACK_SERVICE" "$SERVICE" "$SOCKET"
 
 # The same explicit operation remains safe and bounded when already rolled back.
+prepare_units_for_reuse "$ROLLBACK_SERVICE" inactive
 timeout 10 systemctl start "$ROLLBACK_SERVICE"
 assert_rollback_settled
 [ "$(grep -c '^rollback$' "$WORK_DIRECTORY/events")" -eq 2 ] || {
   printf '%s\n' "ERROR: Repeated explicit rollback was not idempotent." >&2
   exit 1
 }
-wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"
+release_load_anchor
+wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER" \
+  "$SERVICE" "$SOCKET"
 
 # Reload the garbage-collected rollback units, re-arm a fresh timer, then close
 # the cancellation race without disturbing protected service state.
 start_protected_service
 sleep 0.1
-systemctl stop "$ROLLBACK_TIMER"
-reset_units_for_reuse "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"
+prepare_units_for_reuse "$ROLLBACK_SERVICE" inactive \
+  "$ROLLBACK_TIMER" inactive
 systemctl start "$ROLLBACK_TIMER"
 assert_fresh_timer_history
 cancel_rollback_timer_race_safely
@@ -515,11 +626,13 @@ systemctl is-active --quiet "$SERVICE" && systemctl is-active --quiet "$SOCKET" 
   printf '%s\n' "ERROR: Timer cancellation disturbed protected publication state." >&2
   exit 1
 }
+release_load_anchor
 wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"
 
 # Re-arm again and prove the timer independently dispatches the same rollback.
 sleep 0.1
-reset_units_for_reuse "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"
+prepare_units_for_reuse "$ROLLBACK_SERVICE" inactive \
+  "$ROLLBACK_TIMER" inactive
 systemctl start "$ROLLBACK_TIMER"
 assert_fresh_timer_history
 for _attempt in $(seq 1 400); do
@@ -533,6 +646,10 @@ assert_rollback_settled
   printf '%s\n' "ERROR: Timed fallback did not independently complete rollback." >&2
   exit 1
 }
+stop_rollback_timer_strictly
+release_load_anchor
+wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER" \
+  "$SERVICE" "$SOCKET"
 
 printf '%s\n' \
   "Systemd rehearsal passed: post-start failure retained the guard; explicit rollback completed without timeout or orphan, remained idempotent, and timed fallback independently stopped socket then service."

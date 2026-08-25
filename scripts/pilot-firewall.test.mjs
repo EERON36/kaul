@@ -446,9 +446,11 @@ describe("Pilot Docker firewall contract", () => {
     );
     expectInOrder(systemdRehearsal, [
       "start_protected_service() {",
-      'reset_units_for_reuse "$SERVICE" "$SOCKET"',
+      'prepare_units_for_reuse "$SERVICE" "$expected_service_state"',
+      '"$SOCKET" inactive',
       'systemctl start "$SOCKET"',
       'systemctl start "$SERVICE"',
+      "release_load_anchor",
     ]);
     expect(systemdRehearsal).not.toContain(
       'systemctl reset-failed "$SERVICE" || true',
@@ -480,13 +482,16 @@ describe("Pilot Docker firewall contract", () => {
     ]);
     expectInOrder(systemdRehearsal, [
       "# Reload the garbage-collected rollback units",
-      'systemctl stop "$ROLLBACK_TIMER"',
-      'reset_units_for_reuse "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
+      'prepare_units_for_reuse "$ROLLBACK_SERVICE" inactive',
+      '"$ROLLBACK_TIMER" inactive',
       'systemctl start "$ROLLBACK_TIMER"',
       "assert_fresh_timer_history",
       "cancel_rollback_timer_race_safely",
+      "release_load_anchor",
+      'wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
       "# Re-arm again and prove the timer independently dispatches",
-      'reset_units_for_reuse "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
+      'prepare_units_for_reuse "$ROLLBACK_SERVICE" inactive',
+      '"$ROLLBACK_TIMER" inactive',
       'systemctl start "$ROLLBACK_TIMER"',
       "assert_fresh_timer_history",
     ]);
@@ -573,9 +578,73 @@ describe("Pilot Docker firewall contract", () => {
     );
   });
 
+  it("pins failed units through strict reset before garbage collection and reload", () => {
+    expectInOrder(systemdRehearsal, [
+      "pin_units_for_reuse() {",
+      "systemctl daemon-reload",
+      'systemctl start "$LOAD_ANCHOR"',
+      '[ "$anchor_state" = active ]',
+      'systemctl show --property=LoadState --value "$unit"',
+      '[ "$unit_load_state" = loaded ]',
+    ]);
+    expectInOrder(systemdRehearsal, [
+      "prepare_units_for_reuse() {",
+      'pin_units_for_reuse "${units[@]}"',
+      'systemctl show --property=ActiveState --value "$unit"',
+      "failed:failed|inactive:inactive|inactive-or-failed:failed|inactive-or-failed:inactive)",
+      '[ "$unit_active_state" != failed ] || failed_units+=("$unit")',
+      'systemctl reset-failed "${failed_units[@]}"',
+      "Post-reset state could not be inspected",
+      '[ "$unit_active_state" = inactive ]',
+      "release_load_anchor",
+      'wait_for_units_unloaded "${units[@]}"',
+      'pin_units_for_reuse "${units[@]}"',
+      "Reloaded state could not be inspected",
+      '[ "$unit_active_state" = inactive ]',
+    ]);
+    expect(systemdRehearsal).not.toContain(
+      'systemctl reset-failed "${failed_units[@]}" || true',
+    );
+    expectInOrder(systemdRehearsal, [
+      "Failed UFW dependency allowed a simulated publication",
+      'systemctl stop "$SOCKET"',
+      'systemctl is-active "$SOCKET"',
+      "Dependency-failure socket did not become inactive",
+      'prepare_units_for_reuse "$SERVICE" inactive-or-failed',
+      '"$FIREWALL_SERVICE" failed',
+      '"$SOCKET" inactive',
+      "wait_for_stopped_units failed",
+      "$'preflight\\napply\\nverify-failed\\nfail-closed-accepted'",
+      "start_protected_service failed",
+    ]);
+    expect(systemdRehearsal).toContain(
+      'prepare_units_for_reuse "$SERVICE" "$expected_service_state"',
+    );
+    expect(systemdRehearsal).toContain('"$SOCKET" inactive');
+    expect(systemdRehearsal).toContain(
+      "Disposable rollback service failed during timer cancellation",
+    );
+    expectInOrder(systemdRehearsal, [
+      "stop_rollback_timer_strictly() {",
+      'systemctl stop "$ROLLBACK_TIMER"',
+      'timer_state=$(systemctl is-active "$ROLLBACK_TIMER"',
+      '[ "$timer_state" = inactive ]',
+    ]);
+    expectInOrder(systemdRehearsal, [
+      '[ "$(grep -c \'^rollback$\' "$WORK_DIRECTORY/events")" -eq 3 ]',
+      "Timed fallback did not independently complete rollback",
+      "stop_rollback_timer_strictly",
+      "release_load_anchor",
+      'wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
+    ]);
+    expect(systemdRehearsal.split("stop_rollback_timer_strictly")).toHaveLength(
+      4,
+    );
+  });
+
   it("reloads every garbage-collected systemd unit through one lifecycle pattern", () => {
     const rollbackReuse =
-      'reset_units_for_reuse "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"';
+      'prepare_units_for_reuse "$ROLLBACK_SERVICE" inactive';
     const rollbackUnload =
       'wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"';
 
@@ -588,44 +657,44 @@ describe("Pilot Docker firewall contract", () => {
     expect(systemdRehearsal).toContain(
       "After=$SERVICE $SOCKET $FIREWALL_SERVICE $ROLLBACK_SERVICE $ROLLBACK_TIMER",
     );
-    expectInOrder(systemdRehearsal, [
-      "reset_units_for_reuse() {",
-      "systemctl daemon-reload",
-      'systemctl start "$LOAD_ANCHOR"',
-      'systemctl show --property=LoadState --value "$unit"',
-      '[ "$unit_load_state" = loaded ]',
-      'systemctl show --property=ActiveState --value "$unit"',
-      "failed|inactive) ;;",
-      'systemctl reset-failed "$@"',
-      'systemctl stop "$LOAD_ANCHOR"',
-      '[ "$anchor_state" = inactive ]',
-    ]);
-    expect(systemdRehearsal).not.toContain(
-      'systemctl reset-failed "$@" || true',
+    expect(systemdRehearsal).toContain(
+      'prepare_units_for_reuse "$SERVICE" inactive-or-failed',
     );
     expect(systemdRehearsal).toContain(
-      'reset_units_for_reuse "$SERVICE" "$FIREWALL_SERVICE"',
+      'wait_for_units_unloaded "$ROLLBACK_SERVICE" "$SERVICE" "$SOCKET"',
     );
-    expect(systemdRehearsal).toContain('wait_for_units_unloaded "$SERVICE"');
-    expect(systemdRehearsal).toContain(
-      'wait_for_units_unloaded "$ROLLBACK_SERVICE"',
-    );
-    expect(systemdRehearsal.split(rollbackReuse)).toHaveLength(3);
-    expect(systemdRehearsal.split(rollbackUnload)).toHaveLength(3);
+    expect(systemdRehearsal.split(rollbackReuse)).toHaveLength(5);
+    expect(systemdRehearsal.split(rollbackUnload)).toHaveLength(4);
     expect(
       systemdRehearsal.split('systemctl start "$ROLLBACK_SERVICE"'),
     ).toHaveLength(3);
     expect(
       systemdRehearsal.split('systemctl start "$ROLLBACK_TIMER"'),
     ).toHaveLength(3);
+    expect(
+      systemdRehearsal.indexOf(
+        'systemctl reset-failed "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
+      ),
+    ).toBeLessThan(systemdRehearsal.indexOf("trap cleanup EXIT"));
+    expect(
+      systemdRehearsal.match(
+        /systemctl reset-failed "\$ROLLBACK_SERVICE" "\$ROLLBACK_TIMER"/g,
+      ),
+    ).toHaveLength(1);
     expect(systemdRehearsal).not.toContain(
-      'systemctl reset-failed "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
+      'systemctl stop "$ROLLBACK_TIMER"\nprepare_units_for_reuse',
     );
     expect(systemdRehearsal).toContain(
       '"$ROLLBACK_PATH" "$TIMER_PATH" "$LOAD_ANCHOR_PATH"',
     );
     expect(systemdRehearsal).toContain(
       'systemctl cat "$LOAD_ANCHOR" >/dev/null 2>&1',
+    );
+    expect(systemdRehearsal).toContain(
+      'systemctl reset-failed "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER" "$SOCKET"',
+    );
+    expect(systemdRehearsal).toContain(
+      '"$SERVICE" "$FIREWALL_SERVICE" "$LOAD_ANCHOR"',
     );
   });
 
