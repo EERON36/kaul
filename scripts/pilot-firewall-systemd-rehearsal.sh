@@ -200,8 +200,19 @@ cancel_rollback_timer_race_safely() {
 }
 
 start_protected_service() {
-  systemctl reset-failed "$SERVICE"
+  local service_load_state
+
   systemctl start "$SOCKET"
+  service_load_state=$(systemctl show --property=LoadState --value "$SERVICE") || {
+    printf '%s\n' "ERROR: Disposable service load state could not be inspected." >&2
+    exit 1
+  }
+  [ "$service_load_state" = loaded ] || {
+    printf 'ERROR: Disposable service remained %s after socket activation.\n' \
+      "$service_load_state" >&2
+    exit 1
+  }
+  systemctl reset-failed "$SERVICE"
   systemctl start "$SERVICE"
   systemctl is-active --quiet "$SERVICE" || {
     printf '%s\n' "ERROR: Protected disposable service did not become active." >&2

@@ -444,6 +444,23 @@ describe("Pilot Docker firewall contract", () => {
     expect(systemdRehearsal).not.toContain(
       'systemctl reset-failed "$SERVICE" "$ROLLBACK_SERVICE"',
     );
+    expect(systemdRehearsal).toContain(
+      "Disposable service load state could not be inspected",
+    );
+    expect(systemdRehearsal).toContain(
+      "Disposable service remained %s after socket activation",
+    );
+    expectInOrder(systemdRehearsal, [
+      "start_protected_service() {",
+      'systemctl start "$SOCKET"',
+      'systemctl show --property=LoadState --value "$SERVICE"',
+      '[ "$service_load_state" = loaded ]',
+      'systemctl reset-failed "$SERVICE"',
+      'systemctl start "$SERVICE"',
+    ]);
+    expect(systemdRehearsal).not.toContain(
+      'systemctl reset-failed "$SERVICE" || true',
+    );
     expect(systemdRehearsal).toContain('[ "$process_status" -eq 1 ]');
     expect(systemdRehearsal).not.toContain('! pgrep -f -- "$HELPER_PATH"');
     expect(systemdRehearsal).toContain(
