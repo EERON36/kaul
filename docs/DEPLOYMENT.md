@@ -1053,6 +1053,13 @@ post-start failure semantics, including stop-post execution and socket
 shutdown. Neither can prove the real VM's installed units, Docker boot/reboot
 timing, UFW state, NPM-observed peer, or physical network path; those remain
 manual Homelab gates.
+The installation gate therefore stops Docker before activating its drop-in,
+requires enabled/live UFW with the exact reviewed user rule for every subsequent
+Docker start, and requires manual
+before/after attribution of UFW plus the full native nftables ruleset. Any
+broader SSH allow or unattributed native hook, NAT, forwarding, or relevant-port
+rule blocks installation, timer cancellation, restart acceptance, and reboot
+acceptance.
 
 ## Current Production / Cloud status
 

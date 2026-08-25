@@ -188,6 +188,7 @@ load_configuration() {
     my $host_number = unpack(q{N}, $host_packed);
     my $npm_number = unpack(q{N}, $npm_packed);
     my $mask = $prefix == 0 ? 0 : (0xffffffff << (32 - $prefix)) & 0xffffffff;
+    my $management_network = inet_ntop(AF_INET, pack(q{N}, $host_number & $mask));
     ($host_number & $mask) == ($npm_number & $mask)
       or die "ERROR: Host and NPM addresses must share HOST_IPV4_CIDR network.\n";
     ($host_number & 0xff000000) == 0x0a000000
@@ -211,20 +212,22 @@ load_configuration() {
       $values{INGRESS_INTERFACE},
       $host_ip,
       $prefix,
+      qq{$management_network/$prefix},
       $npm_ip,
       $port,
     ), "\n";
   ' "$CONFIG_FILE") || exit 1
 
   mapfile -t CONFIG_VALUES <<< "$parsed"
-  [ "${#CONFIG_VALUES[@]}" -eq 7 ] || die "The firewall configuration parser returned an invalid result."
+  [ "${#CONFIG_VALUES[@]}" -eq 8 ] || die "The firewall configuration parser returned an invalid result."
   readonly COMPOSE_PROJECT_NAME=${CONFIG_VALUES[0]}
   readonly PILOT_ENV_FILE=${CONFIG_VALUES[1]}
   readonly INGRESS_INTERFACE=${CONFIG_VALUES[2]}
   readonly HOST_IPV4=${CONFIG_VALUES[3]}
   readonly HOST_IPV4_PREFIX=${CONFIG_VALUES[4]}
-  readonly TRUSTED_NPM_IPV4=${CONFIG_VALUES[5]}
-  readonly PUBLISHED_TCP_PORT=${CONFIG_VALUES[6]}
+  readonly MANAGEMENT_IPV4_CIDR=${CONFIG_VALUES[5]}
+  readonly TRUSTED_NPM_IPV4=${CONFIG_VALUES[6]}
+  readonly PUBLISHED_TCP_PORT=${CONFIG_VALUES[7]}
   readonly HOST_IPV4_CIDR="$HOST_IPV4/$HOST_IPV4_PREFIX"
 }
 
@@ -577,6 +580,27 @@ validate_host_network() {
   if [ -n "$(ip -6 route show default)" ]; then
     die "An IPv6 default route requires a separate firewall review."
   fi
+}
+
+validate_ufw_policy() {
+  local added_rules expected_rule ufw_state ufw_status
+  require_command ufw
+  ufw_state=$(systemctl is-active ufw.service 2>/dev/null || true)
+  [ "$ufw_state" = active ] ||
+    die "ufw.service must be active before Docker can use the Pilot firewall policy."
+
+  ufw_status=$(LC_ALL=C ufw status verbose 2>/dev/null) ||
+    die "UFW runtime state could not be inspected."
+  [ "$(printf '%s\n' "$ufw_status" | grep -Fxc 'Status: active' || true)" -eq 1 ] ||
+    die "UFW must be enabled and report active before Docker can start."
+  printf '%s\n' "$ufw_status" |
+    grep -Eq '^Default: deny \(incoming\), allow \(outgoing\), (deny|disabled) \(routed\)$' ||
+    die "UFW defaults must deny incoming and allow outgoing traffic."
+
+  added_rules=$(LC_ALL=C ufw show added 2>/dev/null | grep '^ufw ' || true)
+  expected_rule="ufw allow in on $INGRESS_INTERFACE from $MANAGEMENT_IPV4_CIDR to any port 22 proto tcp"
+  [ "$added_rules" = "$expected_rule" ] ||
+    die "UFW user rules must contain only the reviewed management-LAN SSH allow."
 }
 
 port_is_listening() {
@@ -1073,6 +1097,7 @@ case "$COMMAND" in
   preflight)
     validate_docker_unit_command
     validate_host_network
+    validate_ufw_policy
     assert_port_unpublished
     require_docker_fully_stopped
     validate_existing_forward_integration
@@ -1087,6 +1112,7 @@ case "$COMMAND" in
   verify)
     validate_docker_unit_command
     validate_host_network
+    validate_ufw_policy
     verify_firewall
     ;;
 esac

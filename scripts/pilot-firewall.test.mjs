@@ -28,6 +28,7 @@ const gateCPolicyValidatorUrl = new URL(
 );
 const operator = readFileSync(operatorUrl, "utf8");
 const rehearsal = readFileSync(rehearsalUrl, "utf8");
+const systemdRehearsal = readFileSync(systemdRehearsalUrl, "utf8");
 const dropIn = readFileSync(
   new URL(
     "../deploy/pilot/firewall/20-kaul-pilot-firewall.conf",
@@ -47,6 +48,10 @@ const rollbackTimer = readFileSync(
     "../deploy/pilot/firewall/kaul-pilot-firewall-rollback.timer",
     import.meta.url,
   ),
+  "utf8",
+);
+const firewallRunbook = readFileSync(
+  new URL("../deploy/pilot/firewall/README.md", import.meta.url),
   "utf8",
 );
 const workflow = readFileSync(
@@ -268,6 +273,8 @@ describe("Pilot Docker firewall contract", () => {
   });
 
   it("fails closed around Docker startup and rollback", () => {
+    expect(dropIn).toContain("Requires=ufw.service");
+    expect(dropIn).toContain("After=network-online.target ufw.service");
     expect(dropIn).toContain("Restart=no");
     expect(dropIn).toMatch(/ExecStartPre=.* preflight /);
     expect(dropIn).toMatch(/ExecStartPre=.* apply /);
@@ -280,6 +287,50 @@ describe("Pilot Docker firewall contract", () => {
     expect(operator).toContain("systemctl stop docker.socket docker.service");
     expect(rollbackService).not.toContain("--disable-ufw");
     expect(operator).not.toContain("ufw --force disable");
+    expect(operator).toContain("validate_ufw_policy");
+    expect(operator).toContain("systemctl is-active ufw.service");
+    expect(operator).toContain("ufw status verbose");
+    expect(operator).toContain("ufw show added");
+    expect(operator).toContain("MANAGEMENT_IPV4_CIDR");
+    expect(operator.match(/validate_ufw_policy/g)).toHaveLength(3);
+    expect(firewallRunbook).toContain("sudo nft --handle list ruleset");
+    expect(firewallRunbook).toContain("sudo ufw show added");
+    expect(firewallRunbook).toContain("sudo ufw status numbered");
+    expect(firewallRunbook).toContain("LastTriggerUSecMonotonic");
+    expect(firewallRunbook).toContain("ExecMainStartTimestampMonotonic");
+    expect(firewallRunbook).toContain(
+      'ssh_context="addr=$operator_ip,host=$client_host,laddr=$vm_ip,lport=$vm_port"',
+    );
+    expect(firewallRunbook).toContain(
+      'sshd -T -C "user=$operator_user,$ssh_context"',
+    );
+    expect(
+      firewallRunbook.indexOf(
+        "sudo systemctl stop docker.socket docker.service",
+      ),
+    ).toBeLessThan(
+      firewallRunbook.indexOf(
+        "deploy/pilot/firewall/20-kaul-pilot-firewall.conf",
+      ),
+    );
+    expect(
+      firewallRunbook.indexOf(
+        "deploy/pilot/firewall/20-kaul-pilot-firewall.conf",
+      ),
+    ).toBeLessThan(
+      firewallRunbook.indexOf(
+        "sudo systemctl start kaul-pilot-firewall-rollback.timer",
+      ),
+    );
+    expect(
+      firewallRunbook.indexOf(
+        "sudo systemctl start kaul-pilot-firewall-rollback.timer",
+      ),
+    ).toBeLessThan(
+      firewallRunbook.indexOf(
+        "sudo /usr/local/libexec/kaul-pilot-firewall apply",
+      ),
+    );
     expect(rollbackTimer).toContain("OnActiveSec=10min");
     expect(rollbackTimer).not.toContain("Persistent=true");
     expect(operator.indexOf('if [ "$COMMAND" = rollback ]')).toBeLessThan(
@@ -298,6 +349,13 @@ describe("Pilot Docker firewall contract", () => {
     expect(workflow).toContain(
       "sudo bash scripts/pilot-firewall-systemd-rehearsal.sh",
     );
+    expect(systemdRehearsal).toContain(
+      "Service started while its UFW dependency failed",
+    );
+    expect(systemdRehearsal).toContain(
+      "Bootstrap stop left a simulated publication",
+    );
+    expect(systemdRehearsal).toContain("Requires=$FIREWALL_SERVICE");
     expect(rehearsal).toContain(
       "docker@sha256:ab772b0eaf0b01e5843f6574e50ccdfc34a7bdcb82bbf2decafde54a0ee884a9",
     );
@@ -326,6 +384,10 @@ describe("Pilot Docker firewall contract", () => {
       "A conditional FORWARD transfer to DOCKER-USER was accepted",
     );
     expect(rehearsal).toContain("A raw-table CT --notrack bypass was accepted");
+    expect(rehearsal).toContain("An inactive UFW service was accepted");
+    expect(rehearsal).toContain(
+      "An active service with disabled UFW policy was accepted",
+    );
     expect(rehearsal).toContain("A string-valued Docker boolean was accepted");
     expect(rehearsal).toContain(
       "Docker default direct-routing network options were accepted",

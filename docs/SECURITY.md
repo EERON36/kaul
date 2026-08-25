@@ -862,6 +862,12 @@ exception, never flushes foreign Docker/user state, and must remain installed
 until Docker, its proxy processes, listener, and target DNAT are proven absent.
 Caddy's exact direct-peer check remains independent defense in depth. See
 `deploy/pilot/firewall/README.md` for the rule and failure model.
+Docker startup requires `ufw.service`, and the operator independently requires
+UFW to report active with the reviewed defaults and sole management-LAN SSH
+allow; service activity alone is not accepted as proof. Manual Gate C
+installation must also reject conditional SSH weakening and unattributed native
+nftables hooks or rules before the safety timer is cancelled and again after
+Docker restart and host reboot.
 
 Invited stakeholders may test real workflows, but Client and case content must
 remain fictional, sanitised, or otherwise non-sensitive under the current

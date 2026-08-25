@@ -44,8 +44,9 @@ the release surface requires.
   combines the Pilot deployment foundation with the approved form-safety,
   not-found, accessibility, and first-session orientation slices, plus the
   reviewed dependency, private restore-check, encrypted off-host Restic, strict
-  rest-server parsing, and deterministic Journal navigation remediations. The
-  current RC tip is `0ffe620344e75236276743071c4d0173611a4a44`.
+  rest-server parsing, deterministic Journal navigation remediations, and the
+  Gate C Docker-aware host-firewall candidate reviewed through
+  `423de40a1b16fe3704f6dc9a691307624ef3f558`.
 - The release candidate is not approved for merge, tag, publication,
   deployment, or real or sensitive data.
 
@@ -121,13 +122,17 @@ Current status against the Homelab minimum:
 9. **Logging, monitoring, health, and reboot:** bounded container logs and
    database/application health contracts exist. Uptime monitoring, backup and
    disk alerts, incident ownership, and startup/reboot evidence are absent.
-10. **Clean Linux/Docker rehearsal:** GitHub Actions run `32607996247` passed
-    the Ubuntu/Docker/PostgreSQL/rest-server/Restic append-only backup and exact
-    restore rehearsal. The same run passed install, generation, migrations,
-    formatting, lint (with three existing warnings), typecheck, 432 unit tests,
-    173 integration tests, build, and 42 browser tests. CI remains red only at
-    the unchanged Prisma/deepmerge audit gate. This evidence is not proof of the
-    actual VM, NPM, network, off-host backend, or operator schedule.
+10. **Clean Linux/Docker rehearsal:** GitHub Actions run `32657159555` tested
+    the PR merge of `423de40a1b16fe3704f6dc9a691307624ef3f558` into
+    `a93c863cd906b3e25157c1d04a3529fb2ed7db67`. Its independent firewall,
+    ingress, and append-only backup/restore rehearsals passed. The validation
+    job also passed install, generation, migrations, formatting, lint (with
+    three existing warnings), typecheck, 465 unit tests, 173 integration tests,
+    build, and 41 browser tests after one flaky first attempt passed on retry.
+    CI remains red only at the unchanged Prisma/deepmerge audit gate. This
+    evidence predates the local post-review Gate C correction and is not proof
+    of the actual VM, NPM, network, UFW/native nftables inventory, off-host
+    backend, or operator schedule.
 11. **Data migration:** PostgreSQL logical backup/restore and host-independent
     application configuration provide the intended migration path. No
     cross-host rehearsal has yet proved that accounts, Clients, Assignments,

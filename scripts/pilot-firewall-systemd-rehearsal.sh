@@ -26,10 +26,14 @@ readonly SUFFIX="${RUN_ID}-$$"
 readonly UNIT="kaul-firewall-systemd-rehearsal-${SUFFIX}"
 readonly SERVICE="${UNIT}.service"
 readonly SOCKET="${UNIT}.socket"
+readonly FIREWALL_SERVICE="${UNIT}-ufw.service"
 readonly WORK_DIRECTORY="/run/${UNIT}"
 readonly UNIT_DIRECTORY="/run/systemd/system"
 readonly SERVICE_PATH="${UNIT_DIRECTORY}/${SERVICE}"
 readonly SOCKET_PATH="${UNIT_DIRECTORY}/${SOCKET}"
+readonly FIREWALL_PATH="${UNIT_DIRECTORY}/${FIREWALL_SERVICE}"
+readonly DROP_IN_DIRECTORY="${UNIT_DIRECTORY}/${SERVICE}.d"
+readonly DROP_IN_PATH="${DROP_IN_DIRECTORY}/20-kaul-pilot-firewall.conf"
 readonly HELPER_PATH="${WORK_DIRECTORY}/helper"
 readonly SOCKET_PATHNAME="${WORK_DIRECTORY}/activation.sock"
 
@@ -41,13 +45,15 @@ cleanup() {
     /run/kaul-firewall-systemd-rehearsal-*) ;;
     *) printf '%s\n' "ERROR: Unsafe systemd rehearsal cleanup path." >&2; exit 2 ;;
   esac
-  systemctl stop "$SOCKET" "$SERVICE" >/dev/null 2>&1
-  systemctl reset-failed "$SERVICE" >/dev/null 2>&1
-  rm -f -- "$SERVICE_PATH" "$SOCKET_PATH"
+  systemctl stop "$SOCKET" "$SERVICE" "$FIREWALL_SERVICE" >/dev/null 2>&1
+  systemctl reset-failed "$SERVICE" "$FIREWALL_SERVICE" >/dev/null 2>&1
+  rm -f -- "$SERVICE_PATH" "$SOCKET_PATH" "$FIREWALL_PATH" "$DROP_IN_PATH"
+  rmdir -- "$DROP_IN_DIRECTORY" >/dev/null 2>&1 || true
   rm -rf -- "$WORK_DIRECTORY"
   systemctl daemon-reload >/dev/null 2>&1
   if systemctl cat "$SERVICE" >/dev/null 2>&1 ||
     systemctl cat "$SOCKET" >/dev/null 2>&1 ||
+    systemctl cat "$FIREWALL_SERVICE" >/dev/null 2>&1 ||
     [ -e "$WORK_DIRECTORY" ]; then
     printf '%s\n' "ERROR: Disposable systemd rehearsal cleanup could not be verified." >&2
     [ "$original_status" -ne 0 ] || original_status=2
@@ -65,6 +71,7 @@ set -Eeuo pipefail
 case "\${1:-}" in
   preflight)
     [ ! -e "$WORK_DIRECTORY/exposure" ]
+    systemctl is-active --quiet "$FIREWALL_SERVICE"
     printf '%s\n' preflight >> "$WORK_DIRECTORY/events"
     ;;
   apply)
@@ -89,16 +96,23 @@ chmod 0755 "$HELPER_PATH"
 
 cat > "$SERVICE_PATH" <<EOF
 [Unit]
-Description=Disposable Kaul firewall systemd failure rehearsal
+Description=Disposable Docker bootstrap rehearsal
 
 [Service]
 Type=simple
 Restart=no
-ExecStartPre=$HELPER_PATH preflight
-ExecStartPre=$HELPER_PATH apply
 ExecStart=/bin/bash -c 'touch "$WORK_DIRECTORY/exposure"; exec sleep infinity'
-ExecStartPost=$HELPER_PATH verify
-ExecStopPost=$HELPER_PATH fail-closed
+ExecStop=/bin/rm -f "$WORK_DIRECTORY/exposure"
+EOF
+
+cat > "$FIREWALL_PATH" <<EOF
+[Unit]
+Description=Disposable UFW dependency rehearsal
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/test -e "$WORK_DIRECTORY/ufw-active"
+RemainAfterExit=yes
 EOF
 
 cat > "$SOCKET_PATH" <<EOF
@@ -113,13 +127,59 @@ Service=$SERVICE
 WantedBy=sockets.target
 EOF
 
-systemd-analyze verify "$SERVICE_PATH" "$SOCKET_PATH"
+systemd-analyze verify "$SERVICE_PATH" "$SOCKET_PATH" "$FIREWALL_PATH"
+systemctl daemon-reload
+
+# Rehearse first installation: the already-running base service is stopped
+# before guard-dependent hooks are installed and reloaded.
+systemctl start "$SERVICE"
+[ -e "$WORK_DIRECTORY/exposure" ] || {
+  printf '%s\n' "ERROR: Disposable bootstrap service did not start." >&2
+  exit 1
+}
+systemctl stop "$SERVICE"
+[ ! -e "$WORK_DIRECTORY/exposure" ] || {
+  printf '%s\n' "ERROR: Bootstrap stop left a simulated publication." >&2
+  exit 1
+}
+
+install -d -m 0755 "$DROP_IN_DIRECTORY"
+cat > "$DROP_IN_PATH" <<EOF
+[Unit]
+Requires=$FIREWALL_SERVICE
+After=$FIREWALL_SERVICE
+
+[Service]
+ExecStartPre=$HELPER_PATH preflight
+ExecStartPre=$HELPER_PATH apply
+ExecStartPost=$HELPER_PATH verify
+ExecStopPost=$HELPER_PATH fail-closed
+EOF
+systemd-analyze verify "$SERVICE_PATH" "$SOCKET_PATH" "$FIREWALL_PATH"
 systemctl daemon-reload
 systemctl start "$SOCKET"
 [ "$(systemctl is-active "$SOCKET")" = active ] || {
   printf '%s\n' "ERROR: Disposable socket did not become active." >&2
   exit 1
 }
+
+if systemctl start "$SERVICE"; then
+  printf '%s\n' "ERROR: Service started while its UFW dependency failed." >&2
+  exit 1
+fi
+[ ! -e "$WORK_DIRECTORY/exposure" ] || {
+  printf '%s\n' "ERROR: Failed UFW dependency allowed a simulated publication." >&2
+  exit 1
+}
+rm -f -- "$WORK_DIRECTORY/events" "$WORK_DIRECTORY/guard"
+systemctl reset-failed "$SERVICE" "$FIREWALL_SERVICE"
+touch "$WORK_DIRECTORY/ufw-active"
+systemctl start "$FIREWALL_SERVICE"
+[ "$(systemctl is-active "$FIREWALL_SERVICE")" = active ] || {
+  printf '%s\n' "ERROR: Disposable UFW dependency did not become active." >&2
+  exit 1
+}
+systemctl start "$SOCKET"
 
 if systemctl start "$SERVICE"; then
   printf '%s\n' "ERROR: Intentional post-start verification failure was accepted." >&2
@@ -160,6 +220,6 @@ socket_state=$(systemctl is-active "$SOCKET" 2>/dev/null || true)
 }
 
 printf '%s\n' \
-  "Systemd failure rehearsal passed: post-start failure stopped the service/socket, removed publication, and retained the guard."
+  "Systemd rehearsal passed: bootstrap ordering and the UFW dependency failed closed before post-start failure cleanup retained the guard."
 printf '%s\n' \
   "This proves bounded systemd failure semantics only; it does not prove a real Docker host reboot."

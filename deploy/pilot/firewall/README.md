@@ -94,6 +94,11 @@ Run these commands from the reviewed repository checkout only after a separate
 approval. Keep the current SSH session open and have Proxmox console access
 available.
 
+This procedure is for a first installation. Stop if any of the five installed
+files already exists; do not let the first `daemon-reload` activate a partial or
+older Docker drop-in while Docker is running. Inspect and reconcile an existing
+installation as a separate reviewed operation.
+
 ```sh
 sudo install -d -o root -g root -m 0755 /usr/local/libexec
 sudo install -o root -g root -m 0755 \
@@ -106,11 +111,6 @@ sudo install -o root -g root -m 0644 \
   /etc/kaul/pilot-firewall.conf
 sudoedit /etc/kaul/pilot-firewall.conf
 
-sudo install -d -o root -g root -m 0755 \
-  /etc/systemd/system/docker.service.d
-sudo install -o root -g root -m 0644 \
-  deploy/pilot/firewall/20-kaul-pilot-firewall.conf \
-  /etc/systemd/system/docker.service.d/20-kaul-pilot-firewall.conf
 sudo install -o root -g root -m 0644 \
   deploy/pilot/firewall/kaul-pilot-firewall-rollback.service \
   /etc/systemd/system/kaul-pilot-firewall-rollback.service
@@ -119,15 +119,14 @@ sudo install -o root -g root -m 0644 \
   /etc/systemd/system/kaul-pilot-firewall-rollback.timer
 
 sudo systemctl daemon-reload
-sudo systemd-analyze verify docker.service \
-  kaul-pilot-firewall-rollback.service \
+sudo systemd-analyze verify kaul-pilot-firewall-rollback.service \
   kaul-pilot-firewall-rollback.timer
-sudo systemctl cat docker.service
 ```
 
-Stop if the effective Docker unit does not contain exactly the reviewed
-preflight, apply, verify, and stop-post fail-closed hooks, or if
-`systemd-analyze` reports an error.
+Stop if `systemd-analyze` reports an error. Do not install or reload the Docker
+drop-in while Docker is still running. A reloaded `ExecStopPost` would otherwise
+run before the first Kaul guard exists and leave the initial stop in a failed
+state.
 
 ## Lockout-safe application and UFW sequence
 
@@ -138,29 +137,135 @@ Kaul-owned firewall state. If those Docker checks fail, it retains the guard.
 It never disables or rewrites global UFW policy.
 
 ```sh
-sudo systemctl start kaul-pilot-firewall-rollback.timer
-sudo systemctl is-active kaul-pilot-firewall-rollback.timer
-sudo systemctl show -p ActiveEnterTimestampMonotonic \
-  -p NextElapseUSecMonotonic kaul-pilot-firewall-rollback.timer
-
 sudo systemctl stop docker.socket docker.service
-sudo /usr/local/libexec/kaul-pilot-firewall preflight \
-  --config /etc/kaul/pilot-firewall.conf
-sudo /usr/local/libexec/kaul-pilot-firewall apply \
-  --config /etc/kaul/pilot-firewall.conf
 
+sudo systemctl is-active nftables.service || true
+sudo systemctl is-enabled nftables.service || true
+sudo nft --handle list ruleset
+sudo iptables-save
+sudo ip6tables-save
+sudo ufw show added
+sudo ufw status numbered
+sudo ufw status verbose
+operator_user=$(id -un)
+read -r operator_ip _ vm_ip vm_port <<EOF
+$SSH_CONNECTION
+EOF
+client_host=$(getent hosts "$operator_ip" | awk -v ip="$operator_ip" \
+  '$1 == ip { print $2; exit }')
+test -n "$operator_user" -a -n "$operator_ip" -a -n "$client_host" \
+  -a -n "$vm_ip" -a -n "$vm_port"
+getent ahostsv4 "$client_host" | awk '{ print $1 }' | grep -Fx "$operator_ip"
+ssh_context="addr=$operator_ip,host=$client_host,laddr=$vm_ip,lport=$vm_port"
+sudo sshd -T -C "user=$operator_user,$ssh_context" | grep -E \
+  '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin|pubkeyauthentication) '
+sudo sshd -T -C "user=root,$ssh_context" | \
+  grep '^permitrootlogin '
+```
+
+This is a mandatory pre-mutation inventory. Stop unless `nftables.service` is
+inactive and disabled or masked; no `inet`, `bridge`, `arp`, or `netdev` table
+exists; no `ip` or `ip6` table exists outside the xtables-compatible `filter`,
+`nat`, `mangle`, `raw`, and `security` tables; and every remaining rule can be
+attributed to the matching `iptables-save` or `ip6tables-save` output, UFW, or
+Docker. Any unreviewed native base-chain hook, NAT/redirect, forwarding verdict,
+Docker-bridge path, or rule involving TCP 8080, 3000, or 5432 is a stop. The
+operator validates its exact xtables-compatible state but deliberately does not
+claim semantic equivalence with arbitrary native nftables rules.
+
+Before adding the reviewed SSH rule, stop if `ufw show added` or
+`ufw status numbered` shows an existing inbound allow. In particular, do not
+leave an `Anywhere`, IPv6, alternate-interface, or broader TCP 22 allow in place
+and then add the narrow rule. Reconcile existing rules from the Proxmox console
+as a separately reviewed change.
+
+With the current SSH session and Proxmox console still available, configure and
+inspect UFW:
+
+```sh
 grep '^IPV6=yes$' /etc/default/ufw
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow in on ens18 from 192.168.1.0/24 to any port 22 proto tcp
 sudo ufw --force enable
+sudo ufw show added
+sudo ufw status numbered
 sudo ufw status verbose
+operator_user=$(id -un)
+read -r operator_ip _ vm_ip vm_port <<EOF
+$SSH_CONNECTION
+EOF
+client_host=$(getent hosts "$operator_ip" | awk -v ip="$operator_ip" \
+  '$1 == ip { print $2; exit }')
+test -n "$operator_user" -a -n "$operator_ip" -a -n "$client_host" \
+  -a -n "$vm_ip" -a -n "$vm_port"
+getent ahostsv4 "$client_host" | awk '{ print $1 }' | grep -Fx "$operator_ip"
+ssh_context="addr=$operator_ip,host=$client_host,laddr=$vm_ip,lport=$vm_port"
+sudo sshd -T -C "user=$operator_user,$ssh_context" | grep -E \
+  '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin|pubkeyauthentication) '
+sudo sshd -T -C "user=root,$ssh_context" | \
+  grep '^permitrootlogin '
+```
 
+Stop unless UFW is active with default deny incoming and allow outgoing; the
+only user-configured inbound allow is TCP 22 on `ens18` from
+`192.168.1.0/24`; no allow exists for TCP 8080, 3000, 5432, Docker API ports, or
+management services; and effective SSH reports `passwordauthentication no`,
+`kbdinteractiveauthentication no`, `permitrootlogin no`, and
+`pubkeyauthentication yes`. Review included `Match` blocks and require the same
+result for the actual operator, verified client hostname/address, and local VM
+address/port; the root context must also report `permitrootlogin no`. If the
+client hostname cannot be resolved and forward-confirmed to the current source
+address, stop and review every `Match Host` condition before continuing.
+
+Only after Docker is stopped and the UFW inspection passes, install and reload
+the Docker drop-in:
+
+```sh
+sudo install -d -o root -g root -m 0755 \
+  /etc/systemd/system/docker.service.d
+sudo install -o root -g root -m 0644 \
+  deploy/pilot/firewall/20-kaul-pilot-firewall.conf \
+  /etc/systemd/system/docker.service.d/20-kaul-pilot-firewall.conf
+
+sudo systemctl daemon-reload
+sudo systemd-analyze verify docker.service \
+  kaul-pilot-firewall-rollback.service \
+  kaul-pilot-firewall-rollback.timer
+sudo systemctl cat docker.service
+
+sudo systemctl start kaul-pilot-firewall-rollback.timer
+test "$(sudo systemctl is-active kaul-pilot-firewall-rollback.timer)" = active
+test "$(sudo systemctl show --property=LastTriggerUSecMonotonic --value \
+  kaul-pilot-firewall-rollback.timer)" = 0
+test "$(sudo systemctl show --property=ExecMainStartTimestampMonotonic --value \
+  kaul-pilot-firewall-rollback.service)" = 0
+
+sudo /usr/local/libexec/kaul-pilot-firewall preflight \
+  --config /etc/kaul/pilot-firewall.conf
+sudo /usr/local/libexec/kaul-pilot-firewall apply \
+  --config /etc/kaul/pilot-firewall.conf
+
+test "$(sudo systemctl is-active kaul-pilot-firewall-rollback.timer)" = active
+test "$(sudo systemctl show --property=LastTriggerUSecMonotonic --value \
+  kaul-pilot-firewall-rollback.timer)" = 0
+test "$(sudo systemctl show --property=ExecMainStartTimestampMonotonic --value \
+  kaul-pilot-firewall-rollback.service)" = 0
 sudo systemctl start docker.service
 sudo systemctl --no-pager --full status docker.service
 sudo /usr/local/libexec/kaul-pilot-firewall verify \
   --config /etc/kaul/pilot-firewall.conf
 ```
+
+Stop if the effective Docker unit does not contain exactly the reviewed UFW
+requirement and preflight, apply, verify, and stop-post fail-closed hooks, or if
+`systemd-analyze` reports an error. The systemd dependency and operator
+preflight prevent Docker startup while `ufw.service` is inactive. They do not
+replace the operator's enabled/live/default/rule check or the manual UFW
+inspection above. The rollback timer is armed only immediately before the
+protected apply/start window. If any timer/service-history assertion fails,
+stop and restart the controlled procedure from console review; do not silently
+rearm it mid-procedure.
 
 Allowing SSH from `192.168.1.0/24` lets any device on the private management LAN
 attempt key-based authentication, but avoids locking the operator to one DHCP
@@ -177,6 +282,11 @@ timer race-safely:
 ```sh
 (
   set -eu
+  test "$(sudo systemctl is-active kaul-pilot-firewall-rollback.timer)" = active
+  test "$(sudo systemctl show --property=LastTriggerUSecMonotonic --value \
+    kaul-pilot-firewall-rollback.timer)" = 0
+  test "$(sudo systemctl show --property=ExecMainStartTimestampMonotonic --value \
+    kaul-pilot-firewall-rollback.service)" = 0
   sudo systemctl stop kaul-pilot-firewall-rollback.timer
   test "$(sudo systemctl is-active kaul-pilot-firewall-rollback.timer)" = inactive
   for attempt in $(seq 1 30); do
@@ -242,6 +352,12 @@ sudo iptables -w 10 -t filter -S FORWARD
 sudo iptables -w 10 -t filter -S DOCKER-USER
 sudo iptables -w 10 -t filter -S KAUL-PILOT-CADDY
 sudo iptables -w 10 -t filter -L DOCKER-USER -n -v --line-numbers
+sudo nft --handle list ruleset
+sudo iptables-save
+sudo ip6tables-save
+sudo ufw show added
+sudo ufw status numbered
+sudo ufw status verbose
 sudo ss -H -ltnp
 docker ps --format 'table {{.Names}}\t{{.Ports}}'
 curl --verbose --max-time 5 http://192.168.1.120:8080/api/health
@@ -251,8 +367,9 @@ The VM-local request is checked by Caddy's direct-peer rejection, not by the
 forwarded-packet `DOCKER-USER` path. No listener may appear on `0.0.0.0:8080`,
 `[::]:8080`, port 3000, or port 5432.
 
-After a Docker restart, repeat all three perspectives. At the later reboot gate,
-reboot the VM and repeat them before declaring persistence proven. The CI
+After a Docker restart, repeat all three perspectives and the complete UFW and
+nftables inventory. At the later reboot gate, reboot the VM and repeat them
+before declaring persistence proven. The CI
 systemd rehearsal proves bounded unit failure semantics only; it does not prove
 the real host's unit installation, Docker boot, or reboot timing.
 

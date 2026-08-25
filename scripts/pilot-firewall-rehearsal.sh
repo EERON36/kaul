@@ -199,12 +199,47 @@ inner sh -c 'cat > /usr/local/bin/systemctl <<"EOF"
 #!/bin/sh
 case "$1:$2" in
   show:--property=ExecStart) printf "%s\n" "{ path=/usr/local/bin/dockerd ; argv[]=/usr/local/bin/dockerd ; }" ;;
+  is-active:ufw.service)
+    if [ -e /tmp/ufw-inactive ]; then printf "%s\n" inactive; exit 3; fi
+    printf "%s\n" active
+    ;;
   is-active:docker.socket|is-active:docker.service) printf "%s\n" inactive; exit 3 ;;
   stop:docker.socket) exit 0 ;;
   *) exit 1 ;;
 esac
 EOF
 chmod 0755 /usr/local/bin/systemctl'
+
+inner sh -c 'cat > /usr/local/bin/ufw <<"EOF"
+#!/bin/sh
+case "$1:$2" in
+  status:verbose)
+    if [ -e /tmp/ufw-disabled ]; then printf "%s\n" "Status: inactive"; exit 0; fi
+    printf "%s\n" \
+      "Status: active" \
+      "Default: deny (incoming), allow (outgoing), disabled (routed)"
+    ;;
+  show:added)
+    printf "%s\n" \
+      "Added user rules (see '"'"'ufw status'"'"' for running firewall):" \
+      "ufw allow in on eth0 from 192.168.1.0/24 to any port 22 proto tcp"
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod 0755 /usr/local/bin/ufw'
+
+inner touch /tmp/ufw-inactive
+if run_operator preflight >/dev/null 2>&1; then
+  die "An inactive UFW service was accepted by preflight."
+fi
+inner rm -f /tmp/ufw-inactive
+
+inner touch /tmp/ufw-disabled
+if run_operator preflight >/dev/null 2>&1; then
+  die "An active service with disabled UFW policy was accepted by preflight."
+fi
+inner rm -f /tmp/ufw-disabled
 
 inner cp /etc/kaul/pilot-firewall.conf /etc/kaul/bad-firewall.conf
 inner sed -i 's/PUBLISHED_TCP_PORT=.*/PUBLISHED_TCP_PORT=$(touch \/tmp\/injected)/' \
