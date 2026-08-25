@@ -711,11 +711,8 @@ forward_jump_is_exact_and_first() {
   [ "$count" -eq 1 ] && [ "$first_rule" = '-A FORWARD -j DOCKER-USER' ]
 }
 
-validate_existing_forward_integration() {
-  local count forward_rules
-  forward_rules=$(iptables -w 10 -t filter -S FORWARD) ||
-    die "FORWARD integration could not be inspected."
-  count=$(printf '%s\n' "$forward_rules" |
+forward_reference_count() {
+  iptables -w 10 -t filter -S FORWARD |
     awk '
       /^-A FORWARD / {
         for (field_number = 1; field_number <= NF; field_number += 1) {
@@ -727,10 +724,24 @@ validate_existing_forward_integration() {
         }
       }
       END { print count + 0 }
-    ') || die "FORWARD integration could not be evaluated."
+    '
+}
+
+validate_existing_forward_integration() {
+  local count
+  count=$(forward_reference_count) || die "FORWARD integration could not be evaluated."
   [ "$count" -le 1 ] || die "FORWARD contains duplicate or foreign DOCKER-USER transfers."
   [ "$count" -eq 0 ] || forward_jump_is_exact_and_first ||
-    die "The existing Docker-owned FORWARD to DOCKER-USER integration is not exact and first."
+    die "The existing FORWARD to DOCKER-USER integration is not exact and first."
+}
+
+remove_forward_integration() {
+  validate_existing_forward_integration
+  if forward_jump_is_exact_and_first; then
+    iptables -w 10 -t filter -D FORWARD -j DOCKER-USER
+  fi
+  [ "$(forward_reference_count)" -eq 0 ] ||
+    die "The managed FORWARD to DOCKER-USER integration remains after removal."
 }
 
 owned_state_is_exact() {
@@ -761,8 +772,8 @@ validate_optional_owned_state() {
 
 apply_firewall() {
   validate_existing_forward_integration
-  if owned_state_is_exact; then
-    note "Kaul-owned firewall state is already exact; no rules changed."
+  if firewall_state_is_exact; then
+    note "Kaul firewall and forwarding state is already exact; no rules changed."
     return
   fi
 
@@ -801,8 +812,13 @@ apply_firewall() {
     --ctorigdst "$HOST_IPV4" --ctorigdstport "$PUBLISHED_TCP_PORT" \
     -m comment --comment "$OWNED_COMMENT" -j "$OWNED_CHAIN"
 
-  owned_state_is_exact || die "Firewall application did not produce the exact Kaul-owned state."
-  note "Kaul-owned firewall state applied and verified before Docker startup."
+  if ! forward_jump_is_exact_and_first; then
+    iptables -w 10 -t filter -I FORWARD 1 -j DOCKER-USER
+  fi
+
+  firewall_state_is_exact ||
+    die "Firewall application did not produce the exact pre-Docker forwarding state."
+  note "Kaul-owned firewall state and Docker's canonical forwarding transfer applied and verified before Docker startup."
 }
 
 validate_running_docker() {
@@ -1001,6 +1017,7 @@ remove_firewall() {
   require_docker_fully_stopped
   assert_port_unpublished
   validate_optional_owned_state
+  remove_forward_integration
 
   local reference_count
   reference_count=$(owned_reference_count)
@@ -1019,7 +1036,7 @@ remove_firewall() {
   fi
   [ "$(owned_reference_count)" -eq 0 ] || die "An owned firewall reference remains after removal."
   chain_exists "$OWNED_CHAIN" && die "The owned firewall chain remains after removal."
-  note "Kaul-owned firewall state removed. Docker remains stopped."
+  note "Gate C firewall and forwarding state removed. Docker remains stopped."
 }
 
 rollback_firewall() {
@@ -1027,7 +1044,7 @@ rollback_firewall() {
   require_unit_stopped docker.service
   require_docker_fully_stopped
   remove_firewall
-  note "Timed rollback completed. Kaul-owned rules are removed and Docker remains stopped; UFW was not changed."
+  note "Timed rollback completed. Gate C firewall and forwarding state are removed and Docker remains stopped; UFW was not changed."
 }
 
 fail_closed_check() {
@@ -1035,7 +1052,7 @@ fail_closed_check() {
   require_unit_stopped docker.socket
   for attempt in $(seq 1 10); do
     if docker_processes_are_absent && ! port_is_listening && target_dnat_is_absent &&
-      owned_state_is_exact; then
+      firewall_state_is_exact; then
       note "Docker processes and socket are stopped, exact Kaul protection remains installed, and no target publication is reachable."
       return
     fi

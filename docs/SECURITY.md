@@ -858,8 +858,13 @@ repository-owned, original-destination conntrack rule in `DOCKER-USER` for the
 Docker-published Caddy listener. The Kaul chain returns the exact NPM
 source/interface to Docker's normal policy and rejects every other source for
 the original private host/port tuple. It contains no broad established-flow
-exception, never flushes foreign Docker/user state, and must remain installed
-until Docker, its proxy processes, listener, and target DNAT are proven absent.
+exception. Before Docker starts, the operator also ensures Docker's canonical
+unconditional `FORWARD -> DOCKER-USER` transfer is exact and first, closing the
+restart-policy restoration interval without flushing or reordering unrelated
+firewall state. Gate C manages that transfer for its active lifecycle and
+removes it during rollback so unrelated `DOCKER-USER` rules are not left newly
+active. The guard must remain installed until Docker, its proxy processes,
+listener, and target DNAT are proven absent.
 Caddy's exact direct-peer check remains independent defense in depth. See
 `deploy/pilot/firewall/README.md` for the rule and failure model.
 Docker startup requires `ufw.service`, and the operator independently requires

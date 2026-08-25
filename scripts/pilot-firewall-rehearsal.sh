@@ -282,6 +282,8 @@ inner chmod 0644 /etc/kaul/pilot-firewall.conf
 inner iptables -w 10 -t filter -N DOCKER-USER
 inner iptables -w 10 -t filter -A DOCKER-USER \
   -m comment --comment foreign-sentinel -j RETURN
+inner iptables -w 10 -t filter -A FORWARD \
+  -s 198.51.100.1/32 -m comment --comment foreign-forward-sentinel -j RETURN
 inner iptables -w 10 -t filter -I FORWARD 1 \
   -s 192.168.1.0/24 -j DOCKER-USER
 if run_operator preflight >/dev/null 2>&1; then
@@ -325,7 +327,7 @@ if ! second_apply=$(run_operator apply 2>&1); then
   dump_owned_filter_state
   die "The idempotent second firewall application failed."
 fi
-[ "$second_apply" = "Kaul-owned firewall state is already exact; no rules changed." ] ||
+[ "$second_apply" = "Kaul firewall and forwarding state is already exact; no rules changed." ] ||
   die "The second application was not an explicit no-op."
 if ! second_state=$(saved_filter_state); then
   die "The second applied filter state could not be captured."
@@ -338,6 +340,12 @@ inner iptables -w 10 -t filter -S DOCKER-USER |
 inner iptables -w 10 -t filter -S DOCKER-USER |
   grep -Fq -- '--comment foreign-sentinel -j RETURN' ||
   die "The foreign DOCKER-USER sentinel was not preserved."
+inner iptables -w 10 -t filter -S FORWARD |
+  sed -n '2p' | grep -Fxq -- '-A FORWARD -j DOCKER-USER' ||
+  die "The canonical FORWARD transfer was not installed before Docker startup."
+inner iptables -w 10 -t filter -S FORWARD |
+  grep -Fq -- '--comment foreign-forward-sentinel -j RETURN' ||
+  die "The foreign FORWARD sentinel was not preserved."
 inner iptables -w 10 -t filter -A DOCKER-USER -g "$OWNED_CHAIN" ||
   die "The foreign goto rehearsal rule could not be installed."
 if run_operator apply >/dev/null 2>&1; then
@@ -431,6 +439,9 @@ inner iptables -w 10 -t filter -A DOCKER-USER \
 inner iptables -w 10 -t filter -D FORWARD -j DOCKER-USER
 run_operator preflight
 run_operator apply
+inner iptables -w 10 -t filter -S FORWARD | sed -n '2p' |
+  grep -Fxq -- '-A FORWARD -j DOCKER-USER' ||
+  die "The canonical FORWARD transfer was absent before the Docker restart probe."
 docker exec "$LAN_NAME" sh -c \
   "rm -f /tmp/restart-window /tmp/stop-restart-probe; while [ ! -e /tmp/stop-restart-probe ]; do if printf probe | nc -w 1 $HOST_IP 8080 >/dev/null 2>&1; then touch /tmp/restart-window; fi; done" &
 restart_probe_pid=$!
@@ -443,7 +454,7 @@ docker exec "$LAN_NAME" test ! -e /tmp/restart-window ||
 run_verify
 probe_allowed
 probe_denied
-printf '%s\n' "Docker restart recreated its first FORWARD jump before the denied restart-policy workload became reachable."
+printf '%s\n' "Pre-Docker application kept the canonical first FORWARD transfer active while Docker restored the denied restart-policy workload."
 
 insert_owned_jump
 if run_operator verify >/dev/null 2>&1; then
@@ -457,6 +468,12 @@ inner rm -f /var/run/docker.sock
 run_operator remove
 inner iptables -w 10 -t filter -S DOCKER-USER |
   grep -Fq -- '--comment foreign-sentinel -j RETURN'
+if inner iptables -w 10 -t filter -S FORWARD |
+  grep -Eq -- ' -(j|g) DOCKER-USER( |$)'; then
+  die "A FORWARD transfer to DOCKER-USER remained after removal."
+fi
+inner iptables -w 10 -t filter -S FORWARD |
+  grep -Fq -- '--comment foreign-forward-sentinel -j RETURN'
 if inner iptables -w 10 -t filter -S "$OWNED_CHAIN" >/dev/null 2>&1; then
   die "The Kaul-owned chain remained after removal."
 fi

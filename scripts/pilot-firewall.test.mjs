@@ -244,13 +244,20 @@ describe("Pilot Docker firewall contract", () => {
     ).toHaveLength(2);
     expect(operator).not.toMatch(/ESTABLISHED|RELATED/);
     expect(operator).not.toContain("iptables -F DOCKER-USER");
-    expect(operator).not.toContain("-D FORWARD -j DOCKER-USER");
-    expect(operator).not.toContain("-I FORWARD 1 -j DOCKER-USER");
+    expect(operator).toContain(
+      "iptables -w 10 -t filter -D FORWARD -j DOCKER-USER",
+    );
+    expect(operator).toContain(
+      "iptables -w 10 -t filter -I FORWARD 1 -j DOCKER-USER",
+    );
     expect(operator).not.toContain("iptables-persistent");
     expect(pilotCompose).not.toMatch(/^\s*network_mode:/m);
     expect(pilotCompose).not.toMatch(/^\s*driver_opts:/m);
     expect(operator).toContain("duplicate or foreign references");
     expect(operator).toContain("duplicate or foreign DOCKER-USER transfers");
+    expect(operator).toContain(
+      "The managed FORWARD to DOCKER-USER integration remains after removal",
+    );
     expect(operator).toContain("IPv6 raw-table state could not be inspected");
     expect(operator).toContain('$(field_number + 1) == "CT"');
     expect(operator).toContain("--notrack");
@@ -403,7 +410,13 @@ describe("Pilot Docker firewall contract", () => {
     );
     expect(rehearsal).toContain("unauthorized established connection");
     expect(rehearsal).toContain(
-      "Docker restart recreated its first FORWARD jump before the denied restart-policy workload became reachable.",
+      "The canonical FORWARD transfer was absent before the Docker restart probe.",
+    );
+    expect(rehearsal).toContain(
+      "A FORWARD transfer to DOCKER-USER remained after removal.",
+    );
+    expect(rehearsal).toContain(
+      "Pre-Docker application kept the canonical first FORWARD transfer active while Docker restored the denied restart-policy workload.",
     );
     expect(rehearsal).toContain("trap cleanup EXIT");
     expect(rehearsal).toContain(

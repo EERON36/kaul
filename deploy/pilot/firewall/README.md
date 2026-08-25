@@ -17,15 +17,24 @@ firewall activation is not required for this Pilot design.
 ## Exact owned rule model
 
 The operator owns only `KAUL-PILOT-CADDY` and one commented first jump from
-`DOCKER-USER`. It never creates, deletes, or reorders Docker's
-`FORWARD -> DOCKER-USER` integration. Docker 29.7.2 must install that canonical
-first jump during daemon initialization, before it restores restart-policy
-containers; the unprefixed post-start check fails Docker unless that happened.
-The exact-version rehearsal is the required evidence for that ordering. A
+`DOCKER-USER`. While Docker is proven fully stopped, `apply` also ensures that
+Docker's canonical un-commented `FORWARD -> DOCKER-USER` transfer is already
+exact and first. It creates that standard transfer only when no transfer to
+`DOCKER-USER` exists; conditional, duplicate, malformed, or non-first transfers
+remain hard failures, and unrelated `FORWARD` rules are preserved. This closes
+the interval in which Docker could restore a restart-policy publication before
+creating its own transfer. Docker 29.7.2 must recognize and preserve the exact
+existing transfer without duplicating it. The exact-version rehearsal proves
+that startup and restart behavior with a continuous unauthorized probe. A
 separate disposable systemd rehearsal proves that an intentional post-start
 failure invokes the stop-post guard, stops socket activation, removes the
 simulated publication, and retains protection. The
 operator never flushes `DOCKER-USER` or saves Docker's dynamic ruleset.
+Gate C manages the exact standard transfer for its active lifecycle. Removal
+deletes that exact transfer, the commented Kaul transfer, and the owned chain;
+it preserves all unrelated `FORWARD`/`DOCKER-USER` rules and their relative
+order. This prevents rollback from leaving foreign `DOCKER-USER` semantics
+newly active through a Gate-C-created transfer.
 If post-start verification fails, systemd stops the Docker service and runs an
 `ExecStopPost` proof that the daemon, proxies, listener, and matching IPv4/IPv6
 DNAT are absent while the Kaul guard remains installed.
