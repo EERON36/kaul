@@ -444,18 +444,10 @@ describe("Pilot Docker firewall contract", () => {
     expect(systemdRehearsal).not.toContain(
       'systemctl reset-failed "$SERVICE" "$ROLLBACK_SERVICE"',
     );
-    expect(systemdRehearsal).toContain(
-      "Disposable service load state could not be inspected",
-    );
-    expect(systemdRehearsal).toContain(
-      "Disposable service remained %s after socket activation",
-    );
     expectInOrder(systemdRehearsal, [
       "start_protected_service() {",
+      'reset_units_for_reuse "$SERVICE" "$SOCKET"',
       'systemctl start "$SOCKET"',
-      'systemctl show --property=LoadState --value "$SERVICE"',
-      '[ "$service_load_state" = loaded ]',
-      'systemctl reset-failed "$SERVICE"',
       'systemctl start "$SERVICE"',
     ]);
     expect(systemdRehearsal).not.toContain(
@@ -487,13 +479,14 @@ describe("Pilot Docker firewall contract", () => {
       '[ "\\$socket_state" = inactive ]',
     ]);
     expectInOrder(systemdRehearsal, [
-      "# Preserve the historical explicit rollback timestamp",
+      "# Reload the garbage-collected rollback units",
       'systemctl stop "$ROLLBACK_TIMER"',
-      'systemctl reset-failed "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
+      'reset_units_for_reuse "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
       'systemctl start "$ROLLBACK_TIMER"',
       "assert_fresh_timer_history",
       "cancel_rollback_timer_race_safely",
       "# Re-arm again and prove the timer independently dispatches",
+      'reset_units_for_reuse "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
       'systemctl start "$ROLLBACK_TIMER"',
       "assert_fresh_timer_history",
     ]);
@@ -577,6 +570,62 @@ describe("Pilot Docker firewall contract", () => {
     expect(rehearsal).toContain("trap cleanup EXIT");
     expect(rehearsal).toContain(
       "Disposable firewall containers and network cleanup verified.",
+    );
+  });
+
+  it("reloads every garbage-collected systemd unit through one lifecycle pattern", () => {
+    const rollbackReuse =
+      'reset_units_for_reuse "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"';
+    const rollbackUnload =
+      'wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"';
+
+    expect(systemdRehearsal).toContain(
+      'readonly LOAD_ANCHOR="${UNIT}-load-anchor.target"',
+    );
+    expect(systemdRehearsal).toContain(
+      "Description=Disposable unit load anchor for lifecycle rehearsal",
+    );
+    expect(systemdRehearsal).toContain(
+      "After=$SERVICE $SOCKET $FIREWALL_SERVICE $ROLLBACK_SERVICE $ROLLBACK_TIMER",
+    );
+    expectInOrder(systemdRehearsal, [
+      "reset_units_for_reuse() {",
+      "systemctl daemon-reload",
+      'systemctl start "$LOAD_ANCHOR"',
+      'systemctl show --property=LoadState --value "$unit"',
+      '[ "$unit_load_state" = loaded ]',
+      'systemctl show --property=ActiveState --value "$unit"',
+      "failed|inactive) ;;",
+      'systemctl reset-failed "$@"',
+      'systemctl stop "$LOAD_ANCHOR"',
+      '[ "$anchor_state" = inactive ]',
+    ]);
+    expect(systemdRehearsal).not.toContain(
+      'systemctl reset-failed "$@" || true',
+    );
+    expect(systemdRehearsal).toContain(
+      'reset_units_for_reuse "$SERVICE" "$FIREWALL_SERVICE"',
+    );
+    expect(systemdRehearsal).toContain('wait_for_units_unloaded "$SERVICE"');
+    expect(systemdRehearsal).toContain(
+      'wait_for_units_unloaded "$ROLLBACK_SERVICE"',
+    );
+    expect(systemdRehearsal.split(rollbackReuse)).toHaveLength(3);
+    expect(systemdRehearsal.split(rollbackUnload)).toHaveLength(3);
+    expect(
+      systemdRehearsal.split('systemctl start "$ROLLBACK_SERVICE"'),
+    ).toHaveLength(3);
+    expect(
+      systemdRehearsal.split('systemctl start "$ROLLBACK_TIMER"'),
+    ).toHaveLength(3);
+    expect(systemdRehearsal).not.toContain(
+      'systemctl reset-failed "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
+    );
+    expect(systemdRehearsal).toContain(
+      '"$ROLLBACK_PATH" "$TIMER_PATH" "$LOAD_ANCHOR_PATH"',
+    );
+    expect(systemdRehearsal).toContain(
+      'systemctl cat "$LOAD_ANCHOR" >/dev/null 2>&1',
     );
   });
 

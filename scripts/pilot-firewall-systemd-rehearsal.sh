@@ -27,6 +27,7 @@ readonly SOCKET="${UNIT}.socket"
 readonly FIREWALL_SERVICE="${UNIT}-ufw.service"
 readonly ROLLBACK_SERVICE="${UNIT}-rollback.service"
 readonly ROLLBACK_TIMER="${UNIT}-rollback.timer"
+readonly LOAD_ANCHOR="${UNIT}-load-anchor.target"
 readonly WORK_DIRECTORY="/run/${UNIT}"
 readonly UNIT_DIRECTORY="/run/systemd/system"
 readonly SERVICE_PATH="${UNIT_DIRECTORY}/${SERVICE}"
@@ -34,6 +35,7 @@ readonly SOCKET_PATH="${UNIT_DIRECTORY}/${SOCKET}"
 readonly FIREWALL_PATH="${UNIT_DIRECTORY}/${FIREWALL_SERVICE}"
 readonly ROLLBACK_PATH="${UNIT_DIRECTORY}/${ROLLBACK_SERVICE}"
 readonly TIMER_PATH="${UNIT_DIRECTORY}/${ROLLBACK_TIMER}"
+readonly LOAD_ANCHOR_PATH="${UNIT_DIRECTORY}/${LOAD_ANCHOR}"
 readonly DROP_IN_DIRECTORY="${UNIT_DIRECTORY}/${SERVICE}.d"
 readonly DROP_IN_PATH="${DROP_IN_DIRECTORY}/20-kaul-pilot-firewall.conf"
 readonly HELPER_PATH="${WORK_DIRECTORY}/helper"
@@ -47,12 +49,12 @@ cleanup() {
     /run/kaul-firewall-systemd-rehearsal-*) ;;
     *) printf '%s\n' "ERROR: Unsafe systemd rehearsal cleanup path." >&2; exit 2 ;;
   esac
-  systemctl stop "$ROLLBACK_TIMER" "$ROLLBACK_SERVICE" "$SOCKET" \
-    "$SERVICE" "$FIREWALL_SERVICE" >/dev/null 2>&1
+  systemctl stop "$LOAD_ANCHOR" "$ROLLBACK_TIMER" "$ROLLBACK_SERVICE" \
+    "$SOCKET" "$SERVICE" "$FIREWALL_SERVICE" >/dev/null 2>&1
   systemctl reset-failed "$ROLLBACK_SERVICE" "$SERVICE" \
     "$FIREWALL_SERVICE" >/dev/null 2>&1
   rm -f -- "$SERVICE_PATH" "$SOCKET_PATH" "$FIREWALL_PATH" \
-    "$ROLLBACK_PATH" "$TIMER_PATH" "$DROP_IN_PATH"
+    "$ROLLBACK_PATH" "$TIMER_PATH" "$LOAD_ANCHOR_PATH" "$DROP_IN_PATH"
   rmdir -- "$DROP_IN_DIRECTORY" >/dev/null 2>&1 || true
   rm -rf -- "$WORK_DIRECTORY"
   systemctl daemon-reload >/dev/null 2>&1
@@ -61,6 +63,7 @@ cleanup() {
     systemctl cat "$FIREWALL_SERVICE" >/dev/null 2>&1 ||
     systemctl cat "$ROLLBACK_SERVICE" >/dev/null 2>&1 ||
     systemctl cat "$ROLLBACK_TIMER" >/dev/null 2>&1 ||
+    systemctl cat "$LOAD_ANCHOR" >/dev/null 2>&1 ||
     [ -e "$WORK_DIRECTORY" ]; then
     printf '%s\n' "ERROR: Disposable systemd rehearsal cleanup could not be verified." >&2
     [ "$original_status" -ne 0 ] || original_status=2
@@ -70,6 +73,74 @@ cleanup() {
   exit "$original_status"
 }
 trap cleanup EXIT
+
+reset_units_for_reuse() {
+  local anchor_state unit unit_active_state unit_load_state
+
+  [ "$#" -gt 0 ] || {
+    printf '%s\n' "ERROR: No disposable units were supplied for reuse." >&2
+    exit 1
+  }
+  systemctl daemon-reload
+  systemctl start "$LOAD_ANCHOR"
+  for unit in "$@"; do
+    unit_load_state=$(systemctl show --property=LoadState --value "$unit") || {
+      printf 'ERROR: Load state could not be inspected for %s.\n' "$unit" >&2
+      exit 1
+    }
+    [ "$unit_load_state" = loaded ] || {
+      printf 'ERROR: Disposable unit %s has load state %s.\n' \
+        "$unit" "$unit_load_state" >&2
+      exit 1
+    }
+    unit_active_state=$(systemctl show --property=ActiveState --value "$unit") || {
+      printf 'ERROR: Active state could not be inspected for %s.\n' "$unit" >&2
+      exit 1
+    }
+    case "$unit_active_state" in
+      failed|inactive) ;;
+      *)
+        printf 'ERROR: Disposable unit %s is %s before reuse.\n' \
+          "$unit" "$unit_active_state" >&2
+        exit 1
+        ;;
+    esac
+  done
+  systemctl reset-failed "$@"
+  systemctl stop "$LOAD_ANCHOR"
+  anchor_state=$(systemctl show --property=ActiveState --value "$LOAD_ANCHOR") || {
+    printf '%s\n' "ERROR: Disposable load anchor state could not be inspected." >&2
+    exit 1
+  }
+  [ "$anchor_state" = inactive ] || {
+    printf 'ERROR: Disposable load anchor remained %s.\n' "$anchor_state" >&2
+    exit 1
+  }
+}
+
+wait_for_units_unloaded() {
+  local all_unloaded unit unit_listing
+
+  [ "$#" -gt 0 ] || {
+    printf '%s\n' "ERROR: No disposable units were supplied for unload proof." >&2
+    exit 1
+  }
+  for _attempt in $(seq 1 50); do
+    all_unloaded=yes
+    for unit in "$@"; do
+      unit_listing=$(systemctl list-units --all --full --no-legend "$unit") || {
+        printf 'ERROR: Loaded-unit state could not be inspected for %s.\n' \
+          "$unit" >&2
+        exit 1
+      }
+      [ -z "$unit_listing" ] || all_unloaded=no
+    done
+    [ "$all_unloaded" = yes ] && return
+    sleep 0.1
+  done
+  printf 'ERROR: Disposable units did not become unloaded: %s.\n' "$*" >&2
+  exit 1
+}
 
 wait_for_stopped_units() {
   local service_state socket_state unit_jobs
@@ -200,19 +271,8 @@ cancel_rollback_timer_race_safely() {
 }
 
 start_protected_service() {
-  local service_load_state
-
+  reset_units_for_reuse "$SERVICE" "$SOCKET"
   systemctl start "$SOCKET"
-  service_load_state=$(systemctl show --property=LoadState --value "$SERVICE") || {
-    printf '%s\n' "ERROR: Disposable service load state could not be inspected." >&2
-    exit 1
-  }
-  [ "$service_load_state" = loaded ] || {
-    printf 'ERROR: Disposable service remained %s after socket activation.\n' \
-      "$service_load_state" >&2
-    exit 1
-  }
-  systemctl reset-failed "$SERVICE"
   systemctl start "$SERVICE"
   systemctl is-active --quiet "$SERVICE" || {
     printf '%s\n' "ERROR: Protected disposable service did not become active." >&2
@@ -333,8 +393,14 @@ AccuracySec=100ms
 Unit=$ROLLBACK_SERVICE
 EOF
 
+cat > "$LOAD_ANCHOR_PATH" <<EOF
+[Unit]
+Description=Disposable unit load anchor for lifecycle rehearsal
+After=$SERVICE $SOCKET $FIREWALL_SERVICE $ROLLBACK_SERVICE $ROLLBACK_TIMER
+EOF
+
 systemd-analyze verify "$SERVICE_PATH" "$SOCKET_PATH" "$FIREWALL_PATH" \
-  "$ROLLBACK_PATH" "$TIMER_PATH"
+  "$ROLLBACK_PATH" "$TIMER_PATH" "$LOAD_ANCHOR_PATH"
 systemctl daemon-reload
 
 # First installation: stop the already-running base service before guard hooks.
@@ -372,7 +438,7 @@ ExecStartPost=$HELPER_PATH verify
 ExecStopPost=$HELPER_PATH fail-closed
 EOF
 systemd-analyze verify "$SERVICE_PATH" "$SOCKET_PATH" "$FIREWALL_PATH" \
-  "$ROLLBACK_PATH" "$TIMER_PATH"
+  "$ROLLBACK_PATH" "$TIMER_PATH" "$LOAD_ANCHOR_PATH"
 systemctl daemon-reload
 systemctl start "$SOCKET"
 
@@ -386,7 +452,7 @@ fi
   exit 1
 }
 rm -f -- "$WORK_DIRECTORY/events" "$WORK_DIRECTORY/guard"
-systemctl reset-failed "$SERVICE" "$FIREWALL_SERVICE"
+reset_units_for_reuse "$SERVICE" "$FIREWALL_SERVICE"
 touch "$WORK_DIRECTORY/ufw-active" "$WORK_DIRECTORY/verify-failure"
 systemctl start "$FIREWALL_SERVICE"
 systemctl start "$SOCKET"
@@ -408,6 +474,7 @@ case "$post_start_events" in
     exit 1
     ;;
 esac
+wait_for_units_unloaded "$SERVICE"
 
 # Reproduce explicit rollback: request socket shutdown first, then let systemd
 # perform inverse dependency stop ordering before final inactivity proof.
@@ -420,6 +487,7 @@ explicit_count=$(grep -c '^rollback$' "$WORK_DIRECTORY/events")
   printf '%s\n' "ERROR: Explicit rollback did not complete exactly once." >&2
   exit 1
 }
+wait_for_units_unloaded "$ROLLBACK_SERVICE"
 
 # The same explicit operation remains safe and bounded when already rolled back.
 timeout 10 systemctl start "$ROLLBACK_SERVICE"
@@ -428,13 +496,14 @@ assert_rollback_settled
   printf '%s\n' "ERROR: Repeated explicit rollback was not idempotent." >&2
   exit 1
 }
+wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"
 
-# Preserve the historical explicit rollback timestamp, re-arm a fresh timer,
-# then close the cancellation race without disturbing protected service state.
+# Reload the garbage-collected rollback units, re-arm a fresh timer, then close
+# the cancellation race without disturbing protected service state.
 start_protected_service
 sleep 0.1
 systemctl stop "$ROLLBACK_TIMER"
-systemctl reset-failed "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"
+reset_units_for_reuse "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"
 systemctl start "$ROLLBACK_TIMER"
 assert_fresh_timer_history
 cancel_rollback_timer_race_safely
@@ -446,10 +515,11 @@ systemctl is-active --quiet "$SERVICE" && systemctl is-active --quiet "$SOCKET" 
   printf '%s\n' "ERROR: Timer cancellation disturbed protected publication state." >&2
   exit 1
 }
+wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"
 
 # Re-arm again and prove the timer independently dispatches the same rollback.
 sleep 0.1
-systemctl reset-failed "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"
+reset_units_for_reuse "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"
 systemctl start "$ROLLBACK_TIMER"
 assert_fresh_timer_history
 for _attempt in $(seq 1 400); do
