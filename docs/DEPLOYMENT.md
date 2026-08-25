@@ -1051,9 +1051,18 @@ Docker rehearsal can prove Docker 29.7.2 DNAT/`DOCKER-USER` behavior and daemon
 restart behavior, including the pre-start canonical `FORWARD -> DOCKER-USER`
 transfer that prevents restart-policy publication before filtering and is
 removed with Gate C while foreign rule order is preserved. A separate
-disposable systemd rehearsal can prove bounded
-post-start failure semantics, including stop-post execution and socket
-shutdown. Neither can prove the real VM's installed units, Docker boot/reboot
+disposable systemd rehearsal proves bounded post-start failure plus explicit,
+idempotent, and independently timed rollback ordering: the outer operation
+requests socket shutdown first, systemd performs inverse dependency stop
+ordering for the service and socket, and the returned transaction is followed
+by final inactivity proof for both units. Stop-post only submits a nonblocking
+socket-stop job and retains the exact guard. A repository-owned, digest-pinned,
+eight-minute Gate C-only workload can
+temporarily create the reviewed private `:8080` bridge publication before any
+Pilot deployment. Rule inspection, live rejection from an unauthorised LAN
+host, and a successful request originating from NPM remain three distinct
+proofs. Neither rehearsal nor that workload can prove the real VM's installed
+units, Docker boot/reboot
 timing, UFW state, NPM-observed peer, or physical network path; those remain
 manual Homelab gates.
 The Gate C policy itself is non-secret and independent of the complete

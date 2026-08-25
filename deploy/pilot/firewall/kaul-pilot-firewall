@@ -14,6 +14,7 @@ readonly EXPECTED_IPTABLES_VERSION="1.8.11"
 
 CONFIG_FILE=
 LOCK_HELD=false
+SOCKET_STOP_OUTCOME=
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -246,18 +247,56 @@ require_unit_stopped() {
   esac
 }
 
+request_socket_stop_nonblocking() {
+  local state status=0
+  if state=$(systemctl is-active docker.socket 2>/dev/null); then
+    status=0
+  else
+    status=$?
+  fi
+  case "$state" in
+    inactive|failed)
+      SOCKET_STOP_OUTCOME=stopped
+      note "docker.socket is already stopped."
+      return
+      ;;
+    active|activating|deactivating|reloading) ;;
+    *) die "docker.socket state could not be inspected (status $status); Kaul firewall protection was retained." ;;
+  esac
+
+  systemctl --no-block stop docker.socket ||
+    die "docker.socket stop could not be requested after Docker service failure."
+  if state=$(systemctl is-active docker.socket 2>/dev/null); then
+    status=0
+  else
+    status=$?
+  fi
+  case "$state" in
+    inactive|failed)
+      SOCKET_STOP_OUTCOME=stopped
+      note "docker.socket stopped after the nonblocking stop request."
+      ;;
+    active|activating|deactivating|reloading)
+      SOCKET_STOP_OUTCOME=accepted
+      note "docker.socket stop job was accepted; the owning systemd transaction must prove its final inactive state."
+      ;;
+    *) die "docker.socket state could not be inspected after its stop request (status $status); Kaul firewall protection was retained." ;;
+  esac
+}
+
 stop_recovery_units() {
   case "$1" in
     fail-closed)
-      systemctl stop docker.socket ||
-        die "docker.socket could not be stopped after Docker service failure."
-      require_unit_stopped docker.socket
+      request_socket_stop_nonblocking
       ;;
     remove|rollback)
-      systemctl stop docker.socket docker.service ||
-        die "Docker service and socket could not be stopped; Kaul firewall protection was retained."
+      systemctl stop docker.socket ||
+        die "Docker socket could not be stopped; Kaul firewall protection was retained."
       require_unit_stopped docker.socket
+      systemctl stop docker.service ||
+        die "Docker service could not be stopped; Kaul firewall protection was retained."
       require_unit_stopped docker.service
+      require_unit_stopped docker.socket
       ;;
   esac
 }
@@ -992,11 +1031,14 @@ rollback_firewall() {
 
 fail_closed_check() {
   local attempt
-  require_unit_stopped docker.socket
   for attempt in $(seq 1 10); do
     if docker_processes_are_absent && ! port_is_listening && target_dnat_is_absent &&
       firewall_state_is_exact; then
-      note "Docker processes and socket are stopped, exact Kaul protection remains installed, and no target publication is reachable."
+      if [ "$SOCKET_STOP_OUTCOME" = stopped ]; then
+        note "Docker processes and socket are stopped, exact Kaul protection remains installed, and no target publication is reachable."
+      else
+        note "Docker processes, proxies, listener, and target DNAT are absent and exact Kaul protection remains installed; docker.socket final state remains with the accepted systemd stop job."
+      fi
       return
     fi
     sleep 1

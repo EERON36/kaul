@@ -22,6 +22,10 @@ const systemdRehearsalUrl = new URL(
   "./pilot-firewall-systemd-rehearsal.sh",
   import.meta.url,
 );
+const liveFixtureUrl = new URL(
+  "./pilot-firewall-live-fixture.sh",
+  import.meta.url,
+);
 const gateCPolicyValidatorUrl = new URL(
   "./pilot-gate-c-policy.pl",
   import.meta.url,
@@ -29,6 +33,7 @@ const gateCPolicyValidatorUrl = new URL(
 const operator = readFileSync(operatorUrl, "utf8");
 const rehearsal = readFileSync(rehearsalUrl, "utf8");
 const systemdRehearsal = readFileSync(systemdRehearsalUrl, "utf8");
+const liveFixture = readFileSync(liveFixtureUrl, "utf8");
 const dropIn = readFileSync(
   new URL(
     "../deploy/pilot/firewall/20-kaul-pilot-firewall.conf",
@@ -149,7 +154,7 @@ function checkGateCPolicy(overrides = {}) {
 }
 
 describe("Pilot Docker firewall contract", () => {
-  it.each([operatorUrl, rehearsalUrl, systemdRehearsalUrl])(
+  it.each([operatorUrl, rehearsalUrl, systemdRehearsalUrl, liveFixtureUrl])(
     "has valid Bash syntax: %s",
     (url) => {
       const bash = bashPath();
@@ -314,7 +319,21 @@ describe("Pilot Docker firewall contract", () => {
     expect(operator).toContain("docker-proxy");
     expect(operator).toContain("target_dnat_is_absent");
     expect(operator).toContain("validate_recovery_iptables_frontend");
-    expect(operator).toContain("systemctl stop docker.socket docker.service");
+    expect(operator).toContain("systemctl --no-block stop docker.socket");
+    expect(operator).toContain("docker.socket stop job was accepted");
+    expect(operator).toContain("SOCKET_STOP_OUTCOME=accepted");
+    expect(operator).not.toContain(
+      "systemctl stop docker.socket docker.service",
+    );
+    expectInOrder(operator, [
+      "remove|rollback)",
+      "systemctl stop docker.socket ||",
+      "require_unit_stopped docker.socket",
+      "systemctl stop docker.service ||",
+      "require_unit_stopped docker.service",
+      "require_unit_stopped docker.socket",
+    ]);
+    expect(dropIn).not.toContain("TimeoutStopSec");
     expect(rollbackService).not.toContain("--disable-ufw");
     expect(operator).not.toContain("ufw --force disable");
     expect(operator).toContain("validate_ufw_policy");
@@ -400,6 +419,67 @@ describe("Pilot Docker firewall contract", () => {
       'systemctl stop "$SERVICE"',
     ]);
     expect(systemdRehearsal).toContain("Requires=$FIREWALL_SERVICE");
+    expect(systemdRehearsal).toContain("Requires=$SOCKET");
+    expect(systemdRehearsal).toContain("After=$SOCKET");
+    expect(systemdRehearsal).toContain("OnActiveSec=30s");
+    expect(systemdRehearsal).toContain('systemctl --no-block stop "$SOCKET"');
+    expect(systemdRehearsal).toContain(
+      'timeout 10 systemctl start "$ROLLBACK_SERVICE"',
+    );
+    expect(systemdRehearsal).toContain(
+      "Repeated explicit rollback was not idempotent",
+    );
+    expect(systemdRehearsal).toContain(
+      "Timed fallback did not independently complete rollback",
+    );
+    expect(systemdRehearsal).toContain(
+      "A disposable rollback helper process remained",
+    );
+    expect(systemdRehearsal).toContain(
+      "A unit-specific systemctl process remained after rollback",
+    );
+    expect(systemdRehearsal).toContain(
+      "Process state could not be inspected while checking",
+    );
+    expect(systemdRehearsal).toContain('[ "$process_status" -eq 1 ]');
+    expect(systemdRehearsal).not.toContain('! pgrep -f -- "$HELPER_PATH"');
+    expect(systemdRehearsal).toContain(
+      "Disposable rollback jobs could not be inspected",
+    );
+    expect(systemdRehearsal).toContain(
+      "Disposable service/socket jobs could not be inspected",
+    );
+    expect(systemdRehearsal).toContain('[ -z "$rollback_jobs" ]');
+    expect(systemdRehearsal).toContain('[ -z "$unit_jobs" ]');
+    expect(systemdRehearsal).toContain(
+      "$'preflight\\napply\\nverify-failed\\nfail-closed-accepted'",
+    );
+    expect(systemdRehearsal).toContain(
+      "$'preflight\\napply\\nverify-failed\\nfail-closed-stopped'",
+    );
+    expect(systemdRehearsal).not.toContain(
+      "grep -Eq '^fail-closed-(accepted|stopped)$'",
+    );
+    expectInOrder(systemdRehearsal, [
+      'systemctl stop "$SOCKET"',
+      'systemctl stop "$SERVICE"',
+      'case "\\$service_state" in inactive|failed)',
+      '[ "\\$socket_state" = inactive ]',
+    ]);
+    expectInOrder(systemdRehearsal, [
+      "# Preserve the historical explicit rollback timestamp",
+      'systemctl stop "$ROLLBACK_TIMER"',
+      'systemctl reset-failed "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
+      'systemctl start "$ROLLBACK_TIMER"',
+      "assert_fresh_timer_history",
+      "cancel_rollback_timer_race_safely",
+      "# Re-arm again and prove the timer independently dispatches",
+      'systemctl start "$ROLLBACK_TIMER"',
+      "assert_fresh_timer_history",
+    ]);
+    expect(systemdRehearsal).toContain(
+      '[ "$rollback_started" -lt "$active_since" ]',
+    );
     expect(rehearsal).toContain(
       "docker@sha256:ab772b0eaf0b01e5843f6574e50ccdfc34a7bdcb82bbf2decafde54a0ee884a9",
     );
@@ -478,5 +558,121 @@ describe("Pilot Docker firewall contract", () => {
     expect(rehearsal).toContain(
       "Disposable firewall containers and network cleanup verified.",
     );
+  });
+
+  it("provides a bounded Gate C-only live validation workload", () => {
+    expect(liveFixture).toContain("umask 077");
+    expect(liveFixture).toContain(
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    );
+    expect(liveFixture).toContain("export PATH");
+    expect(liveFixture).toContain(
+      "alpine@sha256:7c8cb692ae09657cbc4a3f3cbd0e8d5a2690ba38386aaaf252dbb060bf5eb2e6",
+    );
+    expect(liveFixture).toContain('case "$COMMAND" in start|status|stop)');
+    expect(liveFixture).toContain("readonly FIXTURE_LIFETIME_SECONDS=480");
+    expect(liveFixture).toContain(
+      "restricted to COMPOSE_PROJECT_NAME=kaul-pilot",
+    );
+    expect(liveFixture).toContain(
+      "restricted to the reviewed 192.168.1.120:8080 binding",
+    );
+    expect(liveFixture).toContain("OnActiveSec=10min");
+    expect(liveFixture).toContain(
+      'systemctl show --property=SubState --value "$ROLLBACK_TIMER"',
+    );
+    expect(liveFixture).toContain('[ "$timer_substate" = waiting ]');
+    expect(liveFixture).toContain('[ "$last_trigger" = 0 ]');
+    expect(liveFixture).toContain(
+      '[ "$rollback_started" -lt "$active_since" ]',
+    );
+    expect(liveFixture).toContain(
+      'systemctl show --property=Unit --value "$ROLLBACK_TIMER"',
+    );
+    expect(liveFixture).toContain('[ "$timer_unit" = "$ROLLBACK_SERVICE" ]');
+    expect(liveFixture).toContain(
+      'systemctl show --property=RandomizedDelayUSec --value "$ROLLBACK_TIMER"',
+    );
+    expect(liveFixture).toContain('[ "$randomized_delay" = 0 ]');
+    expect(liveFixture).toContain('[ "$persistent" = no ]');
+    expect(liveFixture).toContain('[ "$fixed_random_delay" = no ]');
+    expect(liveFixture).toContain(
+      'systemctl show --property=NextElapseUSecMonotonic --value "$ROLLBACK_TIMER"',
+    );
+    expect(liveFixture).toContain('systemd-analyze timespan "$1"');
+    expect(liveFixture).toContain('$1 == "μs:"');
+    expect(liveFixture).toContain(
+      "expected_deadline=$((active_since + 600000000))",
+    );
+    expect(liveFixture).toContain('[ "$accuracy_usec" -eq 1000000 ]');
+    expect(liveFixture).toContain(
+      '--label "com.docker.compose.project=$COMPOSE_PROJECT_NAME"',
+    );
+    expect(liveFixture).toContain('--label "com.docker.compose.service=caddy"');
+    expect(liveFixture).toContain(
+      '--publish "$HOST_IPV4:$PUBLISHED_TCP_PORT:8080/tcp"',
+    );
+    expect(liveFixture).toContain("--rm");
+    expect(liveFixture).toContain("--restart=no");
+    expect(liveFixture).toContain("--read-only");
+    expect(liveFixture).toContain("--user 65534:65534");
+    expect(liveFixture).toContain("--cap-drop ALL");
+    expect(liveFixture).toContain("--security-opt no-new-privileges:true");
+    expect(liveFixture).toContain("--memory 32m");
+    expect(liveFixture).toContain("--memory-swap 32m");
+    expect(liveFixture).toContain("--cpus 0.25");
+    expect(liveFixture).toContain("--pids-limit 16");
+    expect(liveFixture).toContain("--network bridge");
+    expect(liveFixture).not.toContain("--volume");
+    expect(liveFixture).not.toMatch(/\n\s+-v(?:\s|\\)/);
+    expect(liveFixture).not.toContain("--env-file");
+    expect(liveFixture).not.toMatch(/\n\s+--env(?:\s|\\)/);
+    expect(liveFixture).toContain("kaul-gate-c-live-validation");
+    expect(liveFixture).toContain(
+      "This temporary Gate C validation workload is never a Pilot deployment.",
+    );
+    expect(liveFixture).toContain(
+      "This does not prove NPM-origin access or rejection from an unauthorized LAN host.",
+    );
+    expect(liveFixture).toContain(
+      "container, listener, and target DNAT cleanup verified",
+    );
+    expect(liveFixture.match(/require_fixture_port_unpublished/g)).toHaveLength(
+      3,
+    );
+    expect(liveFixture).toContain("tcp_listeners=$(ss -H -ltn)");
+    expect(liveFixture).toContain("udp_listeners=$(ss -H -lun)");
+    expect(liveFixture).toContain(
+      "TCP or UDP $PUBLISHED_TCP_PORT is still listening after fixture cleanup",
+    );
+    expect(firewallRunbook).toContain(
+      "scripts/pilot-firewall-live-fixture.sh start",
+    );
+    expect(firewallRunbook).toContain(
+      "Rule inspection is not live unauthorised-path evidence",
+    );
+    expect(firewallRunbook).toContain(
+      "systemctl reset-failed kaul-pilot-firewall-rollback.service",
+    );
+    expect(firewallRunbook).toContain("--property=SubState --value");
+    expect(firewallRunbook).toContain(
+      "so it cannot dispatch the same rollback redundantly",
+    );
+    expect(firewallRunbook).not.toContain(
+      'test -z "$(sudo systemctl list-jobs',
+    );
+    expect(
+      firewallRunbook.match(
+        /rollback_jobs=\$\(sudo systemctl list-jobs[\s\S]*?\) \|\| exit 1\n  test -z "\$rollback_jobs"/g,
+      ),
+    ).toHaveLength(2);
+    expect(firewallRunbook).toContain(
+      '*:0) ;;\n    *) test "$rollback_started" -lt "$timer_started"',
+    );
+    expect(
+      firewallRunbook.match(
+        /\*:0\) ;;\n    \*\) test "\$rollback_started" -lt "\$timer_started"/g,
+      ),
+    ).toHaveLength(2);
   });
 });

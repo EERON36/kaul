@@ -26,9 +26,14 @@ the interval in which Docker could restore a restart-policy publication before
 creating its own transfer. Docker 29.7.2 must recognize and preserve the exact
 existing transfer without duplicating it. The exact-version rehearsal proves
 that startup and restart behavior with a continuous unauthorized probe. A
-separate disposable systemd rehearsal proves that an intentional post-start
-failure invokes the stop-post guard, stops socket activation, removes the
-simulated publication, and retains protection. The
+separate disposable systemd rehearsal proves the post-start failure path and
+the real ordering topology used by explicit and timed rollback. The outer
+operation requests socket shutdown first; `Requires=`/`After=` then makes
+systemd stop the service before the socket in the dependency-ordered
+transaction. Only after that transaction returns does the operator prove both
+units inactive. The rehearsal proves bounded completion, no orphaned helper or
+unit-specific `systemctl` process, an idempotent repeat, and an independent
+timer dispatch. The
 operator never flushes `DOCKER-USER` or saves Docker's dynamic ruleset.
 Gate C manages the exact standard transfer for its active lifecycle. Removal
 deletes that exact transfer, the commented Kaul transfer, and the owned chain;
@@ -37,7 +42,11 @@ order. This prevents rollback from leaving foreign `DOCKER-USER` semantics
 newly active through a Gate-C-created transfer.
 If post-start verification fails, systemd stops the Docker service and runs an
 `ExecStopPost` proof that the daemon, proxies, listener, and matching IPv4/IPv6
-DNAT are absent while the Kaul guard remains installed.
+DNAT are absent while the Kaul guard remains installed. Because
+`docker.socket` orders before `docker.service`, stop-post requests the socket
+stop with `systemctl --no-block`: it reports either an already stopped socket
+or an accepted stop job and leaves final inactive-state proof to the owning
+systemd transaction. It never waits inside `ExecStopPost` for that ordered job.
 
 ```text
 -A FORWARD -j DOCKER-USER
@@ -299,8 +308,17 @@ timer race-safely:
   test "$(sudo systemctl is-active kaul-pilot-firewall-rollback.timer)" = active
   test "$(sudo systemctl show --property=LastTriggerUSecMonotonic --value \
     kaul-pilot-firewall-rollback.timer)" = 0
-  test "$(sudo systemctl show --property=ExecMainStartTimestampMonotonic --value \
-    kaul-pilot-firewall-rollback.service)" = 0
+  timer_started=$(sudo systemctl show \
+    --property=ActiveEnterTimestampMonotonic --value \
+    kaul-pilot-firewall-rollback.timer) || exit 1
+  rollback_started=$(sudo systemctl show \
+    --property=ExecMainStartTimestampMonotonic --value \
+    kaul-pilot-firewall-rollback.service) || exit 1
+  case "$timer_started:$rollback_started" in
+    *[!0-9:]*|:*|*:) exit 1 ;;
+    *:0) ;;
+    *) test "$rollback_started" -lt "$timer_started" ;;
+  esac
   sudo systemctl stop kaul-pilot-firewall-rollback.timer
   test "$(sudo systemctl is-active kaul-pilot-firewall-rollback.timer)" = inactive
   for attempt in $(seq 1 30); do
@@ -337,29 +355,88 @@ not restart Docker. Review its status and the firewall from the console first.
 
 ## Verification
 
-From the NPM LXC, a bounded request should connect and Caddy should record the
-direct peer as `192.168.1.100`:
+If the rollback service has historical execution state from an earlier
+controlled rollback, first restore and verify the protected firewall/Docker
+state through the full apply/start sequence above. Then re-arm the timer with
+these race-safe checks. The service timestamp may be zero or older than this
+new timer activation; it must not be newer:
 
 ```sh
-curl --fail-with-body --max-time 5 \
-  -H 'Host: pilot.REPLACE.example' \
-  http://192.168.1.120:8080/api/health
+(
+  set -eu
+  sudo /usr/local/libexec/kaul-pilot-firewall verify \
+    --config /etc/kaul/pilot-firewall.conf
+  sudo systemctl stop kaul-pilot-firewall-rollback.timer
+  test "$(sudo systemctl is-active \
+    kaul-pilot-firewall-rollback.timer)" = inactive
+  rollback_jobs=$(sudo systemctl list-jobs --no-legend --no-pager \
+    kaul-pilot-firewall-rollback.service \
+    kaul-pilot-firewall-rollback.timer) || exit 1
+  test -z "$rollback_jobs"
+  sudo systemctl reset-failed kaul-pilot-firewall-rollback.service \
+    kaul-pilot-firewall-rollback.timer
+  sudo systemctl start kaul-pilot-firewall-rollback.timer
+  test "$(sudo systemctl is-active \
+    kaul-pilot-firewall-rollback.timer)" = active
+  test "$(sudo systemctl show --property=SubState --value \
+    kaul-pilot-firewall-rollback.timer)" = waiting
+  test "$(sudo systemctl show --property=LastTriggerUSecMonotonic --value \
+    kaul-pilot-firewall-rollback.timer)" = 0
+  timer_started=$(sudo systemctl show \
+    --property=ActiveEnterTimestampMonotonic --value \
+    kaul-pilot-firewall-rollback.timer)
+  rollback_started=$(sudo systemctl show \
+    --property=ExecMainStartTimestampMonotonic --value \
+    kaul-pilot-firewall-rollback.service)
+  case "$timer_started:$rollback_started" in
+    *[!0-9:]*|:*) exit 1 ;;
+    *:0) ;;
+    *) test "$rollback_started" -lt "$timer_started" ;;
+  esac
+)
 ```
 
-From an ordinary LAN PC, both the normal and forged-header requests must fail
-to connect:
+Before Pilot deployment, start the repository-owned Gate C-only fixture from
+the reviewed checkout. It refuses an existing Pilot container or network,
+requires the exact installed policy and a newly armed ten-minute rollback
+timer. It verifies the effective rollback unit, waiting/nonpersistent state,
+zero random delay and trigger history, and a finite monotonic deadline within
+the timer's one-second accuracy. It uses the same digest-pinned Alpine fixture
+as CI and exits after at most eight minutes. It has no volumes, secrets,
+writable root filesystem, added
+capabilities, restart policy, or deployment image:
 
 ```sh
-curl --verbose --max-time 5 http://192.168.1.120:8080/api/health
+sudo bash scripts/pilot-firewall-live-fixture.sh start \
+  --config /etc/kaul/pilot-firewall.conf
+```
+
+From the NPM LXC, require the fixed harmless response. This is the live proof
+that the configured NPM-origin path is allowed:
+
+```sh
+test "$(curl --fail-with-body --max-time 5 \
+  http://192.168.1.120:8080/)" = kaul-gate-c-live-validation
+```
+
+From an ordinary LAN PC, both requests must fail to connect. This is the live
+proof that an unauthorised path is denied; a forged application header cannot
+replace the network-source requirement:
+
+```sh
+curl --verbose --max-time 5 http://192.168.1.120:8080/
 curl --verbose --max-time 5 \
   -H 'X-Forwarded-For: 192.168.1.100' \
   -H 'X-Real-IP: 192.168.1.100' \
-  http://192.168.1.120:8080/api/health
+  http://192.168.1.120:8080/
 ```
 
-On the Kaul VM:
+On the Kaul VM, verify the exact fixture contract and inspect the enforced
+state:
 
 ```sh
+sudo bash scripts/pilot-firewall-live-fixture.sh status \
+  --config /etc/kaul/pilot-firewall.conf
 sudo /usr/local/libexec/kaul-pilot-firewall verify \
   --config /etc/kaul/pilot-firewall.conf
 sudo iptables -w 10 -t filter -S FORWARD
@@ -374,12 +451,28 @@ sudo ufw status numbered
 sudo ufw status verbose
 sudo ss -H -ltnp
 docker ps --format 'table {{.Names}}\t{{.Ports}}'
-curl --verbose --max-time 5 http://192.168.1.120:8080/api/health
 ```
 
-The VM-local request is checked by Caddy's direct-peer rejection, not by the
-forwarded-packet `DOCKER-USER` path. No listener may appear on `0.0.0.0:8080`,
+Rule inspection is not live unauthorised-path evidence, and a successful
+NPM-origin request is a separate required proof. The fixture's VM-local status
+check proves only its fixed response and runtime contract; it does not traverse
+the LAN `DOCKER-USER` path. No listener may appear on `0.0.0.0:8080`,
 `[::]:8080`, port 3000, or port 5432.
+
+Stop the fixture before cancelling the rollback timer. `stop` accepts only the
+exact labelled, digest-pinned fixture and verifies that its container, listener,
+and target DNAT are gone; the already-absent path also explicitly proves that
+neither TCP nor UDP is listening on `:8080`:
+
+```sh
+sudo bash scripts/pilot-firewall-live-fixture.sh stop \
+  --config /etc/kaul/pilot-firewall.conf
+```
+
+The later deployed Caddy check remains separate: repeat all three perspectives
+against `/api/health`, require Caddy to record the direct NPM peer as
+`192.168.1.100`, and require the VM-local request to be rejected by Caddy's
+direct-peer policy.
 
 After a Docker restart, repeat all three perspectives and the complete UFW and
 nftables inventory. At the later reboot gate, reboot the VM and repeat them
@@ -389,19 +482,34 @@ the real host's unit installation, Docker boot, or reboot timing.
 
 ## Explicit rollback
 
-To trigger the same guarded rollback immediately:
+To trigger the same guarded rollback immediately, then stop the still-armed
+timer so it cannot dispatch the same rollback redundantly:
 
 ```sh
-sudo systemctl start kaul-pilot-firewall-rollback.service
-sudo systemctl --no-pager --full status \
-  kaul-pilot-firewall-rollback.service
-sudo systemctl is-active docker.service docker.socket
+(
+  set -eu
+  sudo systemctl start kaul-pilot-firewall-rollback.service
+  sudo systemctl stop kaul-pilot-firewall-rollback.timer
+  test "$(sudo systemctl is-active \
+    kaul-pilot-firewall-rollback.timer)" = inactive
+  rollback_state=$(sudo systemctl is-active \
+    kaul-pilot-firewall-rollback.service 2>/dev/null || true)
+  case "$rollback_state" in inactive|failed) ;; *) exit 1 ;; esac
+  rollback_jobs=$(sudo systemctl list-jobs --no-legend --no-pager \
+    kaul-pilot-firewall-rollback.service \
+    kaul-pilot-firewall-rollback.timer \
+    docker.service docker.socket) || exit 1
+  test -z "$rollback_jobs"
+  test "$(sudo systemctl is-active docker.service 2>/dev/null || true)" = inactive
+  test "$(sudo systemctl is-active docker.socket 2>/dev/null || true)" = inactive
+)
 sudo iptables -w 10 -t filter -S DOCKER-USER
 sudo ufw status verbose
 ```
 
 Docker remains stopped and UFW remains unchanged. Do not restart Docker until
 the failure is understood and the preflight/apply/verify sequence passes. For
-planned uninstallation, stop Docker and its socket, run the operator's `remove`,
-then remove only the five installed files above and run
+planned uninstallation, stop and prove `docker.socket` inactive first, then
+stop and prove `docker.service` inactive, run the operator's `remove`, then
+remove only the five installed files above and run
 `systemctl daemon-reload`.
