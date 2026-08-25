@@ -427,6 +427,18 @@ inner docker run --rm "$PEER_IMAGE" sh -c \
 [ -z "$(inner ss -H -ltn '( sport = :3000 or sport = :5432 )')" ] ||
   die "Kaul or PostgreSQL rehearsal ports were exposed."
 
+docker exec "$LAN_NAME" sh -c \
+  "rm -f /tmp/restart-window /tmp/restart-probe-ready /tmp/stop-restart-probe; touch /tmp/restart-probe-ready; while [ ! -e /tmp/stop-restart-probe ]; do if printf probe | nc -w 1 $HOST_IP 8080 >/dev/null 2>&1; then touch /tmp/restart-window; fi; done" &
+restart_probe_pid=$!
+for _attempt in $(seq 1 30); do
+  if docker exec "$LAN_NAME" test -e /tmp/restart-probe-ready; then
+    break
+  fi
+  sleep 0.1
+done
+docker exec "$LAN_NAME" test -e /tmp/restart-probe-ready ||
+  die "The continuous unauthorized restart probe did not become ready."
+
 stop_inner_docker
 inner iptables -w 10 -t filter -D DOCKER-USER \
   -p tcp -m conntrack \
@@ -442,19 +454,18 @@ run_operator apply
 inner iptables -w 10 -t filter -S FORWARD | sed -n '2p' |
   grep -Fxq -- '-A FORWARD -j DOCKER-USER' ||
   die "The canonical FORWARD transfer was absent before the Docker restart probe."
-docker exec "$LAN_NAME" sh -c \
-  "rm -f /tmp/restart-window /tmp/stop-restart-probe; while [ ! -e /tmp/stop-restart-probe ]; do if printf probe | nc -w 1 $HOST_IP 8080 >/dev/null 2>&1; then touch /tmp/restart-window; fi; done" &
-restart_probe_pid=$!
 start_inner_docker
 sleep 2
-docker exec "$LAN_NAME" touch /tmp/stop-restart-probe
-wait "$restart_probe_pid"
-docker exec "$LAN_NAME" test ! -e /tmp/restart-window ||
-  die "An unauthorized connection succeeded while Docker restored its restart-policy workload."
 run_verify
 probe_allowed
 probe_denied
-printf '%s\n' "Pre-Docker application kept the canonical first FORWARD transfer active while Docker restored the denied restart-policy workload."
+docker exec "$LAN_NAME" touch /tmp/stop-restart-probe
+if ! wait "$restart_probe_pid"; then
+  die "The continuous unauthorized restart probe exited before completing."
+fi
+docker exec "$LAN_NAME" test ! -e /tmp/restart-window ||
+  die "An unauthorized connection succeeded during Docker stop, firewall reconciliation, startup, or restart-policy workload restoration."
+printf '%s\n' "The continuous unauthorized probe never connected during Docker stop, firewall reconciliation, startup, and verified restart-policy workload restoration."
 
 insert_owned_jump
 if run_operator verify >/dev/null 2>&1; then

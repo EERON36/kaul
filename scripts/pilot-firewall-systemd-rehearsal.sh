@@ -133,8 +133,19 @@ systemctl daemon-reload
 # Rehearse first installation: the already-running base service is stopped
 # before guard-dependent hooks are installed and reloaded.
 systemctl start "$SERVICE"
+for _attempt in $(seq 1 30); do
+  if [ -e "$WORK_DIRECTORY/exposure" ] &&
+    systemctl is-active --quiet "$SERVICE"; then
+    break
+  fi
+  sleep 0.1
+done
+systemctl is-active --quiet "$SERVICE" || {
+  printf '%s\n' "ERROR: Disposable bootstrap service did not become active." >&2
+  exit 1
+}
 [ -e "$WORK_DIRECTORY/exposure" ] || {
-  printf '%s\n' "ERROR: Disposable bootstrap service did not start." >&2
+  printf '%s\n' "ERROR: Disposable bootstrap service did not create its simulated publication." >&2
   exit 1
 }
 systemctl stop "$SERVICE"

@@ -68,6 +68,15 @@ const pilotCompose = readFileSync(
   "utf8",
 );
 
+function expectInOrder(text, markers) {
+  let previousIndex = -1;
+  for (const marker of markers) {
+    const markerIndex = text.indexOf(marker, previousIndex + 1);
+    expect(markerIndex).toBeGreaterThan(previousIndex);
+    previousIndex = markerIndex;
+  }
+}
+
 function bashPath() {
   const candidates =
     process.platform === "win32"
@@ -360,8 +369,24 @@ describe("Pilot Docker firewall contract", () => {
       "Service started while its UFW dependency failed",
     );
     expect(systemdRehearsal).toContain(
+      "Disposable bootstrap service did not become active",
+    );
+    expect(systemdRehearsal).toContain(
+      "Disposable bootstrap service did not create its simulated publication",
+    );
+    expect(systemdRehearsal).toContain(
+      'systemctl is-active --quiet "$SERVICE"',
+    );
+    expect(systemdRehearsal).toContain(
       "Bootstrap stop left a simulated publication",
     );
+    expectInOrder(systemdRehearsal, [
+      'systemctl start "$SERVICE"',
+      "for _attempt in $(seq 1 30); do",
+      'systemctl is-active --quiet "$SERVICE" || {',
+      '[ -e "$WORK_DIRECTORY/exposure" ] || {',
+      'systemctl stop "$SERVICE"',
+    ]);
     expect(systemdRehearsal).toContain("Requires=$FIREWALL_SERVICE");
     expect(rehearsal).toContain(
       "docker@sha256:ab772b0eaf0b01e5843f6574e50ccdfc34a7bdcb82bbf2decafde54a0ee884a9",
@@ -415,8 +440,23 @@ describe("Pilot Docker firewall contract", () => {
     expect(rehearsal).toContain(
       "A FORWARD transfer to DOCKER-USER remained after removal.",
     );
+    expectInOrder(rehearsal, [
+      "rm -f /tmp/restart-window /tmp/restart-probe-ready /tmp/stop-restart-probe",
+      "test -e /tmp/restart-probe-ready",
+      "stop_inner_docker",
+      "run_operator apply",
+      "start_inner_docker",
+      "run_verify",
+      "probe_allowed",
+      "probe_denied",
+      "touch /tmp/stop-restart-probe",
+      "test ! -e /tmp/restart-window",
+    ]);
     expect(rehearsal).toContain(
-      "Pre-Docker application kept the canonical first FORWARD transfer active while Docker restored the denied restart-policy workload.",
+      "The continuous unauthorized probe never connected during Docker stop, firewall reconciliation, startup, and verified restart-policy workload restoration.",
+    );
+    expect(rehearsal).toContain(
+      "The continuous unauthorized restart probe exited before completing.",
     );
     expect(rehearsal).toContain("trap cleanup EXIT");
     expect(rehearsal).toContain(
