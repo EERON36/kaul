@@ -257,6 +257,22 @@ sudo systemd-analyze verify docker.service \
   kaul-pilot-firewall-rollback.timer
 sudo systemctl cat docker.service
 
+for unit in kaul-pilot-firewall-rollback.service \
+  kaul-pilot-firewall-rollback.timer; do
+  load_state=$(sudo systemctl show --property=LoadState --value "$unit") || exit 1
+  [ "$load_state" = loaded ] || {
+    printf 'Rollback unit %s has load state %s.\n' "$unit" "$load_state" >&2
+    exit 1
+  }
+  active_state=$(sudo systemctl show --property=ActiveState --value \
+    "$unit") || exit 1
+  [ "$active_state" = inactive ] || {
+    printf 'Fresh rollback unit %s is %s instead of inactive.\n' \
+      "$unit" "$active_state" >&2
+    exit 1
+  }
+done
+
 sudo systemctl start kaul-pilot-firewall-rollback.timer
 test "$(sudo systemctl is-active kaul-pilot-firewall-rollback.timer)" = active
 test "$(sudo systemctl show --property=LastTriggerUSecMonotonic --value \
@@ -358,23 +374,69 @@ not restart Docker. Review its status and the firewall from the console first.
 If the rollback service has historical execution state from an earlier
 controlled rollback, first restore and verify the protected firewall/Docker
 state through the full apply/start sequence above. Then re-arm the timer with
-these race-safe checks. The service timestamp may be zero or older than this
-new timer activation; it must not be newer:
+these race-safe checks. `daemon-reload` plus the strict `LoadState` checks
+intentionally reload either installed rollback unit after systemd garbage
+collection. Only a unit observed as loaded and failed is reset; a loaded,
+inactive unit needs no reset. Unexpected active states and reset failures still
+abort the procedure. The service timestamp may be zero or older than this new
+timer activation; it must not be newer:
 
 ```sh
 (
   set -eu
+  reset_failed_rollback_unit_if_needed() {
+    unit=$1
+    active_state=$(sudo systemctl show --property=ActiveState --value \
+      "$unit") || exit 1
+    case "$active_state" in
+      failed) sudo systemctl reset-failed "$unit" ;;
+      inactive) ;;
+      *)
+        printf 'Rollback unit %s is %s; expected failed or inactive.\n' \
+          "$unit" "$active_state" >&2
+        exit 1
+        ;;
+    esac
+    active_state=$(sudo systemctl show --property=ActiveState --value \
+      "$unit") || exit 1
+    [ "$active_state" = inactive ] || {
+      printf 'Rollback unit %s remained %s after strict reset.\n' \
+        "$unit" "$active_state" >&2
+      exit 1
+    }
+  }
   sudo /usr/local/libexec/kaul-pilot-firewall verify \
     --config /etc/kaul/pilot-firewall.conf
-  sudo systemctl stop kaul-pilot-firewall-rollback.timer
-  test "$(sudo systemctl is-active \
-    kaul-pilot-firewall-rollback.timer)" = inactive
+  sudo systemctl daemon-reload
+  for unit in kaul-pilot-firewall-rollback.service \
+    kaul-pilot-firewall-rollback.timer; do
+    load_state=$(sudo systemctl show --property=LoadState --value \
+      "$unit") || exit 1
+    [ "$load_state" = loaded ] || {
+      printf 'Rollback unit %s has load state %s.\n' \
+        "$unit" "$load_state" >&2
+      exit 1
+    }
+  done
+  timer_state=$(sudo systemctl show --property=ActiveState --value \
+    kaul-pilot-firewall-rollback.timer) || exit 1
+  case "$timer_state" in
+    active) sudo systemctl stop kaul-pilot-firewall-rollback.timer ;;
+    failed|inactive) ;;
+    *)
+      printf 'Rollback timer is %s; it cannot be re-armed safely.\n' \
+        "$timer_state" >&2
+      exit 1
+      ;;
+  esac
   rollback_jobs=$(sudo systemctl list-jobs --no-legend --no-pager \
     kaul-pilot-firewall-rollback.service \
     kaul-pilot-firewall-rollback.timer) || exit 1
   test -z "$rollback_jobs"
-  sudo systemctl reset-failed kaul-pilot-firewall-rollback.service \
-    kaul-pilot-firewall-rollback.timer
+  for unit in kaul-pilot-firewall-rollback.service \
+    kaul-pilot-firewall-rollback.timer; do
+    reset_failed_rollback_unit_if_needed "$unit"
+  done
   sudo systemctl start kaul-pilot-firewall-rollback.timer
   test "$(sudo systemctl is-active \
     kaul-pilot-firewall-rollback.timer)" = active
@@ -482,26 +544,92 @@ the real host's unit installation, Docker boot, or reboot timing.
 
 ## Explicit rollback
 
-To trigger the same guarded rollback immediately, then stop the still-armed
-timer so it cannot dispatch the same rollback redundantly:
+To trigger the same guarded rollback immediately, first reload and verify the
+installed rollback units and strictly clear only a failed service instance.
+The timer must still be active while the explicit rollback starts; stop it
+afterward so it cannot dispatch the same rollback redundantly. The post-start
+reload and state-aware stop also handle a timer that reached its deadline and
+was garbage-collected while the explicit rollback completed. Reloading the
+service for the final state check intentionally handles the same collection
+after its successful oneshot completes:
 
 ```sh
 (
   set -eu
+  reset_failed_rollback_unit_if_needed() {
+    unit=$1
+    active_state=$(sudo systemctl show --property=ActiveState --value \
+      "$unit") || exit 1
+    case "$active_state" in
+      failed) sudo systemctl reset-failed "$unit" ;;
+      inactive) ;;
+      *)
+        printf 'Rollback unit %s is %s; expected failed or inactive.\n' \
+          "$unit" "$active_state" >&2
+        exit 1
+        ;;
+    esac
+    active_state=$(sudo systemctl show --property=ActiveState --value \
+      "$unit") || exit 1
+    [ "$active_state" = inactive ] || {
+      printf 'Rollback unit %s remained %s after strict reset.\n' \
+        "$unit" "$active_state" >&2
+      exit 1
+    }
+  }
+  sudo systemctl daemon-reload
+  for unit in kaul-pilot-firewall-rollback.service \
+    kaul-pilot-firewall-rollback.timer; do
+    load_state=$(sudo systemctl show --property=LoadState --value \
+      "$unit") || exit 1
+    [ "$load_state" = loaded ] || {
+      printf 'Rollback unit %s has load state %s.\n' \
+        "$unit" "$load_state" >&2
+      exit 1
+    }
+  done
+  test "$(sudo systemctl show --property=ActiveState --value \
+    kaul-pilot-firewall-rollback.timer)" = active
+  reset_failed_rollback_unit_if_needed \
+    kaul-pilot-firewall-rollback.service
   sudo systemctl start kaul-pilot-firewall-rollback.service
-  sudo systemctl stop kaul-pilot-firewall-rollback.timer
-  test "$(sudo systemctl is-active \
-    kaul-pilot-firewall-rollback.timer)" = inactive
-  rollback_state=$(sudo systemctl is-active \
-    kaul-pilot-firewall-rollback.service 2>/dev/null || true)
-  case "$rollback_state" in inactive|failed) ;; *) exit 1 ;; esac
+  sudo systemctl daemon-reload
+  for unit in kaul-pilot-firewall-rollback.service \
+    kaul-pilot-firewall-rollback.timer; do
+    load_state=$(sudo systemctl show --property=LoadState --value \
+      "$unit") || exit 1
+    [ "$load_state" = loaded ] || {
+      printf 'Rollback unit %s has load state %s after explicit rollback.\n' \
+        "$unit" "$load_state" >&2
+      exit 1
+    }
+  done
+  timer_state=$(sudo systemctl show --property=ActiveState --value \
+    kaul-pilot-firewall-rollback.timer) || exit 1
+  case "$timer_state" in
+    active)
+      sudo systemctl stop kaul-pilot-firewall-rollback.timer
+      test "$(sudo systemctl show --property=ActiveState --value \
+        kaul-pilot-firewall-rollback.timer)" = inactive
+      ;;
+    inactive) ;;
+    *)
+      printf 'Rollback timer settled in unexpected state %s.\n' \
+        "$timer_state" >&2
+      exit 1
+      ;;
+  esac
+  test "$(sudo systemctl show --property=ActiveState --value \
+    kaul-pilot-firewall-rollback.service)" = inactive
   rollback_jobs=$(sudo systemctl list-jobs --no-legend --no-pager \
     kaul-pilot-firewall-rollback.service \
     kaul-pilot-firewall-rollback.timer \
     docker.service docker.socket) || exit 1
   test -z "$rollback_jobs"
-  test "$(sudo systemctl is-active docker.service 2>/dev/null || true)" = inactive
-  test "$(sudo systemctl is-active docker.socket 2>/dev/null || true)" = inactive
+  test "$(sudo systemctl show --property=ActiveState --value \
+    docker.service)" = inactive
+  test "$(sudo systemctl show --property=ActiveState --value \
+    docker.socket)" = inactive
 )
 sudo iptables -w 10 -t filter -S DOCKER-USER
 sudo ufw status verbose

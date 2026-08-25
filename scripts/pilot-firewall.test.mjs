@@ -701,6 +701,73 @@ describe("Pilot Docker firewall contract", () => {
     );
   });
 
+  it("uses the lifecycle-safe systemd model in the real-host runbook", () => {
+    const initialArm = firewallRunbook.slice(
+      firewallRunbook.indexOf("Only after Docker is stopped"),
+      firewallRunbook.indexOf("Before cancellation"),
+    );
+    const rearm = firewallRunbook.slice(
+      firewallRunbook.indexOf("If the rollback service has historical"),
+      firewallRunbook.indexOf("Before Pilot deployment"),
+    );
+    const explicitRollback = firewallRunbook.slice(
+      firewallRunbook.indexOf("## Explicit rollback"),
+    );
+
+    expectInOrder(initialArm, [
+      "sudo systemctl daemon-reload",
+      "for unit in kaul-pilot-firewall-rollback.service",
+      '--property=LoadState --value "$unit"',
+      '[ "$load_state" = loaded ]',
+      "--property=ActiveState --value",
+      '[ "$active_state" = inactive ]',
+      "sudo systemctl start kaul-pilot-firewall-rollback.timer",
+    ]);
+    expectInOrder(rearm, [
+      "reset_failed_rollback_unit_if_needed() {",
+      'case "$active_state" in',
+      'failed) sudo systemctl reset-failed "$unit"',
+      "inactive) ;;",
+      '[ "$active_state" = inactive ]',
+      "sudo systemctl daemon-reload",
+      "for unit in kaul-pilot-firewall-rollback.service",
+      "kaul-pilot-firewall-rollback.timer; do",
+      "--property=LoadState --value",
+      '[ "$load_state" = loaded ]',
+      "rollback_jobs=$(sudo systemctl list-jobs",
+      'reset_failed_rollback_unit_if_needed "$unit"',
+      "sudo systemctl start kaul-pilot-firewall-rollback.timer",
+    ]);
+    expectInOrder(explicitRollback, [
+      "sudo systemctl daemon-reload",
+      "for unit in kaul-pilot-firewall-rollback.service",
+      "kaul-pilot-firewall-rollback.timer; do",
+      "--property=LoadState --value",
+      '[ "$load_state" = loaded ]',
+      "reset_failed_rollback_unit_if_needed \\",
+      "sudo systemctl start kaul-pilot-firewall-rollback.service",
+      "sudo systemctl daemon-reload",
+      "for unit in kaul-pilot-firewall-rollback.service",
+      "kaul-pilot-firewall-rollback.timer; do",
+      "--property=LoadState --value",
+      '[ "$load_state" = loaded ]',
+      "timer_state=$(sudo systemctl show --property=ActiveState --value",
+      'case "$timer_state" in',
+      "active)",
+      "sudo systemctl stop kaul-pilot-firewall-rollback.timer",
+      "--property=ActiveState --value \\\n    kaul-pilot-firewall-rollback.service",
+    ]);
+    expect(
+      firewallRunbook.match(/reset_failed_rollback_unit_if_needed\(\) \{/g),
+    ).toHaveLength(2);
+    expect(firewallRunbook).not.toContain(
+      "systemctl reset-failed kaul-pilot-firewall-rollback.service \\\n    kaul-pilot-firewall-rollback.timer",
+    );
+    expect(firewallRunbook).not.toContain(
+      'sudo systemctl reset-failed "$unit" || true',
+    );
+  });
+
   it("provides a bounded Gate C-only live validation workload", () => {
     expect(liveFixture).toContain("umask 077");
     expect(liveFixture).toContain(
@@ -793,7 +860,7 @@ describe("Pilot Docker firewall contract", () => {
       "Rule inspection is not live unauthorised-path evidence",
     );
     expect(firewallRunbook).toContain(
-      "systemctl reset-failed kaul-pilot-firewall-rollback.service",
+      'failed) sudo systemctl reset-failed "$unit"',
     );
     expect(firewallRunbook).toContain("--property=SubState --value");
     expect(firewallRunbook).toContain(
