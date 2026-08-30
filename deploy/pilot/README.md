@@ -268,13 +268,34 @@ substitution.
      --env-file /etc/kaul/pilot.env
    ```
 
-2. Apply committed migrations once, while Kaul remains stopped. The command
-   creates and validates a pre-migration backup even for the empty database.
+2. Apply committed migrations once, while Kaul remains stopped. The normal
+   command creates and validates a pre-migration backup even for the empty
+   database.
 
    ```sh
    scripts/pilot-ops.sh migrate \
      --env-file /etc/kaul/pilot.env
    ```
+
+   A controlled real-testing deployment may use the separately authorised
+   `migrate-pristine` exception only when an off-host backup path is deliberately
+   deferred and the installation contains no important data. It runs the same
+   configuration preflight and operation lock, stops Kaul, and asks PostgreSQL
+   to prove that there are no non-system schemas or application relations,
+   types, routines, large objects, or non-default extensions before it runs
+   Prisma. A populated result, a query error, or unexpected output stops before
+   migration. The Prisma-created schema then makes the exception reject every
+   later attempt.
+
+   ```sh
+   scripts/pilot-ops.sh migrate-pristine \
+     --env-file /etc/kaul/pilot.env
+   ```
+
+   This exception does not make backup readiness pass, does not replace the
+   ordinary migration or update path, and is forbidden once any application
+   schema or data exists. Configure and verify the approved encrypted off-host
+   Restic path before treating testing data as important or production-critical.
 
 3. Create the initial Administrator exactly once with the selected image,
    protect the one-time credential, then start the stack.

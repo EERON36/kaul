@@ -90,6 +90,7 @@ Usage:
   scripts/pilot-ops.sh start-restore-check --env-file PATH --database kaul_restore_NAME
   scripts/pilot-ops.sh stop-restore-check --env-file PATH
   scripts/pilot-ops.sh migrate --env-file PATH
+  scripts/pilot-ops.sh migrate-pristine --env-file PATH
   scripts/pilot-ops.sh update --env-file PATH
   scripts/pilot-ops.sh start-postgres --env-file PATH
   scripts/pilot-ops.sh bootstrap-admin --env-file PATH
@@ -245,7 +246,7 @@ load_compose_project() {
 
 command_requires_operation_lock() {
   case "$1" in
-    backup|restore|start-restore-check|stop-restore-check|migrate|update|start-postgres|bootstrap-admin|start-stack) return 0 ;;
+    backup|restore|start-restore-check|stop-restore-check|migrate|migrate-pristine|update|start-postgres|bootstrap-admin|start-stack) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -835,6 +836,64 @@ run_migrations() {
   compose run --rm --no-deps kaul npm run db:status || die "Migration status verification failed. Kaul remains stopped."
 }
 
+assert_pristine_database() {
+  pristine_state=$(compose exec -T postgres sh -ec '
+    exec psql \
+      --username="$KAUL_DB_USER" \
+      --dbname="$KAUL_DB_NAME" \
+      --tuples-only \
+      --no-align \
+      --set=ON_ERROR_STOP=1 \
+      --variable=KAUL_PRISTINE_DATABASE_CHECK=1
+  ' <<'SQL'
+SELECT CASE
+  WHEN EXISTS (
+    SELECT 1
+    FROM pg_namespace
+    WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'public')
+      AND nspname NOT LIKE 'pg_toast%'
+  )
+  OR EXISTS (
+    SELECT 1
+    FROM pg_class AS relation
+    JOIN pg_namespace AS namespace
+      ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'public'
+  )
+  OR EXISTS (
+    SELECT 1
+    FROM pg_type AS type
+    JOIN pg_namespace AS namespace
+      ON namespace.oid = type.typnamespace
+    WHERE namespace.nspname = 'public'
+  )
+  OR EXISTS (
+    SELECT 1
+    FROM pg_proc AS routine
+    JOIN pg_namespace AS namespace
+      ON namespace.oid = routine.pronamespace
+    WHERE namespace.nspname = 'public'
+  )
+  OR EXISTS (
+    SELECT 1
+    FROM pg_largeobject_metadata
+  )
+  OR EXISTS (
+    SELECT 1
+    FROM pg_extension
+    WHERE extname <> 'plpgsql'
+  )
+  THEN 'populated'
+  ELSE 'pristine'
+END;
+SQL
+  ) || die "The pristine first-install check could not inspect PostgreSQL. No migration was attempted."
+
+  [ "$pristine_state" = pristine ] ||
+    die "The pristine first-install exception requires a database with no application schema or data. No migration was attempted."
+  note "PostgreSQL pristine first-install check passed."
+}
+
 restore_backup() {
   [ -n "$SNAPSHOT" ] || die "--snapshot is required."
   [ -n "$RESTORE_DATABASE" ] || die "--database is required."
@@ -998,6 +1057,15 @@ case "$COMMAND" in
     create_backup
     run_migrations
     note "Migration completed and Kaul remains stopped. Start it deliberately after review."
+    ;;
+  migrate-pristine)
+    preflight
+    compose stop kaul
+    assert_pristine_database
+    run_migrations
+    note "Pristine first-install migration completed without an off-host backup."
+    note "Backup readiness remains deferred. This exception cannot be reused after application schema creation."
+    note "Kaul remains stopped. Start it deliberately after review."
     ;;
   update)
     preflight

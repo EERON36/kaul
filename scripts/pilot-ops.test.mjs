@@ -260,6 +260,10 @@ function dockerStubLines() {
     '  *" stop caddy "*) [ "${KAUL_TEST_FAIL_CADDY_STOP:-0}" != 1 ] ; exit $? ;;',
     '  *" stop kaul "*) [ "${KAUL_TEST_FAIL_KAUL_STOP:-0}" != 1 ] ; exit $? ;;',
     '  *"SELECT 1 FROM pg_database"*) [ "${KAUL_TEST_DATABASE_EXISTS:-0}" = 1 ] && printf \'1\\n\'; exit 0 ;;',
+    '  *"KAUL_PRISTINE_DATABASE_CHECK"*)',
+    '    [ "${KAUL_TEST_FAIL_PRISTINE_CHECK:-0}" != 1 ] || exit 1',
+    "    printf '%s\\n' \"${KAUL_TEST_DATABASE_STATE:-populated}\"",
+    "    exit 0 ;;",
     '  *" pg_dump "*) [ "${KAUL_TEST_FAIL_BACKUP:-0}" != 1 ] || exit 1; printf \'fictional custom archive\\n\' ; exit 0 ;;',
     '  *" pg_restore --list "*) cat >/dev/null ; exit 0 ;;',
     '  *" npm run db:deploy "*) [ "${KAUL_TEST_FAIL_MIGRATION:-0}" != 1 ] ; exit $? ;;',
@@ -818,9 +822,80 @@ describe("Pilot operator safety controls", () => {
       "Another Pilot operator workflow is already running",
     );
     expect(script).toMatch(
-      /backup\|restore\|start-restore-check\|stop-restore-check\|migrate\|update\|start-postgres\|bootstrap-admin\|start-stack\) return 0/,
+      /backup\|restore\|start-restore-check\|stop-restore-check\|migrate\|migrate-pristine\|update\|start-postgres\|bootstrap-admin\|start-stack\) return 0/,
     );
   });
+
+  it("allows a backup-deferred migration only for a proven pristine database", () => {
+    const result = executePilotCommand("migrate-pristine", {
+      stub: { KAUL_TEST_DATABASE_STATE: "pristine" },
+    });
+
+    expect(result.status, outputOf(result)).toBe(0);
+    const stopPosition = commandPosition(result.commandLog, "stop kaul");
+    const pristineCheckPosition = commandPosition(
+      result.commandLog,
+      "KAUL_PRISTINE_DATABASE_CHECK",
+    );
+    const migrationPosition = commandPosition(
+      result.commandLog,
+      "npm run db:deploy",
+    );
+    expect(stopPosition).toBeGreaterThan(-1);
+    expect(pristineCheckPosition).toBeGreaterThan(stopPosition);
+    expect(migrationPosition).toBeGreaterThan(pristineCheckPosition);
+    expect(commandPosition(result.commandLog, "pg_dump")).toBe(-1);
+    expect(outputOf(result)).toContain(
+      "PostgreSQL pristine first-install check passed",
+    );
+    expect(outputOf(result)).toContain("Backup readiness remains deferred");
+  }, 15_000);
+
+  it("rejects the pristine exception once application schema or data exists", () => {
+    const result = executePilotCommand("migrate-pristine", {
+      stub: { KAUL_TEST_DATABASE_STATE: "populated" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(
+      commandPosition(result.commandLog, "KAUL_PRISTINE_DATABASE_CHECK"),
+    ).toBeGreaterThan(-1);
+    expect(commandPosition(result.commandLog, "npm run db:deploy")).toBe(-1);
+    expect(commandPosition(result.commandLog, "pg_dump")).toBe(-1);
+    expect(outputOf(result)).toContain(
+      "requires a database with no application schema or data",
+    );
+    expect(script).toContain("FROM pg_largeobject_metadata");
+    expect(script).toContain("FROM pg_extension");
+    expect(script).toContain("extname <> 'plpgsql'");
+  });
+
+  it("rejects the pristine exception when PostgreSQL cannot prove the state", () => {
+    const result = executePilotCommand("migrate-pristine", {
+      stub: { KAUL_TEST_FAIL_PRISTINE_CHECK: "1" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(commandPosition(result.commandLog, "npm run db:deploy")).toBe(-1);
+    expect(commandPosition(result.commandLog, "pg_dump")).toBe(-1);
+    expect(outputOf(result)).toContain(
+      "could not inspect PostgreSQL. No migration was attempted",
+    );
+  });
+
+  it("keeps the normal migration backup requirement unchanged", () => {
+    const result = executePilotCommand("migrate");
+
+    expect(result.status, outputOf(result)).toBe(0);
+    const backupPosition = commandPosition(result.commandLog, "pg_dump");
+    const migrationPosition = commandPosition(
+      result.commandLog,
+      "npm run db:deploy",
+    );
+    expect(backupPosition).toBeGreaterThan(-1);
+    expect(migrationPosition).toBeGreaterThan(backupPosition);
+    expect(outputOf(result)).not.toContain("Backup readiness remains deferred");
+  }, 15_000);
 
   it("sanitizes every variable interpolated by the Pilot Compose contract", () => {
     const composeKeys = [
