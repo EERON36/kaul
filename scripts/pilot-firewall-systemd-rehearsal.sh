@@ -121,7 +121,7 @@ release_load_anchor() {
 
 prepare_units_for_reuse() {
   local expected_state index unit unit_active_state
-  local -a expected_states=() failed_units=() units=()
+  local -a expected_states=() units=()
 
   [ "$#" -gt 0 ] && [ $(( $# % 2 )) -eq 0 ] || {
     printf '%s\n' "ERROR: Disposable reuse requires unit/state pairs." >&2
@@ -159,12 +159,12 @@ prepare_units_for_reuse() {
         exit 1
         ;;
     esac
-    [ "$unit_active_state" != failed ] || failed_units+=("$unit")
   done
 
-  if [ "${#failed_units[@]}" -gt 0 ]; then
-    systemctl reset-failed "${failed_units[@]}"
-  fi
+  # reset-failed also clears the start-rate counter of an inactive unit. Every
+  # unit above was first proven failed or inactive; an active transitional
+  # state cannot reach this operation.
+  systemctl reset-failed "${units[@]}"
   for unit in "${units[@]}"; do
     unit_active_state=$(systemctl show --property=ActiveState --value "$unit") || {
       printf 'ERROR: Post-reset state could not be inspected for %s.\n' "$unit" >&2
@@ -245,6 +245,18 @@ wait_for_stopped_units() {
   printf 'ERROR: Disposable service/socket did not settle as expected (expected service=%s, service=%s, socket=%s).\n' \
     "$expected_service_state" "$service_state" "$socket_state" >&2
   exit 1
+}
+
+assert_inactive_dead_success() {
+  local active result sub unit=$1
+  active=$(systemctl show --property=ActiveState --value "$unit") || exit 1
+  sub=$(systemctl show --property=SubState --value "$unit") || exit 1
+  result=$(systemctl show --property=Result --value "$unit") || exit 1
+  [ "$active:$sub:$result" = inactive:dead:success ] || {
+    printf 'ERROR: Disposable unit %s settled as %s/%s/%s instead of inactive/dead/success.\n' \
+      "$unit" "$active" "$sub" "$result" >&2
+    exit 1
+  }
 }
 
 assert_rollback_settled() {
@@ -385,6 +397,31 @@ start_protected_service() {
   release_load_anchor
 }
 
+assert_unprepared_start_limit_latched() {
+  local service_active service_result service_sub socket_active socket_result socket_sub
+
+  if systemctl start "$SERVICE"; then
+    printf '%s\n' "ERROR: An unprepared second protected start bypassed the one-start rate limit." >&2
+    exit 1
+  fi
+  service_active=$(systemctl show --property=ActiveState --value "$SERVICE") || exit 1
+  service_sub=$(systemctl show --property=SubState --value "$SERVICE") || exit 1
+  service_result=$(systemctl show --property=Result --value "$SERVICE") || exit 1
+  [ "$service_active:$service_sub:$service_result" = failed:failed:start-limit-hit ] || {
+    printf 'ERROR: Rate-limited service state was %s/%s/%s instead of failed/failed/start-limit-hit.\n' \
+      "$service_active" "$service_sub" "$service_result" >&2
+    exit 1
+  }
+  socket_active=$(systemctl show --property=ActiveState --value "$SOCKET") || exit 1
+  socket_sub=$(systemctl show --property=SubState --value "$SOCKET") || exit 1
+  socket_result=$(systemctl show --property=Result --value "$SOCKET") || exit 1
+  [ "$socket_active:$socket_sub:$socket_result" = failed:failed:service-start-limit-hit ] || {
+    printf 'ERROR: Rate-limited socket state was %s/%s/%s instead of failed/failed/service-start-limit-hit.\n' \
+      "$socket_active" "$socket_sub" "$socket_result" >&2
+    exit 1
+  }
+}
+
 install -d -m 0700 "$WORK_DIRECTORY"
 cat > "$HELPER_PATH" <<EOF
 #!/usr/bin/env bash
@@ -520,9 +557,17 @@ systemctl is-active --quiet "$SERVICE" || {
   printf '%s\n' "ERROR: Disposable bootstrap service did not create its simulated publication." >&2
   exit 1
 }
+systemctl stop "$SOCKET"
 systemctl stop "$SERVICE"
 [ ! -e "$WORK_DIRECTORY/exposure" ] || {
   printf '%s\n' "ERROR: Bootstrap stop left a simulated publication." >&2
+  exit 1
+}
+bootstrap_service_state=$(systemctl show --property=ActiveState --value "$SERVICE") || exit 1
+bootstrap_socket_state=$(systemctl show --property=ActiveState --value "$SOCKET") || exit 1
+[ "$bootstrap_service_state" = inactive ] && [ "$bootstrap_socket_state" = inactive ] || {
+  printf 'ERROR: Bootstrap teardown left service=%s socket=%s instead of both inactive.\n' \
+    "$bootstrap_service_state" "$bootstrap_socket_state" >&2
   exit 1
 }
 
@@ -531,6 +576,8 @@ cat > "$DROP_IN_PATH" <<EOF
 [Unit]
 Requires=$FIREWALL_SERVICE
 After=$FIREWALL_SERVICE
+StartLimitIntervalSec=300
+StartLimitBurst=1
 
 [Service]
 ExecStartPre=$HELPER_PATH preflight
@@ -541,6 +588,7 @@ EOF
 systemd-analyze verify "$SERVICE_PATH" "$SOCKET_PATH" "$FIREWALL_PATH" \
   "$ROLLBACK_PATH" "$TIMER_PATH" "$LOAD_ANCHOR_PATH"
 systemctl daemon-reload
+prepare_units_for_reuse "$SERVICE" inactive "$SOCKET" inactive
 systemctl start "$SOCKET"
 
 # Preserve the pre-start dependency and post-start fail-closed coverage.
@@ -586,6 +634,46 @@ esac
 # perform inverse dependency stop ordering before final inactivity proof.
 rm -f -- "$WORK_DIRECTORY/verify-failure"
 start_protected_service failed
+
+# A direct restart is deliberately unsupported: fail-closed requests socket
+# shutdown, which cancels the pending start half through Requires=. Prove the
+# cancellation settles safely, then prove one strict guarded recovery start.
+guarded_starts_before=$(awk '$0 == "preflight" { count += 1 } END { print count + 0 }' \
+  "$WORK_DIRECTORY/events")
+set +e
+timeout 10 systemctl restart "$SERVICE"
+restart_status=$?
+set -e
+[ "$restart_status" -eq 1 ] || {
+  printf 'ERROR: Direct restart returned %s instead of the expected prompt cancellation status 1.\n' \
+    "$restart_status" >&2
+  exit 1
+}
+wait_for_stopped_units inactive
+assert_inactive_dead_success "$SERVICE"
+assert_inactive_dead_success "$SOCKET"
+assert_process_pattern_absent "$HELPER_PATH" \
+  "A disposable restart-cancellation helper process remained."
+assert_process_pattern_absent "systemctl.*$UNIT" \
+  "A unit-specific systemctl process remained after restart cancellation."
+[ ! -e "$WORK_DIRECTORY/exposure" ] && [ -e "$WORK_DIRECTORY/guard" ] || {
+  printf '%s\n' "ERROR: Direct restart cancellation did not retain the guard while removing exposure." >&2
+  exit 1
+}
+guarded_starts_after_cancel=$(awk '$0 == "preflight" { count += 1 } END { print count + 0 }' \
+  "$WORK_DIRECTORY/events")
+[ "$guarded_starts_after_cancel" -eq "$guarded_starts_before" ] || {
+  printf '%s\n' "ERROR: Direct restart cancellation executed a forbidden start half." >&2
+  exit 1
+}
+start_protected_service inactive
+guarded_starts_after=$(awk '$0 == "preflight" { count += 1 } END { print count + 0 }' \
+  "$WORK_DIRECTORY/events")
+[ "$guarded_starts_after" -eq $((guarded_starts_before + 1)) ] || {
+  printf '%s\n' "ERROR: Guarded restart recovery did not start exactly once." >&2
+  exit 1
+}
+
 prepare_units_for_reuse "$ROLLBACK_SERVICE" inactive
 timeout 10 systemctl start "$ROLLBACK_SERVICE"
 assert_rollback_settled
@@ -647,11 +735,33 @@ assert_rollback_settled
   exit 1
 }
 stop_rollback_timer_strictly
+
+# The successful protected start above consumed the one allowed start. Prove an
+# immediate unprepared retry is denied and leaves the start-limit result
+# latched. Strictly reset both stopped units, allow exactly one reviewed start,
+# roll it back, and prove the next unprepared retry is denied again.
+assert_unprepared_start_limit_latched
+prepare_units_for_reuse "$SERVICE" failed "$SOCKET" failed
+systemctl start "$SOCKET"
+systemctl start "$SERVICE"
+systemctl is-active --quiet "$SERVICE" && systemctl is-active --quiet "$SOCKET" || {
+  printf '%s\n' "ERROR: Strict rate-limit reset did not enable exactly one protected start." >&2
+  exit 1
+}
+prepare_units_for_reuse "$ROLLBACK_SERVICE" inactive
+timeout 10 systemctl start "$ROLLBACK_SERVICE"
+assert_rollback_settled
+[ "$(grep -c '^rollback$' "$WORK_DIRECTORY/events")" -eq 4 ] || {
+  printf '%s\n' "ERROR: Reviewed rate-limit reset start did not complete rollback." >&2
+  exit 1
+}
+assert_unprepared_start_limit_latched
+prepare_units_for_reuse "$SERVICE" failed "$SOCKET" failed
 release_load_anchor
 wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER" \
   "$SERVICE" "$SOCKET"
 
 printf '%s\n' \
-  "Systemd rehearsal passed: post-start failure retained the guard; explicit rollback completed without timeout or orphan, remained idempotent, and timed fallback independently stopped socket then service."
+  "Systemd rehearsal passed: post-start failure retained the guard; direct restart canceled safely and strict guarded recovery started exactly once; explicit rollback completed without timeout or orphan and remained idempotent; timed fallback independently stopped socket then service; strict stopped-unit reset enabled exactly one reviewed restart while unprepared retries remained rate-limited."
 printf '%s\n' \
   "This proves disposable Linux systemd transaction semantics only; it does not prove a real Docker host reboot."

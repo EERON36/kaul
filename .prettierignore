@@ -9,3 +9,6 @@ test-results/
 # Preserve established project documentation verbatim.
 AGENTS.md
 docs/
+
+# Preserve the byte-pinned kaul-pilot daemon artifact used by the Gate C runbook.
+deploy/pilot/firewall/docker-daemon.kaul-pilot.json
