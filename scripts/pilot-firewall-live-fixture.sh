@@ -122,7 +122,8 @@ load_fixture_values() {
 }
 
 require_fresh_rollback_timer() {
-  local accuracy_text accuracy_usec active_since expected_deadline fixed_random_delay
+  local accuracy_text accuracy_usec active_since earliest_deadline expected_deadline
+  local fixed_random_delay latest_deadline
   local last_trigger next_deadline next_deadline_text now_seconds now_microseconds
   local persistent randomized_delay rollback_started timer_age timer_definition
   local timer_substate timer_unit
@@ -170,8 +171,10 @@ require_fresh_rollback_timer() {
   next_deadline_text=$(systemctl show --property=NextElapseUSecMonotonic --value "$ROLLBACK_TIMER")
   next_deadline=$(timespan_microseconds "$next_deadline_text")
   expected_deadline=$((active_since + 600000000))
-  [ "$next_deadline" -ge "$expected_deadline" ] &&
-    [ "$next_deadline" -le $((expected_deadline + accuracy_usec)) ] ||
+  earliest_deadline=$((expected_deadline - accuracy_usec))
+  latest_deadline=$((expected_deadline + accuracy_usec))
+  [ "$next_deadline" -ge "$earliest_deadline" ] &&
+    [ "$next_deadline" -le "$latest_deadline" ] ||
     die "The Gate C rollback deadline is not the finite ten-minute deadline for this activation."
   read -r now_seconds _ < /proc/uptime
   now_microseconds=$(awk -v seconds="$now_seconds" 'BEGIN { printf "%.0f", seconds * 1000000 }')

@@ -33,7 +33,11 @@ systemd stop the service before the socket in the dependency-ordered
 transaction. Only after that transaction returns does the operator prove both
 units inactive. The rehearsal proves bounded completion, no orphaned helper or
 unit-specific `systemctl` process, an idempotent repeat, and an independent
-timer dispatch. The
+timer dispatch. `pilot-firewall-rehearsal.sh` creates a fixed disposable
+`192.168.1.0/24` topology and is therefore restricted to CI or another isolated
+disposable host with no address or route in that subnet. It fails before
+network creation on an overlap. On the physical `kaul-pilot` host, use
+`pilot-firewall-live-fixture.sh` instead. The
 operator never flushes `DOCKER-USER` or saves Docker's dynamic ruleset.
 Gate C manages the exact standard transfer for its active lifecycle. Removal
 deletes that exact transfer, the commented Kaul transfer, and the owned chain;
@@ -117,10 +121,10 @@ Run these commands from the reviewed repository checkout only after a separate
 approval. Keep the current SSH session open and have Proxmox console access
 available.
 
-This procedure is for a first installation. Stop if any of the five installed
-files already exists; do not let the first `daemon-reload` activate a partial or
-older Docker drop-in while Docker is running. Inspect and reconcile an existing
-installation as a separate reviewed operation.
+This procedure is for a first installation. Stop if any of the five firewall
+files already exists; do not let the first `daemon-reload` activate a partial
+or older Docker drop-in while Docker is running. Inspect and reconcile an
+existing installation as a separate reviewed operation.
 
 ```sh
 sudo install -d -o root -g root -m 0755 /usr/local/libexec
@@ -241,10 +245,197 @@ address/port; the root context must also report `permitrootlogin no`. If the
 client hostname cannot be resolved and forward-confirmed to the current source
 address, stop and review every `Match Host` condition before continuing.
 
+### Dedicated kaul-pilot Docker DNS
+
+The dedicated `kaul-pilot` VM uses
+`deploy/pilot/firewall/docker-daemon.kaul-pilot.json`. Its single resolver is
+`1.1.1.1` because the VM's `resolvectl status ens18` reported that exact
+non-loopback address as the current DNS server, the address was already present
+in the active `ens18` and `/run/systemd/resolve/resolv.conf` configuration, and
+a direct query from the VM succeeded. The configured LAN alternative is not in
+the Docker file because Gate C is not authorised to inspect or test another
+homelab host. Do not copy this host-specific file to another VM without
+repeating this review from that host's own working resolver state.
+
+Before first installation, re-run and record the source-of-truth checks:
+
+```sh
+resolvectl status
+resolvectl status ens18
+readlink -f /etc/resolv.conf
+sed -n '1,120p' /etc/resolv.conf
+sed -n '1,120p' /run/systemd/resolve/resolv.conf
+nslookup dl-cdn.alpinelinux.org 1.1.1.1
+```
+
+Stop if `1.1.1.1` is no longer the current configured working upstream, if the
+state is ambiguous, or if `/etc/docker/daemon.json` already exists. An existing
+file requires a separate reviewed JSON merge that preserves every setting; do
+not replace it with this artifact. The fresh-install procedure below requires
+Docker and its socket to remain stopped with no queued jobs. It validates the
+staged configuration without starting Docker, publishes without overwriting an
+unexpected target, and revalidates the installed file:
+
+On an existing Gate C host, first verify that the five installed firewall
+artifacts still match the reviewed repository files, then run only this DNS
+block. Do not reinstall the firewall artifacts, reload systemd, or clear a
+preserved start-limit result as part of DNS reconciliation.
+
+```sh
+(
+  set -eu
+  require_stopped_docker_unit() {
+    unit=$1
+    active_state=$(sudo systemctl show --property=ActiveState --value \
+      "$unit") || exit 1
+    sub_state=$(sudo systemctl show --property=SubState --value \
+      "$unit") || exit 1
+    result=$(sudo systemctl show --property=Result --value \
+      "$unit") || exit 1
+    case "$unit:$active_state:$sub_state:$result" in
+      docker.service:inactive:dead:success|\
+      docker.service:failed:failed:start-limit-hit|\
+      docker.socket:inactive:dead:success|\
+      docker.socket:failed:failed:service-start-limit-hit) ;;
+      *)
+        printf 'Docker unit %s has unexpected stopped state %s/%s/%s.\n' \
+          "$unit" "$active_state" "$sub_state" "$result" >&2
+        exit 1
+        ;;
+    esac
+  }
+
+  sudo test -d /etc/docker
+  sudo test ! -L /etc/docker
+  test "$(sudo stat -c '%U:%G:%a' /etc/docker)" = root:root:755
+  sudo test ! -e /etc/docker/daemon.json
+  sudo test ! -L /etc/docker/daemon.json
+  docker_jobs=$(sudo systemctl list-jobs --no-legend --no-pager \
+    docker.service docker.socket) || exit 1
+  test -z "$docker_jobs"
+  for unit in docker.service docker.socket; do
+    require_stopped_docker_unit "$unit"
+  done
+
+  daemon_stage=$(sudo mktemp /etc/docker/.daemon.json.gate-c.XXXXXX)
+  cleanup_daemon_stage() {
+    sudo rm -f -- "$daemon_stage"
+  }
+  trap cleanup_daemon_stage EXIT HUP INT TERM
+  sudo install -o root -g root -m 0644 \
+    deploy/pilot/firewall/docker-daemon.kaul-pilot.json "$daemon_stage"
+  test "$(sudo sha256sum "$daemon_stage")" = \
+    "bde2064927e943a0a38bed0071cfc0cf26148c435e93847204304026045422a2  $daemon_stage"
+  sudo dockerd --validate --config-file "$daemon_stage"
+  sudo ln -T -- "$daemon_stage" /etc/docker/daemon.json
+  sudo rm -f -- "$daemon_stage"
+  trap - EXIT HUP INT TERM
+
+  sudo test -f /etc/docker/daemon.json
+  sudo test ! -L /etc/docker/daemon.json
+  test "$(sudo stat -c '%U:%G:%a' /etc/docker/daemon.json)" = root:root:644
+  echo \
+    'bde2064927e943a0a38bed0071cfc0cf26148c435e93847204304026045422a2  /etc/docker/daemon.json' | \
+    sudo sha256sum --check --strict
+  sudo dockerd --validate --config-file /etc/docker/daemon.json
+)
+```
+
+Do not reload systemd, reset Docker's start-limit state, or start Docker while
+creating the file. The guarded preparation below owns those transitions. Gate C
+rollback deliberately does not remove daemon configuration. If the guarded
+start or DNS proof fails and this newly introduced configuration must be
+removed, use the following exact recovery. It refuses a changed file, an
+unexpected file type or mode, active/queued Docker work, and any stopped state
+outside the reviewed terminal states:
+
+```sh
+(
+  set -eu
+  require_stopped_docker_unit() {
+    unit=$1
+    active_state=$(sudo systemctl show --property=ActiveState --value \
+      "$unit") || exit 1
+    sub_state=$(sudo systemctl show --property=SubState --value \
+      "$unit") || exit 1
+    result=$(sudo systemctl show --property=Result --value \
+      "$unit") || exit 1
+    case "$unit:$active_state:$sub_state:$result" in
+      docker.service:inactive:dead:success|\
+      docker.service:failed:failed:start-limit-hit|\
+      docker.socket:inactive:dead:success|\
+      docker.socket:failed:failed:service-start-limit-hit) ;;
+      *)
+        printf 'Docker unit %s has unexpected stopped state %s/%s/%s.\n' \
+          "$unit" "$active_state" "$sub_state" "$result" >&2
+        exit 1
+        ;;
+    esac
+  }
+
+  docker_jobs=$(sudo systemctl list-jobs --no-legend --no-pager \
+    docker.service docker.socket) || exit 1
+  test -z "$docker_jobs"
+  for unit in docker.service docker.socket; do
+    require_stopped_docker_unit "$unit"
+  done
+  sudo test -f /etc/docker/daemon.json
+  sudo test ! -L /etc/docker/daemon.json
+  test "$(sudo stat -c '%U:%G:%a' /etc/docker/daemon.json)" = root:root:644
+  echo \
+    'bde2064927e943a0a38bed0071cfc0cf26148c435e93847204304026045422a2  /etc/docker/daemon.json' | \
+    sudo sha256sum --check --strict
+  sudo rm -- /etc/docker/daemon.json
+  sudo test ! -e /etc/docker/daemon.json
+  sudo test ! -L /etc/docker/daemon.json
+)
+```
+
+The recovery does not reset or start Docker. If any guard fails, preserve the
+file and stop for review.
+
 Only after Docker is stopped and the UFW inspection passes, install and reload
 the Docker drop-in:
 
 ```sh
+(
+  set -eu
+require_stopped_docker_unit() {
+  unit=$1
+  active_state=$(sudo systemctl show --property=ActiveState --value \
+    "$unit") || exit 1
+  sub_state=$(sudo systemctl show --property=SubState --value \
+    "$unit") || exit 1
+  result=$(sudo systemctl show --property=Result --value \
+    "$unit") || exit 1
+  case "$unit:$active_state:$sub_state:$result" in
+    docker.service:inactive:dead:success|\
+    docker.service:failed:failed:start-limit-hit|\
+    docker.socket:inactive:dead:success|\
+    docker.socket:failed:failed:service-start-limit-hit) ;;
+    *)
+      printf 'Docker unit %s has unexpected stopped state %s/%s/%s.\n' \
+        "$unit" "$active_state" "$sub_state" "$result" >&2
+      exit 1
+      ;;
+  esac
+}
+
+require_reset_docker_unit() {
+  unit=$1
+  active_state=$(sudo systemctl show --property=ActiveState --value \
+    "$unit") || exit 1
+  sub_state=$(sudo systemctl show --property=SubState --value \
+    "$unit") || exit 1
+  result=$(sudo systemctl show --property=Result --value \
+    "$unit") || exit 1
+  [ "$active_state:$sub_state:$result" = inactive:dead:success ] || {
+    printf 'Docker unit %s remained in state %s/%s/%s after strict reset.\n' \
+      "$unit" "$active_state" "$sub_state" "$result" >&2
+    exit 1
+  }
+}
+
 sudo install -d -o root -g root -m 0755 \
   /etc/systemd/system/docker.service.d
 sudo install -o root -g root -m 0644 \
@@ -273,12 +464,33 @@ for unit in kaul-pilot-firewall-rollback.service \
   }
 done
 
+docker_jobs=$(sudo systemctl list-jobs --no-legend --no-pager \
+  docker.service docker.socket) || exit 1
+test -z "$docker_jobs" || exit 1
+for unit in docker.service docker.socket; do
+  require_stopped_docker_unit "$unit"
+done
+sudo systemctl reset-failed docker.service docker.socket || exit 1
+for unit in docker.service docker.socket; do
+  require_reset_docker_unit "$unit"
+done
+
+rollback_started=$(sudo systemctl show \
+  --property=ExecMainStartTimestampMonotonic --value \
+  kaul-pilot-firewall-rollback.service) || exit 1
+case "$rollback_started" in ''|*[!0-9]*) exit 1 ;; esac
 sudo systemctl start kaul-pilot-firewall-rollback.timer
 test "$(sudo systemctl is-active kaul-pilot-firewall-rollback.timer)" = active
 test "$(sudo systemctl show --property=LastTriggerUSecMonotonic --value \
   kaul-pilot-firewall-rollback.timer)" = 0
-test "$(sudo systemctl show --property=ExecMainStartTimestampMonotonic --value \
-  kaul-pilot-firewall-rollback.service)" = 0
+timer_started=$(sudo systemctl show \
+  --property=ActiveEnterTimestampMonotonic --value \
+  kaul-pilot-firewall-rollback.timer) || exit 1
+case "$timer_started:$rollback_started" in
+  *[!0-9:]*|:*|*:) exit 1 ;;
+  *:0) ;;
+  *) test "$rollback_started" -lt "$timer_started" ;;
+esac
 
 sudo /usr/local/libexec/kaul-pilot-firewall preflight \
   --config /etc/kaul/pilot-firewall.conf
@@ -288,14 +500,22 @@ sudo /usr/local/libexec/kaul-pilot-firewall apply \
 test "$(sudo systemctl is-active kaul-pilot-firewall-rollback.timer)" = active
 test "$(sudo systemctl show --property=LastTriggerUSecMonotonic --value \
   kaul-pilot-firewall-rollback.timer)" = 0
+test "$(sudo systemctl show --property=ActiveEnterTimestampMonotonic --value \
+  kaul-pilot-firewall-rollback.timer)" = "$timer_started"
 test "$(sudo systemctl show --property=ExecMainStartTimestampMonotonic --value \
-  kaul-pilot-firewall-rollback.service)" = 0
+  kaul-pilot-firewall-rollback.service)" = "$rollback_started"
 sudo systemctl start docker.service
 sudo systemctl --no-pager --full status docker.service
 sudo /usr/local/libexec/kaul-pilot-firewall verify \
   --config /etc/kaul/pilot-firewall.conf
+)
 ```
 
+The guarded preparation accepts only Docker's normal inactive terminal state or
+the exact service/socket start-limit failures, requires no queued jobs, resets
+both units together, and proves both are inactive/dead/success before arming the
+timer. This preserves the reviewed `StartLimitBurst=1` fail-closed policy while
+allowing one deliberate protected start after an earlier controlled rollback.
 Stop if the effective Docker unit does not contain exactly the reviewed UFW
 requirement and preflight, apply, verify, and stop-post fail-closed hooks, or if
 `systemd-analyze` reports an error. The systemd dependency and operator
@@ -536,9 +756,29 @@ against `/api/health`, require Caddy to record the direct NPM peer as
 `192.168.1.100`, and require the VM-local request to be rejected by Caddy's
 direct-peer policy.
 
-After a Docker restart, repeat all three perspectives and the complete UFW and
-nftables inventory. At the later reboot gate, reboot the VM and repeat them
-before declaring persistence proven. The CI
+Do not use `systemctl restart docker.service` on the Pilot host. The mandatory
+fail-closed `ExecStopPost` requests `docker.socket` shutdown; because the
+service requires that socket, systemd safely cancels the pending start half of
+a direct restart. For an existing verified host whose safety timer has already
+been cancelled, the supported protected restart is this exact sequence:
+
+1. Run the complete timer re-arm block under **Verification**. It verifies the
+   installed policy, reloads any garbage-collected rollback units, rejects jobs
+   or unexpected states, and arms a fresh timer with clean trigger history.
+2. Run the complete **Explicit rollback** block. It requires that timer to be
+   active, stops Docker's socket/service through the fail-closed hook, then
+   proves exact stopped states and zero queued jobs. Also repeat the documented
+   daemon, proxy, listener, and target-DNAT absence checks before proceeding.
+3. Run the existing guarded stopped-unit reset, timer-arm,
+   `preflight`/`apply`, `docker.service` start, and `verify` block above. This
+   deliberately arms a new timer for the start half; never reuse the rollback
+   timer that protected the stop half.
+4. Cancel that new timer with the complete race-safe cancellation block only
+   after Docker and the firewall verify successfully.
+
+Then repeat all three perspectives and the complete UFW and nftables inventory.
+At the later reboot gate, reboot the VM and repeat them before declaring
+persistence proven. The CI
 systemd rehearsal proves bounded unit failure semantics only; it does not prove
 the real host's unit installation, Docker boot, or reboot timing.
 
@@ -556,6 +796,26 @@ after its successful oneshot completes:
 ```sh
 (
   set -eu
+  require_stopped_docker_unit() {
+    unit=$1
+    active_state=$(sudo systemctl show --property=ActiveState --value \
+      "$unit") || exit 1
+    sub_state=$(sudo systemctl show --property=SubState --value \
+      "$unit") || exit 1
+    result=$(sudo systemctl show --property=Result --value \
+      "$unit") || exit 1
+    case "$unit:$active_state:$sub_state:$result" in
+      docker.service:inactive:dead:success|\
+      docker.service:failed:failed:start-limit-hit|\
+      docker.socket:inactive:dead:success|\
+      docker.socket:failed:failed:service-start-limit-hit) ;;
+      *)
+        printf 'Docker unit %s has unexpected stopped state %s/%s/%s.\n' \
+          "$unit" "$active_state" "$sub_state" "$result" >&2
+        exit 1
+        ;;
+    esac
+  }
   reset_failed_rollback_unit_if_needed() {
     unit=$1
     active_state=$(sudo systemctl show --property=ActiveState --value \
@@ -626,18 +886,20 @@ after its successful oneshot completes:
     kaul-pilot-firewall-rollback.timer \
     docker.service docker.socket) || exit 1
   test -z "$rollback_jobs"
-  test "$(sudo systemctl show --property=ActiveState --value \
-    docker.service)" = inactive
-  test "$(sudo systemctl show --property=ActiveState --value \
-    docker.socket)" = inactive
+  for unit in docker.service docker.socket; do
+    require_stopped_docker_unit "$unit"
+  done
 )
 sudo iptables -w 10 -t filter -S DOCKER-USER
 sudo ufw status verbose
 ```
 
-Docker remains stopped and UFW remains unchanged. Do not restart Docker until
+Docker service and socket both finish in one of the exact stopped states above.
+A start-limit failure remains latched as diagnostic evidence; it is cleared only
+by the separately guarded preparation before a later protected start. UFW
+remains unchanged. Do not restart Docker until
 the failure is understood and the preflight/apply/verify sequence passes. For
 planned uninstallation, stop and prove `docker.socket` inactive first, then
 stop and prove `docker.service` inactive, run the operator's `remove`, then
-remove only the five installed files above and run
+remove only the five firewall files above and run
 `systemctl daemon-reload`.

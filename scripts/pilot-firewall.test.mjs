@@ -66,6 +66,13 @@ const firewallConfigExample = readFileSync(
   ),
   "utf8",
 );
+const dockerDaemonConfig = readFileSync(
+  new URL(
+    "../deploy/pilot/firewall/docker-daemon.kaul-pilot.json",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const workflow = readFileSync(
   new URL("../.github/workflows/validate.yml", import.meta.url),
   "utf8",
@@ -292,6 +299,9 @@ describe("Pilot Docker firewall contract", () => {
     expect(operator).toContain("allow-direct-routing");
     expect(operator).toContain("JSON::PP::is_bool");
     expect(operator).toContain("default-network-opts");
+    expect(dockerDaemonConfig).toBe('{"dns":["1.1.1.1"]}\n');
+    expect(JSON.parse(dockerDaemonConfig)).toEqual({ dns: ["1.1.1.1"] });
+    expect(dockerDaemonConfig).not.toContain("127.0.0.53");
     expect(operator).toContain("trusted_host_interfaces");
     expect(operator).toContain("gateway_mode_$family");
     expect(operator).toContain("IPv4 target DNAT state does not exactly match");
@@ -311,6 +321,8 @@ describe("Pilot Docker firewall contract", () => {
     expect(dropIn).toContain("Requires=ufw.service");
     expect(dropIn).toContain("After=network-online.target ufw.service");
     expect(dropIn).toContain("Restart=no");
+    expect(dropIn).toContain("StartLimitIntervalSec=300");
+    expect(dropIn).toContain("StartLimitBurst=1");
     expect(dropIn).toMatch(/ExecStartPre=.* preflight /);
     expect(dropIn).toMatch(/ExecStartPre=.* apply /);
     expect(dropIn).toMatch(/ExecStartPost=.* verify /);
@@ -334,6 +346,34 @@ describe("Pilot Docker firewall contract", () => {
       "require_unit_stopped docker.socket",
     ]);
     expect(dropIn).not.toContain("TimeoutStopSec");
+    expectInOrder(systemdRehearsal, [
+      "guarded_starts_before=",
+      'timeout 10 systemctl restart "$SERVICE"',
+      '[ "$restart_status" -eq 1 ]',
+      "wait_for_stopped_units inactive",
+      'assert_inactive_dead_success "$SERVICE"',
+      'assert_inactive_dead_success "$SOCKET"',
+      "A disposable restart-cancellation helper process remained.",
+      "Direct restart cancellation did not retain the guard while removing exposure.",
+      "guarded_starts_after_cancel=",
+      "Direct restart cancellation executed a forbidden start half.",
+      "start_protected_service inactive",
+      "guarded_starts_after=",
+      "Guarded restart recovery did not start exactly once.",
+    ]);
+    expect(firewallRunbook).toContain(
+      "Do not use `systemctl restart docker.service` on the Pilot host.",
+    );
+    expectInOrder(firewallRunbook, [
+      "the supported protected restart is this exact sequence:",
+      "Run the complete timer re-arm block",
+      "Run the complete **Explicit rollback** block",
+      "exact stopped states and zero queued jobs",
+      "Run the existing guarded stopped-unit reset",
+      "deliberately arms a new timer for the start half",
+      "Cancel that new timer with the complete race-safe cancellation block",
+      "repeat all three perspectives and the complete UFW and nftables inventory",
+    ]);
     expect(rollbackService).not.toContain("--disable-ufw");
     expect(operator).not.toContain("ufw --force disable");
     expect(operator).toContain("validate_ufw_policy");
@@ -380,6 +420,72 @@ describe("Pilot Docker firewall contract", () => {
         "sudo /usr/local/libexec/kaul-pilot-firewall apply",
       ),
     );
+    expectInOrder(firewallRunbook, [
+      "### Dedicated kaul-pilot Docker DNS",
+      "resolvectl status ens18",
+      "nslookup dl-cdn.alpinelinux.org 1.1.1.1",
+      "sudo test ! -e /etc/docker/daemon.json",
+      "sudo test ! -L /etc/docker/daemon.json",
+      "daemon_stage=$(sudo mktemp /etc/docker/.daemon.json.gate-c.XXXXXX)",
+      "sudo install -o root -g root -m 0644",
+      'sudo dockerd --validate --config-file "$daemon_stage"',
+      'sudo ln -T -- "$daemon_stage" /etc/docker/daemon.json',
+      "sudo test -f /etc/docker/daemon.json",
+      "sudo dockerd --validate --config-file /etc/docker/daemon.json",
+      "Only after Docker is stopped and the UFW inspection passes",
+    ]);
+    expect(firewallRunbook).toContain(
+      "bde2064927e943a0a38bed0071cfc0cf26148c435e93847204304026045422a2",
+    );
+    const dockerDnsInstall = firewallRunbook.slice(
+      firewallRunbook.indexOf("### Dedicated kaul-pilot Docker DNS"),
+      firewallRunbook.indexOf(
+        "Only after Docker is stopped and the UFW inspection passes",
+      ),
+    );
+    expectInOrder(dockerDnsInstall, [
+      "require_stopped_docker_unit() {",
+      "docker.service:inactive:dead:success",
+      "docker.service:failed:failed:start-limit-hit",
+      "docker.socket:inactive:dead:success",
+      "docker.socket:failed:failed:service-start-limit-hit",
+      "docker_jobs=$(sudo systemctl list-jobs",
+      'test -z "$docker_jobs"',
+      'require_stopped_docker_unit "$unit"',
+      "sudo install -o root -g root -m 0644",
+      'sudo sha256sum "$daemon_stage"',
+      'sudo dockerd --validate --config-file "$daemon_stage"',
+      'sudo ln -T -- "$daemon_stage" /etc/docker/daemon.json',
+      "sudo test -f /etc/docker/daemon.json",
+      "root:root:644",
+      "sudo sha256sum --check --strict",
+      "sudo dockerd --validate --config-file /etc/docker/daemon.json",
+    ]);
+    expect(dockerDnsInstall).not.toContain("systemctl reset-failed");
+    expect(dockerDnsInstall).not.toContain("systemctl daemon-reload");
+    const dockerDnsRecovery = dockerDnsInstall.slice(
+      dockerDnsInstall.indexOf("If the guarded\nstart or DNS proof fails"),
+    );
+    expectInOrder(dockerDnsRecovery, [
+      "require_stopped_docker_unit() {",
+      "docker.service:inactive:dead:success",
+      "docker.service:failed:failed:start-limit-hit",
+      "docker.socket:inactive:dead:success",
+      "docker.socket:failed:failed:service-start-limit-hit",
+      "docker_jobs=$(sudo systemctl list-jobs",
+      'test -z "$docker_jobs"',
+      'require_stopped_docker_unit "$unit"',
+      "sudo test -f /etc/docker/daemon.json",
+      "sudo test ! -L /etc/docker/daemon.json",
+      "root:root:644",
+      "sudo sha256sum --check --strict",
+      "sudo rm -- /etc/docker/daemon.json",
+      "sudo test ! -e /etc/docker/daemon.json",
+      "sudo test ! -L /etc/docker/daemon.json",
+    ]);
+    expect(dockerDnsRecovery).not.toContain("sudo rm -f");
+    expect(dockerDnsRecovery).not.toContain("systemctl reset-failed");
+    expect(dockerDnsRecovery).not.toContain("systemctl start docker");
     expect(rollbackTimer).toContain("OnActiveSec=10min");
     expect(rollbackTimer).not.toContain("Persistent=true");
     expect(operator.indexOf('if [ "$COMMAND" = rollback ]')).toBeLessThan(
@@ -416,7 +522,13 @@ describe("Pilot Docker firewall contract", () => {
       "for _attempt in $(seq 1 30); do",
       'systemctl is-active --quiet "$SERVICE" || {',
       '[ -e "$WORK_DIRECTORY/exposure" ] || {',
+      'systemctl stop "$SOCKET"',
       'systemctl stop "$SERVICE"',
+      "Bootstrap stop left a simulated publication",
+      'bootstrap_service_state=$(systemctl show --property=ActiveState --value "$SERVICE")',
+      'bootstrap_socket_state=$(systemctl show --property=ActiveState --value "$SOCKET")',
+      '[ "$bootstrap_service_state" = inactive ] && [ "$bootstrap_socket_state" = inactive ]',
+      'cat > "$DROP_IN_PATH"',
     ]);
     expect(systemdRehearsal).toContain("Requires=$FIREWALL_SERVICE");
     expect(systemdRehearsal).toContain("Requires=$SOCKET");
@@ -455,6 +567,26 @@ describe("Pilot Docker firewall contract", () => {
     expect(systemdRehearsal).not.toContain(
       'systemctl reset-failed "$SERVICE" || true',
     );
+    expect(systemdRehearsal).toContain('systemctl reset-failed "${units[@]}"');
+    expect(systemdRehearsal).toContain(
+      "reset-failed also clears the start-rate counter of an inactive unit",
+    );
+    expect(systemdRehearsal).toContain("StartLimitIntervalSec=300");
+    expect(systemdRehearsal).toContain("StartLimitBurst=1");
+    const guardedDropInStart = systemdRehearsal.slice(
+      systemdRehearsal.indexOf('cat > "$DROP_IN_PATH"'),
+      systemdRehearsal.indexOf(
+        "Failed UFW dependency allowed a simulated publication",
+      ),
+    );
+    expectInOrder(guardedDropInStart, [
+      "StartLimitIntervalSec=300",
+      "StartLimitBurst=1",
+      "systemctl daemon-reload",
+      'prepare_units_for_reuse "$SERVICE" inactive "$SOCKET" inactive',
+      'systemctl start "$SOCKET"',
+      'if systemctl start "$SERVICE"; then',
+    ]);
     expect(systemdRehearsal).toContain('[ "$process_status" -eq 1 ]');
     expect(systemdRehearsal).not.toContain('! pgrep -f -- "$HELPER_PATH"');
     expect(systemdRehearsal).toContain(
@@ -505,6 +637,8 @@ describe("Pilot Docker firewall contract", () => {
       "alpine@sha256:7c8cb692ae09657cbc4a3f3cbd0e8d5a2690ba38386aaaf252dbb060bf5eb2e6",
     );
     expect(rehearsal).toContain('DIND_RUNTIME_IMAGE="$PEER_IMAGE"');
+    expect(rehearsal).toContain("readonly DIND_DNS_READY_ATTEMPTS=20");
+    expect(rehearsal).toContain("readonly DIND_DNS_ATTEMPT_TIMEOUT_SECONDS=2");
     expect(rehearsal).toContain('"iptables=1.8.11-r1"');
     expect(rehearsal).toContain('--entrypoint tar "$DIND_IMAGE"');
     expect(rehearsal).toContain('--name "$DIND_SOURCE_NAME"');
@@ -512,10 +646,32 @@ describe("Pilot Docker firewall contract", () => {
       'docker exec -i "$DIND_NAME" tar -C /usr/local/bin -xf -',
     );
     expect(rehearsal).toContain('Server.Version}}\')" = "29.7.2"');
+    expectInOrder(rehearsal, [
+      "wait_for_dind_dns() {",
+      'for attempt in $(seq 1 "$DIND_DNS_READY_ATTEMPTS")',
+      'inner busybox timeout "$DIND_DNS_ATTEMPT_TIMEOUT_SECONDS"',
+      "busybox nslookup dl-cdn.alpinelinux.org",
+      "DIND resolver configuration after bounded DNS readiness failure",
+      "Docker embedded DNS in the DIND container did not resolve dl-cdn.alpinelinux.org",
+      "case $(inner cat /etc/alpine-release) in",
+      "wait_for_dind_dns",
+      "inner apk add --no-cache",
+    ]);
+    expect(rehearsal.match(/^wait_for_dind_dns$/gm)).toHaveLength(1);
+    expect(rehearsal.match(/inner apk add --no-cache/g)).toHaveLength(1);
+    expect(rehearsal).not.toContain("--dns");
+    expect(rehearsal).not.toMatch(/(?:>|tee)\s+\/etc\/resolv\.conf/);
     expect(rehearsal).toContain(
       "stop:docker.socket|stop:docker.service) exit 0 ;;",
     );
     expect(rehearsal).toContain("install -d -m 0755 /etc/docker");
+    expectInOrder(rehearsal, [
+      "Docker default direct-routing network options were accepted",
+      "/source/deploy/pilot/firewall/docker-daemon.kaul-pilot.json",
+      "inner dockerd --validate --config-file /etc/docker/daemon.json",
+      "run_operator preflight",
+      "start_inner_docker",
+    ]);
     expect(rehearsal).toContain("grep -v '^#'");
     expect(rehearsal).toContain("foreign-sentinel");
     expect(rehearsal).toContain('docker volume rm "$DIND_VOLUME"');
@@ -597,6 +753,24 @@ describe("Pilot Docker firewall contract", () => {
     expect(rehearsal).not.toContain(
       "The disposable UFW INPUT model did not deny the direct Docker proxy path.",
     );
+    expectInOrder(rehearsal, [
+      "require_rehearsal_topology_isolated() {",
+      "docker context inspect",
+      "unix:///var/run/docker.sock",
+      "address_state=$(ip -o -4 address show)",
+      "route_state=$(ip -o -4 route show table all)",
+      "'192.168.0.0/16'",
+      "'192.168.1.128/25'",
+      "'192.168.1.120/32'",
+      "'192.168.1.120 via 198.51.100.1 dev eth0'",
+      "'198.51.100.0/24'",
+      "require_rehearsal_topology_isolated",
+      "docker network create --driver bridge --subnet 192.168.1.0/24",
+    ]);
+    expect(rehearsal).toContain(
+      "Run it only on an isolated CI/disposable host; use the live fixture on kaul-pilot.",
+    );
+    expect(rehearsal).toContain("DOCKER_HOST and DOCKER_CONTEXT must be unset");
     expect(rehearsal).toContain("A string-valued Docker boolean was accepted");
     expect(rehearsal).toContain(
       "Docker default direct-routing network options were accepted",
@@ -617,6 +791,33 @@ describe("Pilot Docker firewall contract", () => {
     expect(rehearsal).toContain(
       "A FORWARD transfer to DOCKER-USER remained after removal.",
     );
+    const restartPositiveControl = rehearsal.slice(
+      rehearsal.indexOf(`docker exec "$LAN_NAME" sh -c 'nc --help 2>&1 || :'`),
+      rehearsal.indexOf("\nstart_restart_diagnostics\n"),
+    );
+    expectInOrder(restartPositiveControl, [
+      `docker exec "$LAN_NAME" sh -c 'nc --help 2>&1 || :'`,
+      "The pinned Alpine BusyBox nc does not advertise zero-I/O connect scanning.",
+      "touch /tmp/restart-probe-positive-control",
+      "test -e /tmp/restart-probe-positive-control ||",
+      "insert_owned_jump",
+      "run_verify",
+      "rm -f /tmp/restart-probe-positive-control",
+      "The restart probe detector recognized a deliberately permitted LAN TCP handshake.",
+    ]);
+    expect(restartPositiveControl).not.toContain(`docker exec "$NPM_NAME"`);
+
+    const restartWorkers = rehearsal.slice(
+      rehearsal.indexOf("for worker in 1 2 3 4; do"),
+      rehearsal.indexOf("for _attempt in $(seq 1 30); do"),
+    );
+    expectInOrder(restartWorkers, [
+      "if nc -z -w 1 $HOST_IP 8080",
+      "record=",
+      "touch /tmp/restart-probe-ready-$worker",
+      "touch /tmp/restart-probe-final-$worker",
+    ]);
+
     expectInOrder(rehearsal, [
       "start_restart_diagnostics",
       "set_restart_phase baseline-protected",
@@ -631,16 +832,33 @@ describe("Pilot Docker firewall contract", () => {
       "run_verify",
       "probe_allowed",
       "probe_denied",
+      "set_restart_phase final-negative-check-complete",
+      "/tmp/restart-probe-final-1",
+      "did not complete a final protected attempt in every worker",
       "touch /tmp/stop-restart-probe",
       "test ! -e /tmp/restart-window",
     ]);
     expect(rehearsal).toContain(
-      "The continuous unauthorized probe never connected during Docker stop, firewall reconciliation, startup, and verified restart-policy workload restoration.",
+      "Four overlapping unauthorized TCP probes observed no successful connection across the modeled Docker stop, firewall reconciliation, startup, and verified restart-policy workload restoration lifecycle.",
     );
     expect(rehearsal).toContain(
       "A continuous unauthorized restart probe worker exited before completing.",
     );
-    expect(rehearsal).toContain("result=echoed-new-connection");
+    expect(rehearsal).toContain(
+      "if nc -z -w 1 $HOST_IP 8080 >/dev/null 2>&1; then status=0; result=connected; touch /tmp/restart-window; else status=\\$?; fi",
+    );
+    expect(rehearsal).toContain(
+      "if nc -z -w 1 $HOST_IP 8080 >/dev/null 2>&1; then touch /tmp/restart-probe-positive-control; fi",
+    );
+    expect(rehearsal).toContain(
+      "The restart probe detector missed a deliberately permitted LAN TCP handshake.",
+    );
+    expect(rehearsal).toContain("result=connected");
+    expect(rehearsal).toContain("result=no-successful-connect");
+    expect(rehearsal).not.toContain("response=\\$(printf");
+    expect(rehearsal).not.toContain('if [ "\\$response" = "\\$token" ]');
+    expect(rehearsal).not.toContain("echoed-new-connection");
+    expect(rehearsal).not.toContain("uniquely echoed");
     expect(rehearsal).toContain("conntrack -E -o timestamp,extended");
     expect(rehearsal).toContain("xtables-monitor --event");
     expect(rehearsal).toContain("trap cleanup EXIT");
@@ -649,7 +867,7 @@ describe("Pilot Docker firewall contract", () => {
     );
   });
 
-  it("pins failed units through strict reset before garbage collection and reload", () => {
+  it("pins stopped units through strict rate-limit reset before reuse", () => {
     expectInOrder(systemdRehearsal, [
       "pin_units_for_reuse() {",
       "systemctl daemon-reload",
@@ -663,8 +881,8 @@ describe("Pilot Docker firewall contract", () => {
       'pin_units_for_reuse "${units[@]}"',
       'systemctl show --property=ActiveState --value "$unit"',
       "failed:failed|inactive:inactive|inactive-or-failed:failed|inactive-or-failed:inactive)",
-      '[ "$unit_active_state" != failed ] || failed_units+=("$unit")',
-      'systemctl reset-failed "${failed_units[@]}"',
+      "reset-failed also clears the start-rate counter of an inactive unit",
+      'systemctl reset-failed "${units[@]}"',
       "Post-reset state could not be inspected",
       '[ "$unit_active_state" = inactive ]',
       "release_load_anchor",
@@ -674,7 +892,7 @@ describe("Pilot Docker firewall contract", () => {
       '[ "$unit_active_state" = inactive ]',
     ]);
     expect(systemdRehearsal).not.toContain(
-      'systemctl reset-failed "${failed_units[@]}" || true',
+      'systemctl reset-failed "${units[@]}" || true',
     );
     expectInOrder(systemdRehearsal, [
       "Failed UFW dependency allowed a simulated publication",
@@ -705,9 +923,32 @@ describe("Pilot Docker firewall contract", () => {
       '[ "$(grep -c \'^rollback$\' "$WORK_DIRECTORY/events")" -eq 3 ]',
       "Timed fallback did not independently complete rollback",
       "stop_rollback_timer_strictly",
+      "assert_unprepared_start_limit_latched",
+      'prepare_units_for_reuse "$SERVICE" failed "$SOCKET" failed',
+      'systemctl start "$SOCKET"',
+      'systemctl start "$SERVICE"',
+      "Strict rate-limit reset did not enable exactly one protected start",
+      'prepare_units_for_reuse "$ROLLBACK_SERVICE" inactive',
+      '[ "$(grep -c \'^rollback$\' "$WORK_DIRECTORY/events")" -eq 4 ]',
+      "Reviewed rate-limit reset start did not complete rollback",
+      "assert_unprepared_start_limit_latched",
+      'prepare_units_for_reuse "$SERVICE" failed "$SOCKET" failed',
       "release_load_anchor",
       'wait_for_units_unloaded "$ROLLBACK_SERVICE" "$ROLLBACK_TIMER"',
     ]);
+    expectInOrder(systemdRehearsal, [
+      "assert_unprepared_start_limit_latched() {",
+      'if systemctl start "$SERVICE"; then',
+      "An unprepared second protected start bypassed the one-start rate limit",
+      "failed:failed:start-limit-hit",
+      "failed:failed:service-start-limit-hit",
+    ]);
+    expect(
+      systemdRehearsal.match(/assert_unprepared_start_limit_latched/g),
+    ).toHaveLength(3);
+    expect(systemdRehearsal).not.toContain(
+      "assert_unprepared_start_limit_latched || true",
+    );
     expect(systemdRehearsal.split("stop_rollback_timer_strictly")).toHaveLength(
       4,
     );
@@ -734,11 +975,11 @@ describe("Pilot Docker firewall contract", () => {
     expect(systemdRehearsal).toContain(
       'wait_for_units_unloaded "$ROLLBACK_SERVICE" "$SERVICE" "$SOCKET"',
     );
-    expect(systemdRehearsal.split(rollbackReuse)).toHaveLength(5);
+    expect(systemdRehearsal.split(rollbackReuse)).toHaveLength(6);
     expect(systemdRehearsal.split(rollbackUnload)).toHaveLength(4);
     expect(
       systemdRehearsal.split('systemctl start "$ROLLBACK_SERVICE"'),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
     expect(
       systemdRehearsal.split('systemctl start "$ROLLBACK_TIMER"'),
     ).toHaveLength(3);
@@ -806,6 +1047,25 @@ describe("Pilot Docker firewall contract", () => {
       'reset_failed_rollback_unit_if_needed "$unit"',
       "sudo systemctl start kaul-pilot-firewall-rollback.timer",
     ]);
+    expectInOrder(initialArm, [
+      "(\n  set -eu",
+      "require_stopped_docker_unit() {",
+      'case "$unit:$active_state:$sub_state:$result" in',
+      "docker.service:inactive:dead:success",
+      "docker.service:failed:failed:start-limit-hit",
+      "docker.socket:inactive:dead:success",
+      "docker.socket:failed:failed:service-start-limit-hit",
+      "docker_jobs=$(sudo systemctl list-jobs",
+      'test -z "$docker_jobs" || exit 1',
+      'require_stopped_docker_unit "$unit"',
+      "sudo systemctl reset-failed docker.service docker.socket || exit 1",
+      'require_reset_docker_unit "$unit"',
+      "sudo systemctl start kaul-pilot-firewall-rollback.timer",
+      "sudo /usr/local/libexec/kaul-pilot-firewall apply",
+      "sudo systemctl start docker.service",
+      "sudo /usr/local/libexec/kaul-pilot-firewall verify",
+      "\n)\n",
+    ]);
     expectInOrder(explicitRollback, [
       "sudo systemctl daemon-reload",
       "for unit in kaul-pilot-firewall-rollback.service",
@@ -824,7 +1084,22 @@ describe("Pilot Docker firewall contract", () => {
       "active)",
       "sudo systemctl stop kaul-pilot-firewall-rollback.timer",
       "--property=ActiveState --value \\\n    kaul-pilot-firewall-rollback.service",
+      "rollback_jobs=$(sudo systemctl list-jobs",
+      'require_stopped_docker_unit "$unit"',
     ]);
+    expect(explicitRollback).toContain(
+      "for unit in docker.service docker.socket; do",
+    );
+    expect(explicitRollback).not.toContain(
+      "sudo systemctl reset-failed docker.service docker.socket",
+    );
+    expect(initialArm).not.toContain(
+      "sudo systemctl reset-failed docker.service docker.socket || true",
+    );
+    expect(initialArm).not.toContain('test -z "$docker_jobs" || true');
+    expect(
+      firewallRunbook.match(/require_stopped_docker_unit\(\) \{/g),
+    ).toHaveLength(4);
     expect(
       firewallRunbook.match(/reset_failed_rollback_unit_if_needed\(\) \{/g),
     ).toHaveLength(2);
@@ -879,6 +1154,20 @@ describe("Pilot Docker firewall contract", () => {
     expect(liveFixture).toContain('$1 == "μs:"');
     expect(liveFixture).toContain(
       "expected_deadline=$((active_since + 600000000))",
+    );
+    expectInOrder(liveFixture, [
+      "expected_deadline=$((active_since + 600000000))",
+      "earliest_deadline=$((expected_deadline - accuracy_usec))",
+      "latest_deadline=$((expected_deadline + accuracy_usec))",
+      '[ "$next_deadline" -ge "$earliest_deadline" ]',
+      '[ "$next_deadline" -le "$latest_deadline" ]',
+      "The Gate C rollback deadline is not the finite ten-minute deadline",
+      "timer_age=$((now_microseconds - active_since))",
+      '[ "$timer_age" -ge 0 ] && [ "$timer_age" -le 60000000 ]',
+      "Start the bounded fixture within 60 seconds of arming the rollback timer.",
+    ]);
+    expect(liveFixture).not.toContain(
+      '[ "$next_deadline" -ge "$expected_deadline" ]',
     );
     expect(liveFixture).toContain('[ "$accuracy_usec" -eq 1000000 ]');
     expect(liveFixture).toContain(

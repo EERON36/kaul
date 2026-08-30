@@ -9,6 +9,8 @@ readonly NETWORK_NAME="kaul-firewall-rehearsal-${GITHUB_RUN_ID:-local}-$$"
 readonly DIND_NAME="${NETWORK_NAME}-dind"
 readonly DIND_SOURCE_NAME="${NETWORK_NAME}-docker-source"
 readonly DIND_VOLUME="${NETWORK_NAME}-data"
+readonly DIND_DNS_READY_ATTEMPTS=20
+readonly DIND_DNS_ATTEMPT_TIMEOUT_SECONDS=2
 readonly DIRECT_NETWORK_NAME="${NETWORK_NAME}-direct"
 readonly NPM_NAME="${NETWORK_NAME}-npm"
 readonly LAN_NAME="${NETWORK_NAME}-lan"
@@ -71,6 +73,20 @@ inner() {
   docker exec "$DIND_NAME" "$@"
 }
 
+wait_for_dind_dns() {
+  local attempt
+  for attempt in $(seq 1 "$DIND_DNS_READY_ATTEMPTS"); do
+    if inner busybox timeout "$DIND_DNS_ATTEMPT_TIMEOUT_SECONDS" \
+      busybox nslookup dl-cdn.alpinelinux.org >/dev/null 2>&1; then
+      return
+    fi
+    sleep 1
+  done
+  printf '%s\n' "DIND resolver configuration after bounded DNS readiness failure:" >&2
+  inner busybox cat /etc/resolv.conf >&2 || true
+  die "Docker embedded DNS in the DIND container did not resolve dl-cdn.alpinelinux.org after $DIND_DNS_READY_ATTEMPTS attempts with a ${DIND_DNS_ATTEMPT_TIMEOUT_SECONDS}-second deadline each."
+}
+
 wait_for_inner_docker() {
   local attempt
   for attempt in $(seq 1 60); do
@@ -81,6 +97,69 @@ wait_for_inner_docker() {
   done
   inner sh -c 'tail -200 /tmp/dockerd.log' >&2 || true
   die "Docker 29.7.2 did not become ready."
+}
+
+topology_overlaps_rehearsal() {
+  awk '
+  function ipv4_number(ip, octets) {
+    split(ip, octets, ".")
+    return ((octets[1] * 256 + octets[2]) * 256 + octets[3]) * 256 + octets[4]
+  }
+  function overlaps_rehearsal(cidr, parts, prefix, size, first, last) {
+    split(cidr, parts, "/")
+    prefix = parts[2] == "" ? 32 : parts[2]
+    size = 2 ^ (32 - prefix)
+    first = int(ipv4_number(parts[1]) / size) * size
+    last = first + size - 1
+    return first <= 3232236031 && last >= 3232235776
+  }
+  {
+    for (field = 1; field <= NF; field += 1) {
+      if ($field ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$/ &&
+          overlaps_rehearsal($field)) { found = 1; exit }
+    }
+    route_destination = ""
+    if ($1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) route_destination = $1
+    else if ($1 ~ /^(local|broadcast|unicast|throw|unreachable|prohibit|blackhole)$/ &&
+             $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) route_destination = $2
+    if (route_destination != "" && overlaps_rehearsal(route_destination)) found = 1
+  }
+  END { exit found ? 0 : 1 }
+  '
+}
+
+require_rehearsal_topology_isolated() {
+  local address_state docker_endpoint overlap_status route_state
+  [ -z "${DOCKER_HOST:-}" ] && [ -z "${DOCKER_CONTEXT:-}" ] ||
+    die "DOCKER_HOST and DOCKER_CONTEXT must be unset so the rehearsal cannot target a daemon different from the inspected host."
+  docker_endpoint=$(docker context inspect "$(docker context show)" \
+    --format '{{ .Endpoints.docker.Host }}') ||
+    die "The outer Docker endpoint could not be inspected."
+  [ "$docker_endpoint" = unix:///var/run/docker.sock ] ||
+    die "The rehearsal requires the canonical local Docker socket so host topology inspection cannot target a different machine."
+  address_state=$(ip -o -4 address show) ||
+    die "Host IPv4 address state could not be inspected before rehearsal network creation."
+  route_state=$(ip -o -4 route show table all) ||
+    die "Host IPv4 route state could not be inspected before rehearsal network creation."
+  printf '%s\n' '192.168.0.0/16' | topology_overlaps_rehearsal ||
+    die "The rehearsal topology overlap guard rejected its covering-prefix control."
+  printf '%s\n' '192.168.1.128/25' | topology_overlaps_rehearsal ||
+    die "The rehearsal topology overlap guard rejected its contained-prefix control."
+  printf '%s\n' '192.168.1.120/32' | topology_overlaps_rehearsal ||
+    die "The rehearsal topology overlap guard rejected its host-prefix control."
+  printf '%s\n' '192.168.1.120 via 198.51.100.1 dev eth0' | topology_overlaps_rehearsal ||
+    die "The rehearsal topology overlap guard rejected its bare host-route control."
+  if printf '%s\n' '198.51.100.0/24' | topology_overlaps_rehearsal; then
+    die "The rehearsal topology overlap guard accepted its disjoint-prefix control."
+  fi
+  if printf '%s\n%s\n' "$address_state" "$route_state" |
+    topology_overlaps_rehearsal; then
+    die "The disposable 192.168.1.0/24 rehearsal topology overlaps an IPv4 address or route on this host. Run it only on an isolated CI/disposable host; use the live fixture on kaul-pilot."
+  else
+    overlap_status=$?
+    [ "$overlap_status" -eq 1 ] ||
+      die "Host IPv4 topology could not be evaluated before rehearsal network creation."
+  fi
 }
 
 wait_for_inner_docker_stop() {
@@ -173,21 +252,21 @@ dump_restart_diagnostics() {
   inner cat /tmp/restart-phases.log >&2 || true
   printf '%s\n' 'Unauthorized probe attempt log:' >&2
   docker exec "$LAN_NAME" sh -c '
-    printf "%s\n" "First uniquely echoed attempt:"
+    printf "%s\n" "First successful TCP handshake:"
     cat /tmp/restart-first-success.log
     printf "%s\n" "Attempt outcome counts by phase:"
     awk "{ phase=\"\"; result=\"\"; for (field=1; field<=NF; field+=1) { if (\$field ~ /^phase=/) phase=\$field; if (\$field ~ /^result=/) result=\$field } counts[phase \" \" result]+=1 } END { for (key in counts) print counts[key], key }" /tmp/restart-attempts.log | sort
     printf "%s\n" "Attempts surrounding the first success:"
-    grep -B 5 -A 5 -F "result=echoed-new-connection" /tmp/restart-attempts.log | head -30
+    grep -B 5 -A 5 -F "result=connected" /tmp/restart-attempts.log | head -30
   ' >&2 || true
-  printf '%s\n' 'TCP/8080 packet trace surrounding echoed payload:' >&2
+  printf '%s\n' 'TCP/8080 packet trace for the first successful handshake:' >&2
   inner sh -c \
-    "grep -B 12 -A 5 -F 'kaul-restart-' /tmp/restart-packets.log | head -120" >&2 || true
+    "success_port=\$(awk -v source='$HOST_IP.8080' -v destination='$LAN_IP.' '\$3 == \"IP\" && \$4 == source && index(\$6, destination) == 1 && /Flags \\[S.\\]/ { gsub(/:$/, \"\", \$6); count=split(\$6, fields, \".\"); print fields[count]; exit }' /tmp/restart-packets.log); printf 'successful_source_port=%s\\n' \"\$success_port\"; if test -n \"\$success_port\"; then grep -F '$LAN_IP.'\"\$success_port\" /tmp/restart-packets.log | head -120; else tail -120 /tmp/restart-packets.log; fi" >&2 || true
   printf '%s\n' 'TCP/8080 conntrack state and events:' >&2
   inner conntrack -L -p tcp --orig-src "$LAN_IP" --orig-dst "$HOST_IP" \
     --dport 8080 -o extended >&2 || true
   inner sh -c \
-    "success_port=\$(awk -v source='$LAN_IP.' -v destination='$HOST_IP.8080:' '\$3 == \"IP\" && index(\$4, source) == 1 && \$6 == destination && /Flags \\[P.\\]/ { count=split(\$4, fields, \".\"); print fields[count]; exit }' /tmp/restart-packets.log); printf 'successful_source_port=%s\\n' \"\$success_port\"; grep -F \"sport=\$success_port \" /tmp/restart-conntrack.log | tail -40" >&2 || true
+    "success_port=\$(awk -v source='$HOST_IP.8080' -v destination='$LAN_IP.' '\$3 == \"IP\" && \$4 == source && index(\$6, destination) == 1 && /Flags \\[S.\\]/ { gsub(/:$/, \"\", \$6); count=split(\$6, fields, \".\"); print fields[count]; exit }' /tmp/restart-packets.log); printf 'successful_source_port=%s\\n' \"\$success_port\"; test -z \"\$success_port\" || grep -F \"sport=\$success_port \" /tmp/restart-conntrack.log | tail -40" >&2 || true
   printf '%s\n' 'iptables mutation trace:' >&2
   inner sh -c \
     "grep -E -- '(-D|-I|-A).*FORWARD.*DOCKER-USER|$OWNED_CHAIN|dport 8080|ctorigdstport 8080' /tmp/restart-xtables.log | tail -120" >&2 || true
@@ -335,7 +414,9 @@ probe_denied() {
 }
 
 command -v docker >/dev/null 2>&1 || die "Docker is required."
+command -v ip >/dev/null 2>&1 || die "iproute2 is required."
 docker info >/dev/null 2>&1 || die "The outer Docker daemon is unavailable."
+require_rehearsal_topology_isolated
 
 docker network create --driver bridge --subnet 192.168.1.0/24 \
   --gateway 192.168.1.1 "$NETWORK_NAME" >/dev/null
@@ -349,6 +430,7 @@ case $(inner cat /etc/alpine-release) in
   3.22.*) ;;
   *) die "The pinned firewall runtime is not Alpine 3.22." ;;
 esac
+wait_for_dind_dns
 inner apk add --no-cache bash ca-certificates conntrack-tools coreutils curl \
   iproute2 "iptables=1.8.11-r1" perl procps tcpdump >/dev/null
 docker run --rm --name "$DIND_SOURCE_NAME" \
@@ -480,7 +562,10 @@ inner sh -c 'printf "%s\n" "{\"default-network-opts\":{\"bridge\":{\"com.docker.
 if run_operator preflight >/dev/null 2>&1; then
   die "Docker default direct-routing network options were accepted."
 fi
-inner rm /etc/docker/daemon.json
+inner install -o root -g root -m 0644 \
+  /source/deploy/pilot/firewall/docker-daemon.kaul-pilot.json \
+  /etc/docker/daemon.json
+inner dockerd --validate --config-file /etc/docker/daemon.json
 
 run_operator preflight
 assert_no_pilot_environment
@@ -677,14 +762,25 @@ inner iptables -w 10 -t filter -D DOCKER-USER \
   -p tcp -m conntrack \
   --ctorigdst "$HOST_IP" --ctorigdstport 8080 \
   -m comment --comment "$OWNED_COMMENT" -j "$OWNED_CHAIN"
+docker exec "$LAN_NAME" sh -c 'nc --help 2>&1 || :' |
+  grep -Fq -- '-z' ||
+  die "The pinned Alpine BusyBox nc does not advertise zero-I/O connect scanning."
+docker exec "$LAN_NAME" rm -f /tmp/restart-probe-positive-control
+docker exec "$LAN_NAME" sh -c \
+  "if nc -z -w 1 $HOST_IP 8080 >/dev/null 2>&1; then touch /tmp/restart-probe-positive-control; fi"
+docker exec "$LAN_NAME" test -e /tmp/restart-probe-positive-control ||
+  die "The restart probe detector missed a deliberately permitted LAN TCP handshake."
 docker exec "$LAN_NAME" sh -c \
   "(printf before; sleep 4; printf after; sleep 2) | nc -w 10 $HOST_IP 8080 > /tmp/established.out; test \"\$(cat /tmp/established.out)\" = before" &
 established_probe_pid=$!
 sleep 2
 insert_owned_jump
+run_verify
 if ! wait "$established_probe_pid"; then
   die "The unauthorized established connection survived policy reapplication."
 fi
+docker exec "$LAN_NAME" rm -f /tmp/restart-probe-positive-control
+printf '%s\n' "The restart probe detector recognized a deliberately permitted LAN TCP handshake."
 printf '%s\n' "The unauthorized established connection was cut off without a broad established-flow exception."
 probe_denied
 
@@ -698,11 +794,13 @@ set_restart_phase baseline-protected
 docker exec "$LAN_NAME" rm -f /tmp/restart-window /tmp/stop-restart-probe \
   /tmp/restart-attempts.log /tmp/restart-first-success.log \
   /tmp/restart-probe-ready-1 /tmp/restart-probe-ready-2 \
-  /tmp/restart-probe-ready-3 /tmp/restart-probe-ready-4
+  /tmp/restart-probe-ready-3 /tmp/restart-probe-ready-4 \
+  /tmp/restart-probe-final-1 /tmp/restart-probe-final-2 \
+  /tmp/restart-probe-final-3 /tmp/restart-probe-final-4
 restart_probe_pids=()
 for worker in 1 2 3 4; do
   docker exec "$LAN_NAME" sh -c \
-    "attempt=0; touch /tmp/restart-probe-ready-$worker; while [ ! -e /tmp/stop-restart-probe ]; do attempt=\$((attempt + 1)); phase=\$(cat /tmp/restart-phase); started=\$(date -u +'%Y-%m-%dT%H:%M:%S.%N'); token=kaul-restart-$worker-\${attempt}-\${started}; response=\$(printf '%s' \"\$token\" | nc -w 1 $HOST_IP 8080 2>/dev/null); status=\$?; ended=\$(date -u +'%Y-%m-%dT%H:%M:%S.%N'); result=denied; if [ \"\$response\" = \"\$token\" ]; then result=echoed-new-connection; touch /tmp/restart-window; fi; record=\"\$ended worker=$worker attempt=\$attempt phase=\$phase status=\$status result=\$result token=\$token\"; printf '%s\\n' \"\$record\" >> /tmp/restart-attempts.log; if [ \"\$result\" = echoed-new-connection ] && [ ! -e /tmp/restart-first-success.log ]; then printf '%s\\n' \"\$record\" > /tmp/restart-first-success.log; fi; done" &
+    "attempt=0; while [ ! -e /tmp/stop-restart-probe ]; do attempt=\$((attempt + 1)); phase=\$(cat /tmp/restart-phase); started=\$(date -u +'%Y-%m-%dT%H:%M:%S.%N'); token=kaul-restart-$worker-\${attempt}-\${started}; result=no-successful-connect; if nc -z -w 1 $HOST_IP 8080 >/dev/null 2>&1; then status=0; result=connected; touch /tmp/restart-window; else status=\$?; fi; ended=\$(date -u +'%Y-%m-%dT%H:%M:%S.%N'); record=\"\$ended worker=$worker attempt=\$attempt phase=\$phase status=\$status result=\$result token=\$token\"; printf '%s\\n' \"\$record\" >> /tmp/restart-attempts.log; if [ \"\$result\" = connected ] && [ ! -e /tmp/restart-first-success.log ]; then printf '%s\\n' \"\$record\" > /tmp/restart-first-success.log; fi; if [ ! -e /tmp/restart-probe-ready-$worker ]; then touch /tmp/restart-probe-ready-$worker; fi; if [ \"\$phase\" = final-negative-check-complete ]; then touch /tmp/restart-probe-final-$worker; fi; done" &
   restart_probe_pids+=("$!")
 done
 for _attempt in $(seq 1 30); do
@@ -749,6 +847,16 @@ assert_no_pilot_environment
 probe_allowed
 probe_denied
 set_restart_phase final-negative-check-complete
+for _attempt in $(seq 1 50); do
+  if docker exec "$LAN_NAME" sh -c \
+    'test -e /tmp/restart-probe-final-1 && test -e /tmp/restart-probe-final-2 && test -e /tmp/restart-probe-final-3 && test -e /tmp/restart-probe-final-4'; then
+    break
+  fi
+  sleep 0.1
+done
+docker exec "$LAN_NAME" sh -c \
+  'test -e /tmp/restart-probe-final-1 && test -e /tmp/restart-probe-final-2 && test -e /tmp/restart-probe-final-3 && test -e /tmp/restart-probe-final-4' ||
+  die "The continuous unauthorized restart probe did not complete a final protected attempt in every worker."
 docker exec "$LAN_NAME" touch /tmp/stop-restart-probe
 for restart_probe_pid in "${restart_probe_pids[@]}"; do
   if ! wait "$restart_probe_pid"; then
@@ -758,9 +866,9 @@ done
 stop_restart_diagnostics
 if ! docker exec "$LAN_NAME" test ! -e /tmp/restart-window; then
   dump_restart_diagnostics
-  die "A uniquely echoed unauthorized connection succeeded during Docker stop, firewall reconciliation, startup, or restart-policy workload restoration."
+  die "An unauthorized TCP handshake succeeded during Docker stop, firewall reconciliation, startup, or restart-policy workload restoration."
 fi
-printf '%s\n' "The continuous unauthorized probe never connected during Docker stop, firewall reconciliation, startup, and verified restart-policy workload restoration."
+printf '%s\n' "Four overlapping unauthorized TCP probes observed no successful connection across the modeled Docker stop, firewall reconciliation, startup, and verified restart-policy workload restoration lifecycle."
 
 insert_owned_jump
 if run_operator verify >/dev/null 2>&1; then
