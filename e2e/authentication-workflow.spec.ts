@@ -295,6 +295,13 @@ test("completes login, forced password change, shell access, logout, and new log
   await expect(page.getByText("Fiktiva Omsorgen")).toBeVisible();
   await expect(page.getByText("Administratör", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Hem" })).toBeVisible();
+  const clientsNavigation = page.getByRole("button", { name: "Klienter" });
+  await expect(clientsNavigation).toHaveAttribute("aria-expanded", "false");
+  await clientsNavigation.focus();
+  await page.keyboard.press("Enter");
+  await expect(clientsNavigation).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("link", { name: "Vuxna" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ungdomar" })).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Personal", exact: true }),
   ).toBeVisible();

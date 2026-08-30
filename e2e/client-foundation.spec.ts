@@ -239,11 +239,12 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   page,
 }) => {
   await logIn(page, administratorEmail, "192.0.2.181");
-  await expect(page.getByRole("link", { name: "Klienter" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Klienter" })).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Personal", exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Klienter" }).click();
+  await page.getByRole("button", { name: "Klienter" }).click();
+  await page.getByRole("link", { name: "Vuxna", exact: true }).click();
   await page.getByLabel("Förnamn").fill("Fiktiv");
   await page.getByLabel("Efternamn").fill("Klientperson");
   await page.getByLabel("Personreferens").fill("   ");
@@ -348,7 +349,7 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await expect(
     primaryPage.getByRole("link", { name: "Personal", exact: true }),
   ).toHaveCount(0);
-  await primaryPage.getByRole("link", { name: "Klienter" }).click();
+  await primaryPage.getByRole("link", { name: "Vuxna", exact: true }).click();
   await expect(primaryPage.getByText("E2E-KLIENT-01")).toBeVisible();
   await primaryPage.goto(`/klienter/${client.id}`);
   await expect(
@@ -637,7 +638,12 @@ test("Client categories remain usable on a narrow viewport", async ({
   await page.setViewportSize({ width: 375, height: 812 });
   await logIn(page, administratorEmail, "192.0.2.185");
   await page.getByRole("button", { name: "Öppna meny" }).click();
-  await page.getByRole("link", { name: "Klienter" }).click();
+  const clientsNavigation = page.getByRole("button", { name: "Klienter" });
+  await expect(clientsNavigation).toHaveAttribute("aria-expanded", "false");
+  await clientsNavigation.focus();
+  await page.keyboard.press("Enter");
+  await expect(clientsNavigation).toHaveAttribute("aria-expanded", "true");
+  await page.getByRole("link", { name: "Vuxna", exact: true }).click();
 
   await expect(page.getByLabel("Kategori", { exact: true })).toHaveValue("");
   await page.getByLabel("Förnamn").fill("Vuxen");
@@ -654,8 +660,15 @@ test("Client categories remain usable on a narrow viewport", async ({
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
 
-  const adultChoice = page.getByRole("link", { name: "Vuxna", exact: true });
-  const youthChoice = page.getByRole("link", {
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  const mainNavigation = page.getByRole("navigation", {
+    name: "Huvudnavigering",
+  });
+  const adultChoice = mainNavigation.getByRole("link", {
+    name: "Vuxna",
+    exact: true,
+  });
+  const youthChoice = mainNavigation.getByRole("link", {
     name: "Ungdomar",
     exact: true,
   });
@@ -686,6 +699,11 @@ test("Client categories remain usable on a narrow viewport", async ({
     `${testEnvironment.origin}/klienter?kategori=ungdomar`,
   );
   await expect(youthChoice).toHaveAttribute("aria-current", "page");
+  await page.reload();
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  await expect(clientsNavigation).toHaveAttribute("aria-expanded", "true");
+  await expect(youthChoice).toHaveAttribute("aria-current", "page");
+  await page.getByRole("button", { name: "Stäng meny" }).click();
 
   const allClientsChoice = page.getByRole("link", { name: "Alla klienter" });
   await allClientsChoice.click();
@@ -707,7 +725,8 @@ test("Client categories remain usable on a narrow viewport", async ({
   await expect(page).toHaveURL(
     `${testEnvironment.origin}/klienter?kategori=alla`,
   );
-  await page.getByRole("link", { name: "Vuxna", exact: true }).click();
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  await adultChoice.click();
   await page.getByRole("link", { name: /Vuxen Klient/ }).click();
   await expect(page).toHaveURL(/\/klienter\/[0-9a-f-]+$/);
   await expect(
@@ -1050,7 +1069,11 @@ test("Client archive list, confirmation, and detail remain usable at 375px", asy
   await page.getByLabel("Personreferens").fill("e2e-mobile-archive");
   await page.getByLabel("Kategori", { exact: true }).selectOption("YOUTH");
   await page.getByRole("button", { name: "Skapa klient" }).click();
-  await page.getByRole("link", { name: "Ungdomar", exact: true }).click();
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  await page
+    .getByRole("navigation", { name: "Huvudnavigering" })
+    .getByRole("link", { name: "Ungdomar", exact: true })
+    .click();
   await expect(page).toHaveURL(
     `${testEnvironment.origin}/klienter?kategori=ungdomar`,
   );

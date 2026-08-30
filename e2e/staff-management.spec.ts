@@ -305,7 +305,9 @@ test("Administrator creates, deactivates, and reactivates a Staff Member", async
   await staffPage.getByRole("button", { name: "Spara nytt lösenord" }).click();
   await expect(staffPage).toHaveURL(`${testEnvironment.origin}/`);
   await expect(staffPage.getByRole("link", { name: "Hem" })).toBeVisible();
-  await expect(staffPage.getByRole("link", { name: "Klienter" })).toBeVisible();
+  await expect(
+    staffPage.getByRole("button", { name: "Klienter" }),
+  ).toBeVisible();
   await expect(
     staffPage.getByRole("link", { name: "Personal", exact: true }),
   ).toHaveCount(0);
@@ -348,7 +350,7 @@ test("Staff actions have specific names and keyboard focus remains distinct on b
 
   const clientsNavigation = page
     .locator(".sidebar")
-    .getByRole("link", { name: "Klienter", exact: true });
+    .getByRole("button", { name: "Klienter", exact: true });
   await tabTo(page, clientsNavigation);
   await expectVisibleFocusWithContrast(clientsNavigation, "DARK");
 

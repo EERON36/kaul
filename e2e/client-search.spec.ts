@@ -212,7 +212,10 @@ test("Administrator search is submitted privately and keeps category grouping", 
   await expect(page.getByRole("heading", { name: "Vuxna" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ungdomar" })).toHaveCount(0);
 
-  await page.getByRole("link", { name: "Ungdomar", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Klientkategori" })
+    .getByRole("link", { name: "Ungdomar", exact: true })
+    .click();
   await expect(page).toHaveURL(
     `${testEnvironment.origin}/klienter?kategori=ungdomar`,
   );
@@ -276,7 +279,10 @@ test("Staff search discloses only assigned Clients and uses one no-result state"
   await expect(page.getByText("STAFF-HEMLIG-01")).toHaveCount(0);
   await expect(page.getByText("Otilldelad Hemlig")).toHaveCount(0);
 
-  await page.getByRole("link", { name: "Ungdomar", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Klientkategori" })
+    .getByRole("link", { name: "Ungdomar", exact: true })
+    .click();
   await expect(page).toHaveURL(
     `${testEnvironment.origin}/klienter?kategori=ungdomar`,
   );
@@ -298,7 +304,11 @@ test("Client search remains keyboard-usable without mobile overflow", async ({
   await logIn(page, administratorEmail, "192.0.2.213");
   await page.goto("/klienter");
 
-  await page.getByRole("link", { name: "Ungdomar", exact: true }).click();
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  await page
+    .getByRole("navigation", { name: "Huvudnavigering" })
+    .getByRole("link", { name: "Ungdomar", exact: true })
+    .click();
   await expect(page).toHaveURL(
     `${testEnvironment.origin}/klienter?kategori=ungdomar`,
   );

@@ -112,6 +112,42 @@ main:focus-visible {
   text-decoration: none;
 }
 
+.navigation-group-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 0.8rem;
+  background: transparent;
+  border: 0;
+  border-left: 4px solid transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+}
+
+.navigation-group[data-context-active="true"] > .navigation-group-toggle {
+  border-left-color: #ffffff;
+  background: #345a73;
+  font-weight: 700;
+}
+
+.navigation-submenu {
+  margin-left: 1rem;
+  border-left: 1px solid #6f8796;
+}
+
+.navigation-submenu[hidden] {
+  display: none;
+}
+
+.navigation-child-link {
+  padding-left: 1rem;
+}
+
 .mobile-navigation {
   display: contents;
 }

@@ -59,4 +59,14 @@ describe("Client list category navigation", () => {
     expect(markup).not.toContain("REF-VUXEN");
     expect(markup).toContain("REF-UNGDOM");
   });
+
+  it("marks the alternative all-Clients view as active", () => {
+    const markup = renderList("ALL");
+
+    expect(markup).toMatch(
+      /aria-current="page"[^>]*href="\/klienter\?kategori=alla"/,
+    );
+    expect(markup).toContain("REF-VUXEN");
+    expect(markup).toContain("REF-UNGDOM");
+  });
 });

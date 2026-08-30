@@ -30,7 +30,11 @@ export default async function ClientsPage({
   }
 
   return (
-    <ApplicationShell currentPath="/klienter" user={result.user}>
+    <ApplicationShell
+      activeClientCategory={categoryView}
+      currentPath="/klienter"
+      user={result.user}
+    >
       <div className="page-content">
         <p className="eyebrow">{result.user.organisationName}</p>
         <h1>Klienter</h1>
