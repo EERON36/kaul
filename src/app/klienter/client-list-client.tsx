@@ -17,13 +17,28 @@ import {
   type ClientActionState,
   type ClientSearchActionState,
 } from "./actions";
+import {
+  filterClientsForCategoryView,
+  type ClientCategoryView,
+} from "./client-category-view";
+
+const categoryChoices = [
+  { href: "/klienter", label: "Vuxna", value: "ADULT" },
+  {
+    href: "/klienter?kategori=ungdomar",
+    label: "Ungdomar",
+    value: "YOUTH",
+  },
+] as const;
 
 export function ClientList({
+  activeCategoryView,
   clients,
   canCreate,
   operationId,
   showPrimaryStaff,
 }: Readonly<{
+  activeCategoryView: ClientCategoryView;
   clients: readonly ClientListItem[];
   canCreate: boolean;
   operationId: string;
@@ -45,10 +60,54 @@ export function ClientList({
     initialSearchState,
   );
   const [searchQuery, setSearchQuery] = useState("");
-  const displayedClients = searchState.searched ? searchState.clients : clients;
+  const availableClients = searchState.searched ? searchState.clients : clients;
+  const displayedClients = filterClientsForCategoryView(
+    availableClients,
+    activeCategoryView,
+  );
+  const activeCategoryLabel =
+    activeCategoryView === "ALL"
+      ? "Alla klienter"
+      : CLIENT_CATEGORY_LABELS[activeCategoryView];
 
   return (
     <>
+      <section
+        aria-labelledby="client-category-view-heading"
+        className="client-section client-category-view"
+      >
+        <h2 id="client-category-view-heading">Välj klientkategori</h2>
+        <nav aria-label="Klientkategori">
+          <div className="client-category-primary-choices">
+            {categoryChoices.map((choice) => (
+              <Link
+                aria-current={
+                  activeCategoryView === choice.value ? "page" : undefined
+                }
+                className="client-category-choice"
+                href={choice.href}
+                key={choice.value}
+              >
+                {choice.label}
+              </Link>
+            ))}
+          </div>
+          <Link
+            aria-current={activeCategoryView === "ALL" ? "page" : undefined}
+            className="client-category-all-choice"
+            href="/klienter?kategori=alla"
+          >
+            Alla klienter
+          </Link>
+        </nav>
+      </section>
+
+      {canCreate ? (
+        <p>
+          <Link href="/klienter/arkiverade">Visa arkiverade klienter</Link>
+        </p>
+      ) : null}
+
       <section
         aria-labelledby="client-search-heading"
         className="client-section"
@@ -182,9 +241,13 @@ export function ClientList({
         <h2 id="client-list-heading">Klientlista</h2>
         {displayedClients.length === 0 ? (
           <p>
-            {searchState.searched
-              ? "Inga klienter matchar din sökning."
-              : "Det finns inga klienter som du kan öppna."}
+            {activeCategoryView === "ALL"
+              ? searchState.searched
+                ? "Inga klienter matchar din sökning."
+                : "Det finns inga klienter som du kan öppna."
+              : searchState.searched
+                ? `Inga klienter under ${activeCategoryLabel} matchar din sökning.`
+                : `Det finns inga klienter under ${activeCategoryLabel} som du kan öppna.`}
           </p>
         ) : (
           <div className="client-category-groups">

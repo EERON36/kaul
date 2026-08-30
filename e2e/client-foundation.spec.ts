@@ -247,7 +247,7 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await page.getByLabel("Förnamn").fill("Fiktiv");
   await page.getByLabel("Efternamn").fill("Klientperson");
   await page.getByLabel("Personreferens").fill("   ");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(
     page.getByText("Kontrollera uppgifterna och försök igen."),
@@ -261,7 +261,7 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await page.getByLabel("Förnamn").fill("Fiktiv");
   await page.getByLabel("Efternamn").fill("Klientperson");
   await page.getByLabel("Personreferens").fill("e2e-klient-01");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
   await expect(page.getByText("E2E-KLIENT-01")).toBeVisible();
@@ -639,23 +639,57 @@ test("Client categories remain usable on a narrow viewport", async ({
   await page.getByRole("button", { name: "Öppna meny" }).click();
   await page.getByRole("link", { name: "Klienter" }).click();
 
-  await expect(page.getByLabel("Kategori")).toHaveValue("");
+  await expect(page.getByLabel("Kategori", { exact: true })).toHaveValue("");
   await page.getByLabel("Förnamn").fill("Vuxen");
   await page.getByLabel("Efternamn").fill("Klient");
   await page.getByLabel("Personreferens").fill("e2e-mobile-adult-01");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
 
   await page.getByLabel("Förnamn").fill("Ungdom");
   await page.getByLabel("Efternamn").fill("Klient");
   await page.getByLabel("Personreferens").fill("e2e-mobile-youth-01");
-  await page.getByLabel("Kategori").selectOption("YOUTH");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("YOUTH");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
 
+  const adultChoice = page.getByRole("link", { name: "Vuxna", exact: true });
+  const youthChoice = page.getByRole("link", {
+    name: "Ungdomar",
+    exact: true,
+  });
+  await expect(adultChoice).toHaveAttribute("aria-current", "page");
+  await expect(youthChoice).not.toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: "Vuxna" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Ungdomar" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ungdomar" })).toHaveCount(0);
+  await expect(page.getByText("E2E-MOBILE-ADULT-01")).toBeVisible();
+  await expect(page.getByText("E2E-MOBILE-YOUTH-01")).toHaveCount(0);
+
+  await adultChoice.focus();
+  await page.keyboard.press("Tab");
+  await expect(youthChoice).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
+  await expect(youthChoice).toHaveAttribute("aria-current", "page");
+  await expect(adultChoice).not.toHaveAttribute("aria-current", "page");
+  await expect(page.getByText("E2E-MOBILE-ADULT-01")).toHaveCount(0);
+  await expect(page.getByText("E2E-MOBILE-YOUTH-01")).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
+  await expect(adultChoice).toHaveAttribute("aria-current", "page");
+  await page.goForward();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
+  await expect(youthChoice).toHaveAttribute("aria-current", "page");
+
+  const allClientsChoice = page.getByRole("link", { name: "Alla klienter" });
+  await allClientsChoice.click();
+  await expect(allClientsChoice).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("E2E-MOBILE-ADULT-01")).toBeVisible();
   await expect(page.getByText("E2E-MOBILE-YOUTH-01")).toBeVisible();
   await expect(
@@ -670,7 +704,10 @@ test("Client categories remain usable on a narrow viewport", async ({
     page.locator(".client-details dd").filter({ hasText: "Ungdomar" }),
   ).toBeVisible();
   await page.goBack();
-  await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=alla`,
+  );
+  await page.getByRole("link", { name: "Vuxna", exact: true }).click();
   await page.getByRole("link", { name: /Vuxen Klient/ }).click();
   await expect(page).toHaveURL(/\/klienter\/[0-9a-f-]+$/);
   await expect(
@@ -688,14 +725,14 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   await page.getByLabel("Förnamn").fill("Konflikt");
   await page.getByLabel("Efternamn").fill("Klient");
   await page.getByLabel("Personreferens").fill("e2e-edit-conflict");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
 
   await page.getByLabel("Förnamn").fill("Före");
   await page.getByLabel("Efternamn").fill("Redigering");
   await page.getByLabel("Personreferens").fill("e2e-edit-client");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
   await page.getByRole("link", { name: /Före Redigering/ }).click();
@@ -704,7 +741,7 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   await page.getByLabel("Förnamn").fill("Efter");
   await page.getByLabel("Efternamn").fill("Redigering");
   await page.getByLabel("Personreferens").fill("e2e-edit-updated");
-  await page.getByLabel("Kategori").selectOption("YOUTH");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("YOUTH");
   const updateRequestPromise = page.waitForRequest(
     (request) =>
       request.method() === "POST" &&
@@ -736,7 +773,7 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   const editedClient = await prisma.client.findFirstOrThrow({
     where: { personIdentifier: "E2E-EDIT-UPDATED" },
   });
-  await page.goto("/klienter");
+  await page.goto("/klienter?kategori=ungdomar");
   const youthGroup = page.locator(".client-category-group", {
     has: page.getByRole("heading", { name: "Ungdomar" }),
   });
@@ -749,7 +786,7 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   await page.getByLabel("Förnamn").fill("Får inte");
   await page.getByLabel("Efternamn").fill("Sparas");
   await page.getByLabel("Personreferens").fill("e2e-edit-conflict");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Spara ändringar" }).click();
   await expect(
     page.getByText("Personreferensen används redan för en annan klient."),
@@ -828,7 +865,7 @@ test("Client editing remains functional at a 375px viewport", async ({
   await expect(page.getByLabel("Förnamn")).toBeVisible();
   await expect(page.getByLabel("Efternamn")).toBeVisible();
   await expect(page.getByLabel("Personreferens")).toBeVisible();
-  await expect(page.getByLabel("Kategori")).toBeVisible();
+  await expect(page.getByLabel("Kategori", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Spara ändringar" }),
   ).toBeVisible();
@@ -855,7 +892,7 @@ test("Administrator archives only after ending all Assignments while Staff remai
   await page.getByLabel("Förnamn").fill("Arkiverbar");
   await page.getByLabel("Efternamn").fill("Klient");
   await page.getByLabel("Personreferens").fill("e2e-archive-client");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await page.getByRole("link", { name: /Arkiverbar Klient/ }).click();
 
@@ -1011,8 +1048,12 @@ test("Client archive list, confirmation, and detail remain usable at 375px", asy
   await page.getByLabel("Förnamn").fill("Mobilarkiv");
   await page.getByLabel("Efternamn").fill("Klient");
   await page.getByLabel("Personreferens").fill("e2e-mobile-archive");
-  await page.getByLabel("Kategori").selectOption("YOUTH");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("YOUTH");
   await page.getByRole("button", { name: "Skapa klient" }).click();
+  await page.getByRole("link", { name: "Ungdomar", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
   await page.getByRole("link", { name: /Mobilarkiv Klient/ }).click();
 
   await expect(

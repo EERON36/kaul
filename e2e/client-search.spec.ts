@@ -212,26 +212,40 @@ test("Administrator search is submitted privately and keeps category grouping", 
   await expect(page.getByRole("heading", { name: "Vuxna" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ungdomar" })).toHaveCount(0);
 
+  await page.getByRole("link", { name: "Ungdomar", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
   await submitSearch(
     page,
     "sök-ungdom-mobil-lång-personreferens-012345678901234567890123",
   );
   await expect(page.getByText(/SÖK-UNGDOM-MOBIL-LÅNG/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ungdomar" })).toBeVisible();
-  await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
-  expect(await page.evaluate(() => window.location.search)).toBe("");
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
+  expect(await page.evaluate(() => window.location.search)).toBe(
+    "?kategori=ungdomar",
+  );
 
   await page.getByRole("button", { name: "Rensa sökning" }).click();
+  await expect(page.getByText("SÖK-VUXEN-01")).toHaveCount(0);
+  await expect(page.getByText("STAFF-HEMLIG-01")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Vuxna" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Ungdomar" })).toBeVisible();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
+
+  await page.getByRole("link", { name: "Alla klienter" }).click();
   await expect(page.getByText("SÖK-VUXEN-01")).toBeVisible();
   await expect(page.getByText("STAFF-HEMLIG-01")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Vuxna" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Ungdomar" })).toBeVisible();
-  await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
 
   await page.getByLabel("Förnamn").fill("Efter");
   await page.getByLabel("Efternamn").fill("Sökning");
   await page.getByLabel("Personreferens").fill("SÖK-EFTER-RESET");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
   await expect(page.getByText("SÖK-EFTER-RESET")).toBeVisible();
@@ -240,7 +254,9 @@ test("Administrator search is submitted privately and keeps category grouping", 
   await expect(page.getByText("SÖK-EFTER-RESET")).toHaveCount(0);
   await submitSearch(page, "   ");
   await expect(page.getByText("SÖK-EFTER-RESET")).toBeVisible();
-  await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=alla`,
+  );
 });
 
 test("Staff search discloses only assigned Clients and uses one no-result state", async ({
@@ -253,16 +269,26 @@ test("Staff search discloses only assigned Clients and uses one no-result state"
   await expect(page.getByText("STAFF-SYNLIG-01")).toBeVisible();
 
   await submitSearch(page, "Otilldelad Hemlig");
-  const noResult = page.getByText("Inga klienter matchar din sökning.");
-  await expect(noResult).toBeVisible();
+  const adultNoResult = page.getByText(
+    "Inga klienter under Vuxna matchar din sökning.",
+  );
+  await expect(adultNoResult).toBeVisible();
   await expect(page.getByText("STAFF-HEMLIG-01")).toHaveCount(0);
   await expect(page.getByText("Otilldelad Hemlig")).toHaveCount(0);
 
+  await page.getByRole("link", { name: "Ungdomar", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
   await submitSearch(page, "STAFF-HEMLIG-01");
-  await expect(noResult).toBeVisible();
+  await expect(
+    page.getByText("Inga klienter under Ungdomar matchar din sökning."),
+  ).toBeVisible();
   await expect(page.getByText("STAFF-HEMLIG-01")).toHaveCount(0);
   await expect(page.getByText(/resultat|förslag|behörighet/i)).toHaveCount(0);
-  await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
 });
 
 test("Client search remains keyboard-usable without mobile overflow", async ({
@@ -271,6 +297,11 @@ test("Client search remains keyboard-usable without mobile overflow", async ({
   await page.setViewportSize({ width: 375, height: 812 });
   await logIn(page, administratorEmail, "192.0.2.213");
   await page.goto("/klienter");
+
+  await page.getByRole("link", { name: "Ungdomar", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
 
   const searchInput = page.getByRole("textbox", { name: "Sök klienter" });
   const searchButton = page.getByRole("button", { name: "Sök", exact: true });
@@ -297,5 +328,7 @@ test("Client search remains keyboard-usable without mobile overflow", async ({
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).resolves.toBe(true);
-  await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
 });
