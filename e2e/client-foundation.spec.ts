@@ -686,19 +686,28 @@ test("Client categories remain usable on a narrow viewport", async ({
   await expect(page).toHaveURL(
     `${testEnvironment.origin}/klienter?kategori=ungdomar`,
   );
+  await expect(page.getByRole("button", { name: "Öppna meny" })).toBeVisible();
+  await page.getByRole("button", { name: "Öppna meny" }).click();
   await expect(youthChoice).toHaveAttribute("aria-current", "page");
   await expect(adultChoice).not.toHaveAttribute("aria-current", "page");
   await expect(page.getByText("E2E-MOBILE-ADULT-01")).toHaveCount(0);
   await expect(page.getByText("E2E-MOBILE-YOUTH-01")).toBeVisible();
+  await page.getByRole("button", { name: "Stäng meny" }).click();
 
   await page.goBack();
   await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
+  await page.getByRole("button", { name: "Öppna meny" }).click();
   await expect(adultChoice).toHaveAttribute("aria-current", "page");
+  await expect(youthChoice).not.toHaveAttribute("aria-current", "page");
+  await page.getByRole("button", { name: "Stäng meny" }).click();
   await page.goForward();
   await expect(page).toHaveURL(
     `${testEnvironment.origin}/klienter?kategori=ungdomar`,
   );
+  await page.getByRole("button", { name: "Öppna meny" }).click();
   await expect(youthChoice).toHaveAttribute("aria-current", "page");
+  await expect(adultChoice).not.toHaveAttribute("aria-current", "page");
+  await page.getByRole("button", { name: "Stäng meny" }).click();
   await page.reload();
   await page.getByRole("button", { name: "Öppna meny" }).click();
   await expect(clientsNavigation).toHaveAttribute("aria-expanded", "true");
