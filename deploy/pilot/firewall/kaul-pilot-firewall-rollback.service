@@ -1,0 +1,6 @@
+[Unit]
+Description=Timed fail-safe rollback for the Kaul Pilot host firewall
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/kaul-pilot-firewall rollback --config /etc/kaul/pilot-firewall.conf

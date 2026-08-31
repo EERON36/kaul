@@ -863,6 +863,33 @@ Milestone 6 is complete when:
 
 # Milestone 7 — Pilot Readiness
 
+Status: In progress.
+
+The integrated release candidate contains the repository-approved Pilot
+deployment foundation and the approved product-hardening chain: form safety,
+the Swedish non-disclosing not-found page, accessibility hardening, and
+Administrator and Client orientation.
+
+The dependency audit gate remains open and blocking:
+`prisma@7.9.1 -> @prisma/config@7.9.1 -> deepmerge-ts@7.1.5` is affected by
+`GHSA-ggr8-5vv4-36mx`. The candidate must not be merged, tagged, published, or
+described as release-ready or Pilot-ready while this gate remains red.
+
+The concise repository/operations snapshot and current evidence boundaries are
+maintained in `docs/PROJECT_STATE.md`. This milestone remains the authority for
+scope and completion.
+
+Live GHCR image verification, inspection and rehearsal on the existing Ubuntu
+VM, NPM-backed DNS and HTTPS,
+encrypted off-host backup and restore, monitoring, operational ownership, and
+critical user-workflow acceptance remain outstanding. Real or sensitive data
+is not approved.
+
+The Have I Been Pwned plugin review deferred by ADR 0001 also remains an open
+Milestone 7 security decision. Its network, privacy, availability, failure-mode,
+and user-message implications must be reviewed; this is not approval to add the
+plugin.
+
 ## Goal
 
 Prepare Kaul for controlled pilot use on the Proxmox homelab using fictional or non-sensitive information.
@@ -874,6 +901,8 @@ This milestone includes:
 - Production-style Docker image
 - Pilot Docker Compose configuration
 - Caddy reverse proxy
+- Existing Nginx Proxy Manager as the Homelab public TLS edge, without making
+  Kaul application behavior depend on NPM
 - HTTPS
 - Domain configuration
 - Pilot environment warning
@@ -909,8 +938,14 @@ The warning should remain visible and should not depend solely on verbal instruc
 Milestone 7 is complete when:
 
 - Kaul can be deployed from documented instructions.
+- The existing Ubuntu VM passes the supported host preflight or a concrete
+  incompatibility is reviewed before any replacement VM is considered.
 - HTTPS works correctly.
-- Only the required public ports are exposed.
+- The router's public 80/443 path remains on NPM; the Kaul VM's private Caddy
+  listener is bound to its LAN address and accepts only the exact NPM peer
+  observed during authorised runtime inspection.
+- NPM-to-Caddy Host, scheme, and client-IP handling passes spoofed-header and
+  non-NPM negative tests; future direct-public Caddy remains configuration-driven.
 - PostgreSQL is not publicly exposed.
 - Proxmox is not exposed through the Kaul domain.
 - Development and pilot use separate credentials and databases.

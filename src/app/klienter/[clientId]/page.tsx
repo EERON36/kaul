@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { ApplicationShell } from "@/components/application-shell";
@@ -30,7 +31,11 @@ type ResponsibilityAssignment = Readonly<{
 
 function ClientResponsibilitySummary({
   assignments,
-}: Readonly<{ assignments: readonly ResponsibilityAssignment[] }>) {
+  clientStatus,
+}: Readonly<{
+  assignments: readonly ResponsibilityAssignment[];
+  clientStatus: "INACTIVE" | "ACTIVE" | "ARCHIVED";
+}>) {
   const activeAssignments = assignments.filter(
     (assignment) => assignment.endedAt === null,
   );
@@ -40,13 +45,31 @@ function ClientResponsibilitySummary({
   const secondary = activeAssignments.filter(
     (assignment) => assignment.responsibility === "SECONDARY",
   );
+  const isInactive = clientStatus === "INACTIVE";
 
   return (
     <section
       aria-labelledby="responsibility-summary-heading"
       className="client-section"
     >
-      <h2 id="responsibility-summary-heading">Aktuellt ansvar</h2>
+      <h2 id="responsibility-summary-heading">
+        {isInactive ? "Ansvar och åtkomst" : "Aktuellt ansvar"}
+      </h2>
+      {isInactive ? (
+        <div className="client-inactive-guidance">
+          <p>
+            Klienten är inte aktiv. Lägg till en primär tilldelning för att
+            aktivera klientarbetet.
+          </p>
+          {secondary.length > 0 ? (
+            <p>
+              De sekundära tilldelningarna är inte avslutade, men ger inte
+              personalen åtkomst så länge klienten saknar en aktiv primär
+              tilldelning.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <dl className="responsibility-summary">
         <div>
           <dt>{getAssignmentResponsibilityLabel("PRIMARY")}</dt>
@@ -129,9 +152,25 @@ export default async function ClientPage({
           </p>
         ) : null}
 
+        {result.client.status === "ACTIVE" ? (
+          <section
+            aria-labelledby="client-documentation-heading"
+            className="client-section client-overview-action"
+          >
+            <h2 id="client-documentation-heading">Dokumentera arbetet</h2>
+            <Link
+              className="primary-button button-link"
+              href={`/klienter/${result.client.id}/anteckningar/utkast`}
+            >
+              Ny anteckning
+            </Link>
+          </section>
+        ) : null}
+
         {!isArchived ? (
           <ClientResponsibilitySummary
             assignments={result.client.assignments}
+            clientStatus={result.client.status}
           />
         ) : null}
 

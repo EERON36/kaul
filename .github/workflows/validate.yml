@@ -10,6 +10,47 @@ permissions:
   contents: read
 
 jobs:
+  firewall-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Rehearse systemd post-start failure handling
+        run: sudo bash scripts/pilot-firewall-systemd-rehearsal.sh
+
+      - name: Rehearse Docker-aware private ingress firewall
+        run: bash scripts/pilot-firewall-rehearsal.sh
+
+  ingress-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Rehearse private and future public Caddy ingress
+        run: bash scripts/pilot-ingress-rehearsal.sh
+
+  backup-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install pinned Restic tools
+        run: |
+          scripts/install-pinned-restic-ci.sh "$RUNNER_TEMP/kaul-backup-tools"
+          printf '%s\n' "$RUNNER_TEMP/kaul-backup-tools" >> "$GITHUB_PATH"
+
+      - name: Rehearse append-only backup and exact restore
+        run: scripts/pilot-backup-rehearsal.sh
+
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
