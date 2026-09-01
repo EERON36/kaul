@@ -737,6 +737,17 @@ h2 {
   border: 1px solid var(--border);
 }
 
+.monthly-report-create-form {
+  max-width: 44rem;
+}
+
+.monthly-report-create-form .form-field {
+  display: inline-block;
+  width: min(100%, 14rem);
+  margin-right: 1rem;
+  vertical-align: bottom;
+}
+
 .journal-section-fields legend {
   padding: 0 0.35rem;
   font-weight: 600;

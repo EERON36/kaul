@@ -65,6 +65,20 @@ export async function createClientAction(
       firstName: String(formData.get("firstName") ?? ""),
       lastName: String(formData.get("lastName") ?? ""),
       personIdentifier: String(formData.get("personIdentifier") ?? ""),
+      personalIdentityNumber: String(
+        formData.get("personalIdentityNumber") ?? "",
+      ),
+      placingUnit: String(formData.get("placingUnit") ?? ""),
+      legalBasis: String(formData.get("legalBasis") ?? ""),
+      responsibleSocialWorkerName: String(
+        formData.get("responsibleSocialWorkerName") ?? "",
+      ),
+      responsibleSocialWorkerPhone: String(
+        formData.get("responsibleSocialWorkerPhone") ?? "",
+      ),
+      responsibleSocialWorkerEmail: String(
+        formData.get("responsibleSocialWorkerEmail") ?? "",
+      ),
       category: String(formData.get("category") ?? ""),
     });
     revalidatePath("/");
@@ -160,6 +174,20 @@ export async function updateClientAction(
       firstName: String(formData.get("firstName") ?? ""),
       lastName: String(formData.get("lastName") ?? ""),
       personIdentifier: String(formData.get("personIdentifier") ?? ""),
+      personalIdentityNumber: String(
+        formData.get("personalIdentityNumber") ?? "",
+      ),
+      placingUnit: String(formData.get("placingUnit") ?? ""),
+      legalBasis: String(formData.get("legalBasis") ?? ""),
+      responsibleSocialWorkerName: String(
+        formData.get("responsibleSocialWorkerName") ?? "",
+      ),
+      responsibleSocialWorkerPhone: String(
+        formData.get("responsibleSocialWorkerPhone") ?? "",
+      ),
+      responsibleSocialWorkerEmail: String(
+        formData.get("responsibleSocialWorkerEmail") ?? "",
+      ),
       category: String(formData.get("category") ?? ""),
     });
     revalidatePath("/");

@@ -94,6 +94,17 @@ jobs:
       - name: Generate Prisma Client
         run: npm run prisma:generate
 
+      - name: Rehearse structured-records migration from legacy data
+        env:
+          KAUL_TEST_ID: ci_migration
+          KAUL_TEST_PORT: 3102
+          DATABASE_URL: postgresql://kaul:ci-development-only@127.0.0.1:5432/kaul_test_ci_migration
+          INTEGRATION_DATABASE_URL: postgresql://kaul:ci-development-only@127.0.0.1:5432/kaul_test_ci_migration
+          BETTER_AUTH_URL: http://127.0.0.1:3102
+        run: |
+          npm run test:db:create
+          npm run test:migration:structured-records
+
       - name: Apply database migrations
         run: npm run db:deploy
 

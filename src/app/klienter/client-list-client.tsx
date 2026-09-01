@@ -270,7 +270,7 @@ export function ClientList({
                 </label>
                 <input
                   id="client-responsible-social-worker-phone"
-                  maxLength={64}
+                  maxLength={50}
                   name="responsibleSocialWorkerPhone"
                   type="tel"
                 />

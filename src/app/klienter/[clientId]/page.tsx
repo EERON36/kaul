@@ -10,7 +10,11 @@ import {
   requireClientAccess,
 } from "@/modules/clients/client-access";
 import { getAssignmentResponsibilityLabel } from "@/modules/clients/client-presentation";
-import { listAssignableStaff } from "@/modules/clients/clients";
+import {
+  getClientEditingDetails,
+  getClientSensitiveSummary,
+  listAssignableStaff,
+} from "@/modules/clients/clients";
 
 import { AssignmentManagement } from "./assignment-management-client";
 import { ClientArchive } from "./client-archive-client";
@@ -111,7 +115,10 @@ export default async function ClientPage({
   searchParams,
 }: Readonly<{
   params: Promise<{ clientId: string }>;
-  searchParams: Promise<{ arkiverad?: string | string[] }>;
+  searchParams: Promise<{
+    arkiverad?: string | string[];
+    redigera?: string | string[];
+  }>;
 }>) {
   const { clientId } = await params;
   const query = await searchParams;
@@ -128,10 +135,16 @@ export default async function ClientPage({
   }
 
   const isArchived = result.client.status === "ARCHIVED";
-  const staff =
+  const editRequested = query.redigera === "ja";
+  const [sensitiveSummary, staff, editingDetails] = await Promise.all([
+    getClientSensitiveSummary(clientId),
     result.user.role === "ADMINISTRATOR" && !isArchived
-      ? await listAssignableStaff()
-      : [];
+      ? listAssignableStaff()
+      : Promise.resolve([]),
+    result.user.role === "ADMINISTRATOR" && !isArchived && editRequested
+      ? getClientEditingDetails(clientId)
+      : Promise.resolve(null),
+  ]);
   const formatDate = (date: Date) =>
     new Intl.DateTimeFormat("sv-SE", {
       dateStyle: "long",
@@ -167,6 +180,49 @@ export default async function ClientPage({
           </section>
         ) : null}
 
+        <section
+          aria-labelledby="client-information-heading"
+          className="client-section"
+        >
+          <h2 id="client-information-heading">Klientuppgifter</h2>
+          <dl className="client-details">
+            <div>
+              <dt>Personnummer</dt>
+              <dd>
+                {sensitiveSummary.hasPersonalIdentityNumber
+                  ? "Registrerat (visas endast vid redigering)"
+                  : "Inte registrerat"}
+              </dd>
+            </div>
+            <div>
+              <dt>Placerande enhet</dt>
+              <dd>{result.client.placingUnit ?? "Inte angiven"}</dd>
+            </div>
+            <div>
+              <dt>Lagrum</dt>
+              <dd>{result.client.legalBasis ?? "Inte angivet"}</dd>
+            </div>
+            <div>
+              <dt>Ansvarig socialsekreterare</dt>
+              <dd>
+                {result.client.responsibleSocialWorkerName ?? "Inte angiven"}
+              </dd>
+            </div>
+            <div>
+              <dt>Telefon till ansvarig socialsekreterare</dt>
+              <dd>
+                {result.client.responsibleSocialWorkerPhone ?? "Inte angiven"}
+              </dd>
+            </div>
+            <div>
+              <dt>E-post till ansvarig socialsekreterare</dt>
+              <dd>
+                {result.client.responsibleSocialWorkerEmail ?? "Inte angiven"}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
         {!isArchived ? (
           <ClientResponsibilitySummary
             assignments={result.client.assignments}
@@ -175,10 +231,19 @@ export default async function ClientPage({
         ) : null}
 
         {result.user.role === "ADMINISTRATOR" && !isArchived ? (
-          <ClientEdit
-            client={result.client}
-            operationId={generateAuditOperationId()}
-          />
+          editRequested && editingDetails ? (
+            <ClientEdit
+              client={editingDetails}
+              operationId={generateAuditOperationId()}
+              startEditing
+            />
+          ) : (
+            <p>
+              <Link href={`/klienter/${clientId}?redigera=ja`}>
+                Redigera klientuppgifter
+              </Link>
+            </p>
+          )
         ) : null}
 
         {result.user.role === "ADMINISTRATOR" && !isArchived ? (

@@ -19,7 +19,10 @@ import {
 } from "../audit/audit";
 import type { ApplicationUser } from "../authentication/guards";
 import type { AdministratorUser } from "../users/authorization";
-import { getOrdinaryClientAccessWhere } from "./client-access";
+import {
+  getClientDetailAccessWhere,
+  getOrdinaryClientAccessWhere,
+} from "./client-access";
 import { lockClientForMutation } from "./client-mutation-lock";
 import {
   archiveClientInputSchema,
@@ -63,6 +66,24 @@ export type AssignedClientHomeItem = Readonly<{
   personIdentifier: string;
   category: string;
   responsibility: AssignmentResponsibility;
+}>;
+
+export type ClientSensitiveSummary = Readonly<{
+  hasPersonalIdentityNumber: boolean;
+}>;
+
+export type ClientEditingDetails = Readonly<{
+  id: string;
+  firstName: string;
+  lastName: string;
+  personIdentifier: string;
+  personalIdentityNumber: string | null;
+  placingUnit: string | null;
+  legalBasis: string | null;
+  responsibleSocialWorkerName: string | null;
+  responsibleSocialWorkerPhone: string | null;
+  responsibleSocialWorkerEmail: string | null;
+  category: string;
 }>;
 
 export type ClientManagementErrorCode =
@@ -193,6 +214,12 @@ type EditableClientFields = Readonly<{
   firstName: string;
   lastName: string;
   personIdentifier: string;
+  personalIdentityNumber: string | null;
+  placingUnit: string | null;
+  legalBasis: string | null;
+  responsibleSocialWorkerName: string | null;
+  responsibleSocialWorkerPhone: string | null;
+  responsibleSocialWorkerEmail: string | null;
   category: string;
 }>;
 
@@ -204,8 +231,63 @@ function clientEditableFieldsEqual(
     current.firstName === next.firstName &&
     current.lastName === next.lastName &&
     current.personIdentifier === next.personIdentifier &&
+    current.personalIdentityNumber === next.personalIdentityNumber &&
+    current.placingUnit === next.placingUnit &&
+    current.legalBasis === next.legalBasis &&
+    current.responsibleSocialWorkerName === next.responsibleSocialWorkerName &&
+    current.responsibleSocialWorkerPhone ===
+      next.responsibleSocialWorkerPhone &&
+    current.responsibleSocialWorkerEmail ===
+      next.responsibleSocialWorkerEmail &&
     current.category === next.category
   );
+}
+
+export async function getClientSensitiveSummaryInternal(
+  actor: ApplicationUser,
+  clientId: string,
+): Promise<ClientSensitiveSummary> {
+  const client = await prisma.client.findFirst({
+    where: {
+      id: clientId,
+      ...getClientDetailAccessWhere(actor),
+    },
+    select: { personalIdentityNumber: true },
+  });
+
+  if (!client) throw new ClientManagementError("TARGET_UNAVAILABLE");
+  return {
+    hasPersonalIdentityNumber: client.personalIdentityNumber !== null,
+  };
+}
+
+export async function getClientEditingDetailsInternal(
+  actor: AdministratorUser,
+  clientId: string,
+): Promise<ClientEditingDetails> {
+  const client = await prisma.client.findFirst({
+    where: {
+      id: clientId,
+      organisationId: actor.organisationId,
+      status: { not: ClientStatus.ARCHIVED },
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      personIdentifier: true,
+      personalIdentityNumber: true,
+      placingUnit: true,
+      legalBasis: true,
+      responsibleSocialWorkerName: true,
+      responsibleSocialWorkerPhone: true,
+      responsibleSocialWorkerEmail: true,
+      category: true,
+    },
+  });
+
+  if (!client) throw new ClientManagementError("TARGET_UNAVAILABLE");
+  return client;
 }
 
 async function finishFailed(
@@ -431,6 +513,12 @@ export async function createClientInternal(
             firstName: parsed.firstName,
             lastName: parsed.lastName,
             personIdentifier: parsed.personIdentifier,
+            personalIdentityNumber: parsed.personalIdentityNumber,
+            placingUnit: parsed.placingUnit,
+            legalBasis: parsed.legalBasis,
+            responsibleSocialWorkerName: parsed.responsibleSocialWorkerName,
+            responsibleSocialWorkerPhone: parsed.responsibleSocialWorkerPhone,
+            responsibleSocialWorkerEmail: parsed.responsibleSocialWorkerEmail,
             category: parsed.category,
             status: ClientStatus.INACTIVE,
             archivedAt: null,
@@ -494,6 +582,12 @@ export async function updateClientInternal(
     firstName: parsed.firstName,
     lastName: parsed.lastName,
     personIdentifier: parsed.personIdentifier,
+    personalIdentityNumber: parsed.personalIdentityNumber,
+    placingUnit: parsed.placingUnit,
+    legalBasis: parsed.legalBasis,
+    responsibleSocialWorkerName: parsed.responsibleSocialWorkerName,
+    responsibleSocialWorkerPhone: parsed.responsibleSocialWorkerPhone,
+    responsibleSocialWorkerEmail: parsed.responsibleSocialWorkerEmail,
     category: parsed.category,
   };
   const preflightClient = await prisma.client.findFirst({
@@ -506,6 +600,12 @@ export async function updateClientInternal(
       firstName: true,
       lastName: true,
       personIdentifier: true,
+      personalIdentityNumber: true,
+      placingUnit: true,
+      legalBasis: true,
+      responsibleSocialWorkerName: true,
+      responsibleSocialWorkerPhone: true,
+      responsibleSocialWorkerEmail: true,
       category: true,
       status: true,
     },
@@ -543,6 +643,12 @@ export async function updateClientInternal(
           firstName: true,
           lastName: true,
           personIdentifier: true,
+          personalIdentityNumber: true,
+          placingUnit: true,
+          legalBasis: true,
+          responsibleSocialWorkerName: true,
+          responsibleSocialWorkerPhone: true,
+          responsibleSocialWorkerEmail: true,
           category: true,
           status: true,
         },

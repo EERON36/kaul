@@ -1358,6 +1358,98 @@ describe("Journal foundation with PostgreSQL", () => {
     ).resolves.toBeNull();
   });
 
+  it("keeps a legacy narrative byte-stable through signing and PostgreSQL immutability", async () => {
+    const fixture = await createFixture();
+    const legacyContent = "Äldre narrativ rad ett.\n\nÄldre narrativ rad två.";
+    const draft = await prisma.journalEntry.create({
+      data: {
+        id: randomUUID(),
+        reference: `JRN-${randomUUID().toUpperCase()}`,
+        organisationId: fixture.organisationId,
+        clientId: fixture.firstClient.id,
+        authorUserId: fixture.author.userId,
+        status: JournalEntryStatus.DRAFT,
+        entryType: "DAILY_NOTE",
+        eventOccurredAt: eventOne,
+        content: legacyContent,
+        version: 1,
+      },
+    });
+
+    const signed = await signJournalDraftForTest(
+      {
+        operationId: generateAuditOperationId(),
+        journalEntryId: draft.id,
+        expectedVersion: 1,
+      },
+      fixture.author,
+    );
+    expect(signed).toMatchObject({
+      contentFormat: "LEGACY_NARRATIVE",
+      content: legacyContent,
+      healthContent: null,
+      otherContent: null,
+      status: "SIGNED",
+    });
+    await expect(
+      prisma.journalEntry.update({
+        where: { id: signed.id },
+        data: { content: "Otillåten historisk omskrivning" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("converts an owned legacy draft only when its author saves structured sections", async () => {
+    const fixture = await createFixture();
+    const legacyContent = "Äldre osignerat utkast.";
+    const draft = await prisma.journalEntry.create({
+      data: {
+        id: randomUUID(),
+        reference: `JRN-${randomUUID().toUpperCase()}`,
+        organisationId: fixture.organisationId,
+        clientId: fixture.firstClient.id,
+        authorUserId: fixture.author.userId,
+        status: JournalEntryStatus.DRAFT,
+        entryType: "DAILY_NOTE",
+        eventOccurredAt: eventOne,
+        content: legacyContent,
+        version: 1,
+      },
+    });
+    await expect(
+      getCurrentJournalDraftForTest(
+        { clientId: fixture.firstClient.id },
+        fixture.author,
+      ),
+    ).resolves.toMatchObject({
+      id: draft.id,
+      contentFormat: "LEGACY_NARRATIVE",
+      content: legacyContent,
+    });
+
+    const saved = await saveJournalDraftForTest(
+      {
+        journalEntryId: draft.id,
+        expectedVersion: 1,
+        entryType: "DAILY_NOTE",
+        eventOccurredAt: eventOne,
+        healthContent: "",
+        educationOccupationContent: "",
+        emotionsBehaviorContent: "",
+        socialRelationsContent: "",
+        dailyLivingIndependenceContent: "",
+        otherContent: legacyContent,
+      },
+      fixture.author,
+    );
+    expect(saved).toMatchObject({
+      contentFormat: "STRUCTURED_V1",
+      content: "",
+      otherContent: legacyContent,
+      version: 2,
+    });
+  });
+
   it("installs the reviewed draft, correction, immutability and audit-evidence database mechanisms", async () => {
     const indexes = await prisma.$queryRaw<Array<{ name: string }>>`
       SELECT indexname AS "name"

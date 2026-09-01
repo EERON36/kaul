@@ -269,7 +269,7 @@ The server must enforce access for:
 - Follow-ups
 - Documents
 - File downloads
-- Weekly reports
+- Monthly reports
 - Exports
 - Administrative actions
 
@@ -692,6 +692,12 @@ User-facing errors must be calm, useful, and written in Swedish.
 - Authentication failures should use generic responses.
 - Unexpected errors should use a safe correlation identifier where useful.
 - Sensitive input must not be included in error-reporting metadata.
+- Personnummer is fetched only through a narrow current-Client-authorised
+  sensitive-detail query. It is excluded from ordinary Client projections,
+  search, URLs, logs, and audit metadata. No suitable application-level field
+  encryption facility exists in the current architecture; custom cryptography
+  is prohibited, so production activation requires explicit security review of
+  storage protection before real values are entered.
 - Errors must not be silently ignored.
 - Multi-step operations should use transactions where partial completion would create inconsistent records.
 

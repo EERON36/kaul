@@ -46,6 +46,16 @@ export default async function JournalDraftPage({
       eventDate: localEvent.eventDate,
       eventTime: localEvent.eventTime,
       content: draft?.content ?? "",
+      healthContent: draft?.healthContent ?? "",
+      educationOccupationContent: draft?.educationOccupationContent ?? "",
+      emotionsBehaviorContent: draft?.emotionsBehaviorContent ?? "",
+      socialRelationsContent: draft?.socialRelationsContent ?? "",
+      dailyLivingIndependenceContent:
+        draft?.dailyLivingIndependenceContent ?? "",
+      otherContent:
+        draft?.contentFormat === "LEGACY_NARRATIVE"
+          ? draft.content
+          : (draft?.otherContent ?? ""),
       goalIds: draft?.goalReferences.map(({ goalId }) => goalId) ?? [],
     },
     journalEntryId: draft?.id,

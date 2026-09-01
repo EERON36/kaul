@@ -18,7 +18,12 @@ import {
   endAssignmentForTest,
   updateClientForTest,
 } from "./clients.test-support";
-import { listClientsInternal } from "./clients-internal";
+import {
+  getClientEditingDetailsInternal,
+  getClientSensitiveSummaryInternal,
+  listClientsInternal,
+  searchClientsInternal,
+} from "./clients-internal";
 
 const organisationIds = new Set<string>();
 
@@ -129,6 +134,73 @@ async function assign(
 }
 
 describe("Client foundation with PostgreSQL", () => {
+  it("isolates Personnummer from ordinary projections while preserving expanded Client fields", async () => {
+    const organisationId = await createOrganisation(
+      "Fiktiva känsliga klientorganisationen",
+    );
+    const actorUser = await createUser(
+      organisationId,
+      UserRole.ADMINISTRATOR,
+      "Administratör känslig klient",
+    );
+    const admin = administrator(
+      actorUser,
+      "Fiktiva känsliga klientorganisationen",
+    );
+    const created = await createClientForTest(
+      {
+        operationId: generateAuditOperationId(),
+        firstName: "Fiktiv",
+        lastName: "Klient",
+        personIdentifier: "FIKTIV-SENSITIV-01",
+        personalIdentityNumber: "20000101-1234",
+        placingUnit: "Fiktiv placerande enhet",
+        legalBasis: "SoL",
+        responsibleSocialWorkerName: "Fiktiv socialsekreterare",
+        responsibleSocialWorkerPhone: "070-000 00 00",
+        responsibleSocialWorkerEmail: "socialsekreterare@example.test",
+        category: "ADULT",
+      },
+      admin,
+      {},
+    );
+    expect("personalIdentityNumber" in created).toBe(false);
+
+    const [listed] = await listClientsInternal(admin);
+    const [searched] = await searchClientsInternal(admin, "FIKTIV-SENSITIV-01");
+    expect("personalIdentityNumber" in listed).toBe(false);
+    expect("personalIdentityNumber" in searched).toBe(false);
+    await expect(
+      getClientSensitiveSummaryInternal(admin, created.id),
+    ).resolves.toEqual({ hasPersonalIdentityNumber: true });
+    await expect(
+      getClientEditingDetailsInternal(admin, created.id),
+    ).resolves.toMatchObject({
+      personalIdentityNumber: "20000101-1234",
+      placingUnit: "Fiktiv placerande enhet",
+      legalBasis: "SoL",
+      responsibleSocialWorkerName: "Fiktiv socialsekreterare",
+      responsibleSocialWorkerPhone: "070-000 00 00",
+      responsibleSocialWorkerEmail: "socialsekreterare@example.test",
+    });
+
+    const otherOrganisationId = await createOrganisation(
+      "Fiktiva andra klientorganisationen",
+    );
+    const otherAdminUser = await createUser(
+      otherOrganisationId,
+      UserRole.ADMINISTRATOR,
+      "Andra administratören",
+    );
+    const otherAdmin = administrator(
+      otherAdminUser,
+      "Fiktiva andra klientorganisationen",
+    );
+    await expect(
+      getClientSensitiveSummaryInternal(otherAdmin, created.id),
+    ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+  });
+
   it("creates an INACTIVE organisation-owned Client with canonical uniqueness and audit", async () => {
     const organisationId = await createOrganisation(
       "Fiktiva Klientorganisationen",

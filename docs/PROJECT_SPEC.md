@@ -248,7 +248,7 @@ Version 1 must include:
 - Client Goals
 - Client Follow-ups
 - Document uploads
-- Weekly reports
+- Monthly reports with six manually authored documentation sections
 - Search
 - Organisation export
 - Backups
@@ -356,7 +356,14 @@ rules, Stockholm due semantics, the current user's authorised **Att göra**,
 and immutable signing-time Journal Goal references are implemented through the
 approved server, PostgreSQL, and accessible Client-workspace boundaries.
 
-The next project focus is **Homelab Pilot Readiness**: repeatable deployment to
+The operational focus remains **Homelab Pilot Readiness**. In parallel, the
+approved product-development track expands Client information, replaces new
+single-field Anteckningar with six structured sections while retaining legacy
+records, and implements Client-scoped **Månadsrapporter**. This track is based
+on the exact Pilot release-candidate application state and does not itself
+authorise deployment or live sensitive data.
+
+Homelab Pilot Readiness continues to require repeatable deployment to
 an isolated Pilot environment using fictional or sanitised data, with HTTPS,
 separate configuration and secrets, backup/restore verification, safe
 Administrator setup, basic operations, repeatable updates, and a short user

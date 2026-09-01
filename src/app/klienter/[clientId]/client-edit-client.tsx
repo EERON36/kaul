@@ -23,8 +23,13 @@ type EditableClient = Readonly<{
 export function ClientEdit({
   client,
   operationId,
-}: Readonly<{ client: EditableClient; operationId: string }>) {
-  const [editing, setEditing] = useState(false);
+  startEditing = false,
+}: Readonly<{
+  client: EditableClient;
+  operationId: string;
+  startEditing?: boolean;
+}>) {
+  const [editing, setEditing] = useState(startEditing);
   const hasApprovedCategory =
     client.category === "ADULT" || client.category === "YOUTH";
   const initialState: ClientActionState = { status: "IDLE", operationId };
@@ -163,7 +168,7 @@ export function ClientEdit({
             <input
               defaultValue={client.responsibleSocialWorkerPhone ?? ""}
               id="edit-client-responsible-social-worker-phone"
-              maxLength={64}
+              maxLength={50}
               name="responsibleSocialWorkerPhone"
               type="tel"
             />

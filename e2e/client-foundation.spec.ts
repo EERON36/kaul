@@ -761,15 +761,57 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   await page.getByLabel("Efternamn").fill("Redigering");
   await page.getByLabel("Personreferens").fill("e2e-edit-client");
   await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
+  await page.getByLabel("Personnummer", { exact: true }).fill("19000101-0101");
+  await page
+    .getByLabel("Placerande enhet", { exact: true })
+    .fill("Fiktiv placerande enhet");
+  await page.getByLabel("Lagrum", { exact: true }).fill("SoL 4 kap. 1 §");
+  await page
+    .getByLabel("Namn", { exact: true })
+    .fill("Fiktiv socialsekreterare");
+  await page.getByLabel("Telefon", { exact: true }).fill("010-123 45 67");
+  await page
+    .getByLabel("E-post", { exact: true })
+    .fill("socialsekreterare@example.test");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
   await page.getByRole("link", { name: /Före Redigering/ }).click();
 
   await page.getByRole("button", { name: "Redigera klient" }).click();
+  await expect(page.getByLabel("Personnummer", { exact: true })).toHaveValue(
+    "19000101-0101",
+  );
+  await expect(
+    page.getByLabel("Placerande enhet", { exact: true }),
+  ).toHaveValue("Fiktiv placerande enhet");
+  await expect(page.getByLabel("Lagrum", { exact: true })).toHaveValue(
+    "SoL 4 kap. 1 §",
+  );
+  await expect(page.getByLabel("Namn", { exact: true })).toHaveValue(
+    "Fiktiv socialsekreterare",
+  );
+  await expect(page.getByLabel("Telefon", { exact: true })).toHaveValue(
+    "010-123 45 67",
+  );
+  await expect(page.getByLabel("E-post", { exact: true })).toHaveValue(
+    "socialsekreterare@example.test",
+  );
   await page.getByLabel("Förnamn").fill("Efter");
   await page.getByLabel("Efternamn").fill("Redigering");
   await page.getByLabel("Personreferens").fill("e2e-edit-updated");
   await page.getByLabel("Kategori", { exact: true }).selectOption("YOUTH");
+  await page.getByLabel("Personnummer", { exact: true }).fill("19000101-0202");
+  await page
+    .getByLabel("Placerande enhet", { exact: true })
+    .fill("Uppdaterad placerande enhet");
+  await page.getByLabel("Lagrum", { exact: true }).fill("LVU 1 §");
+  await page
+    .getByLabel("Namn", { exact: true })
+    .fill("Uppdaterad socialsekreterare");
+  await page.getByLabel("Telefon", { exact: true }).fill("010-987 65 43");
+  await page
+    .getByLabel("E-post", { exact: true })
+    .fill("uppdaterad.socialsekreterare@example.test");
   const updateRequestPromise = page.waitForRequest(
     (request) =>
       request.method() === "POST" &&
@@ -794,6 +836,17 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
     page.getByRole("heading", { name: "Efter Redigering" }),
   ).toBeVisible();
   await expect(page.getByText("E2E-EDIT-UPDATED")).toBeVisible();
+  await expect(page.getByText("Uppdaterad placerande enhet")).toBeVisible();
+  await expect(page.getByText("LVU 1 §")).toBeVisible();
+  await expect(page.getByText("Uppdaterad socialsekreterare")).toBeVisible();
+  await expect(page.getByText("010-987 65 43")).toBeVisible();
+  await expect(
+    page.getByText("uppdaterad.socialsekreterare@example.test"),
+  ).toBeVisible();
+  await expect(page.getByText("19000101-0202")).toHaveCount(0);
+  await expect(
+    page.getByText("Registrerat (visas endast vid redigering)"),
+  ).toBeVisible();
   await expect(
     page.locator(".client-details dd").filter({ hasText: "Ungdomar" }),
   ).toBeVisible();
@@ -801,6 +854,14 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   const editedClient = await prisma.client.findFirstOrThrow({
     where: { personIdentifier: "E2E-EDIT-UPDATED" },
   });
+  await page.goto("/klienter");
+  await expect(page.getByText("19000101-0202")).toHaveCount(0);
+  await page.getByLabel("Sök klienter", { exact: true }).fill("19000101-0202");
+  await page.getByRole("button", { name: "Sök", exact: true }).click();
+  await expect(page.getByText("19000101-0202")).toHaveCount(0);
+  await expect(
+    page.getByText("Inga klienter matchar din sökning."),
+  ).toBeVisible();
   await page.goto("/klienter?kategori=ungdomar");
   const youthGroup = page.locator(".client-category-group", {
     has: page.getByRole("heading", { name: "Ungdomar" }),
@@ -829,6 +890,12 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
     lastName: "Redigering",
     personIdentifier: "E2E-EDIT-UPDATED",
     category: "YOUTH",
+    personalIdentityNumber: "19000101-0202",
+    placingUnit: "Uppdaterad placerande enhet",
+    legalBasis: "LVU 1 §",
+    responsibleSocialWorkerName: "Uppdaterad socialsekreterare",
+    responsibleSocialWorkerPhone: "010-987 65 43",
+    responsibleSocialWorkerEmail: "uppdaterad.socialsekreterare@example.test",
   });
 
   await page

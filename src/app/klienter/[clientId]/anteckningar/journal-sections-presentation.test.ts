@@ -3,20 +3,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { JournalSectionsPresentation } from "./journal-sections-presentation";
-import { serializeJournalSections } from "./journal-sections";
 
 describe("Journal structured presentation", () => {
   it("shows every section, including sections without content", () => {
     const html = renderToStaticMarkup(
       createElement(JournalSectionsPresentation, {
-        content: serializeJournalSections({
-          healthContent: "Fiktiv hälsouppgift.",
-          educationOccupationContent: "",
-          emotionsBehaviorContent: "Fiktivt beteende.",
-          socialRelationsContent: "",
-          dailyLivingIndependenceContent: "",
-          otherContent: "Fiktiv övrig uppgift.",
-        }),
+        contentFormat: "STRUCTURED_V1",
+        content: "",
+        healthContent: "Fiktiv hälsouppgift.",
+        educationOccupationContent: "",
+        emotionsBehaviorContent: "Fiktivt beteende.",
+        socialRelationsContent: "",
+        dailyLivingIndependenceContent: "",
+        otherContent: "Fiktiv övrig uppgift.",
       }),
     );
 
@@ -37,7 +36,14 @@ describe("Journal structured presentation", () => {
   it("keeps legacy narrative content readable", () => {
     const html = renderToStaticMarkup(
       createElement(JournalSectionsPresentation, {
+        contentFormat: "LEGACY_NARRATIVE",
         content: "Äldre signerad anteckning.",
+        healthContent: null,
+        educationOccupationContent: null,
+        emotionsBehaviorContent: null,
+        socialRelationsContent: null,
+        dailyLivingIndependenceContent: null,
+        otherContent: null,
       }),
     );
 

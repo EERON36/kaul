@@ -247,7 +247,7 @@ Responsible for:
 
 Examples:
 
-- Weekly Reports
+- Monthly Reports
 - Socialtjänsten
 - Skatteverket
 
@@ -275,13 +275,29 @@ Users should never receive search results for clients they cannot access.
 
 Responsible for generating:
 
-- Weekly reports
+- Monthly reports
 - Printable summaries
 - Future statistics
 
-Reports should read from existing data.
+The implemented Monthly Report is a manually authored Client-scoped module
+with one canonical lineage per calendar month. Its shared drafts use optimistic
+versions. Signing atomically records the signer snapshot and audit outcome;
+PostgreSQL protects every signed revision from update, deletion, or silent
+replacement. A correction extends the existing lineage with a directly linked
+signed revision.
 
-They should never duplicate information.
+Automatic synthesis from Journal records remains future work.
+
+The structured-record migration is forward-only and additive: nullable Client
+fields and structured Journal columns are added without rewriting existing
+rows, and legacy Journal content remains explicitly versioned and readable.
+The migration replaces signing constraints and trigger functions in place so
+old and new signed formats retain PostgreSQL-level integrity. Rolling the
+application back after this migration requires an owner-reviewed compatibility
+decision; the safe recovery path is the pre-migration backup plus normal
+forward migration, not destructive column removal. A dedicated disposable
+database rehearsal applies every pre-feature migration, inserts a realistic
+legacy signed row, then applies and verifies the feature migration.
 
 ---
 

@@ -99,7 +99,7 @@ export default async function SignedJournalEntryPage({
             className="journal-content-section"
           >
             <h3 id="signed-content-heading">Anteckning</h3>
-            <JournalSectionsPresentation content={entry.content} />
+            <JournalSectionsPresentation {...entry} />
           </section>
 
           {entry.goalReferences.length > 0 ? (

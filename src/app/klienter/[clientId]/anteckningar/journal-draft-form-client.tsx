@@ -24,7 +24,6 @@ import {
 } from "./journal-form-values";
 import {
   JOURNAL_SECTION_FIELDS,
-  serializeJournalSections,
   type JournalSectionValues,
 } from "./journal-sections";
 
@@ -117,22 +116,8 @@ export function JournalDraftForm({
           dirtyRef.current = dirty;
           setNavigationBlocked(dirty);
         }}
-        onSubmit={(event) => {
-          const formData = new FormData(event.currentTarget);
-          const sections = Object.fromEntries(
-            JOURNAL_SECTION_FIELDS.map(({ key }) => [
-              key,
-              String(formData.get(key) ?? ""),
-            ]),
-          ) as JournalSectionValues;
-          const content = event.currentTarget.elements.namedItem("content");
-          if (content instanceof HTMLInputElement) {
-            content.value = serializeJournalSections(sections);
-          }
-        }}
       >
         <input name="clientId" type="hidden" value={clientId} />
-        <input name="content" type="hidden" value={state.values.content} />
 
         <fieldset
           aria-describedby={
@@ -164,9 +149,6 @@ export function JournalDraftForm({
             </p>
           ) : null}
         </fieldset>
-
-        {/* Kept as a server-action compatibility field until structured Journal
-            columns are available at the domain boundary. */}
         <input
           name="journalEntryId"
           type="hidden"

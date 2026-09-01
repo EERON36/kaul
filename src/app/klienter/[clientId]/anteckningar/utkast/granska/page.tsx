@@ -93,7 +93,7 @@ export default async function JournalReviewPage({
             className="journal-content-section"
           >
             <h3 id="review-content-heading">Anteckning</h3>
-            <JournalSectionsPresentation content={draft.content} />
+            <JournalSectionsPresentation {...draft} />
           </section>
           <section
             aria-labelledby="review-goals-heading"

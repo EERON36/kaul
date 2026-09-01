@@ -322,7 +322,7 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   await page.getByLabel("Typ av anteckning").selectOption("PHONE_CALL");
   await page.getByLabel("Datum för händelsen").fill("2026-08-12");
   await page.getByLabel("Tid för händelsen").fill("08:15");
-  await page.getByLabel("Anteckning", { exact: true }).fill(originalContent);
+  await page.getByLabel("Övrigt", { exact: true }).fill(originalContent);
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
 
@@ -333,7 +333,7 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
     "2026-08-12",
   );
   await expect(page.getByLabel("Tid för händelsen")).toHaveValue("08:15");
-  await expect(page.getByLabel("Anteckning", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Övrigt", { exact: true })).toHaveValue(
     originalContent,
   );
   await page.getByRole("button", { name: "Granska inför signering" }).click();
@@ -383,7 +383,7 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   await page.getByLabel("Typ av anteckning").selectOption("OTHER");
   await page.getByLabel("Datum för händelsen").fill("2026-08-13");
   await page.getByLabel("Tid för händelsen").fill("10:45");
-  await page.getByLabel("Anteckning", { exact: true }).fill(correctionContent);
+  await page.getByLabel("Övrigt", { exact: true }).fill(correctionContent);
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
   await page.getByRole("button", { name: "Granska inför signering" }).click();
@@ -411,7 +411,7 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   await page.getByLabel("Datum för händelsen").fill("2026-08-13");
   await page.getByLabel("Tid för händelsen").fill("12:00");
   await page
-    .getByLabel("Anteckning", { exact: true })
+    .getByLabel("Övrigt", { exact: true })
     .fill("Ett separat fiktivt utkast som ska kastas.");
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
@@ -433,7 +433,7 @@ test("Unsaved Journal work protects internal navigation without trapping a saved
   page,
 }) => {
   const client = fixtures.clients[5];
-  const content = page.getByLabel("Anteckning", { exact: true });
+  const content = page.getByLabel("Övrigt", { exact: true });
   const warning =
     "Du har osparade ändringar i anteckningen. Vill du lämna sidan? Ändringarna försvinner om du inte sparar dem.";
 
@@ -513,7 +513,7 @@ test("A delayed Journal save blocks newer edits until its response establishes a
   const entryType = page.getByLabel("Typ av anteckning");
   const eventDate = page.getByLabel("Datum för händelsen");
   const eventTime = page.getByLabel("Tid för händelsen");
-  const content = page.getByLabel("Anteckning", { exact: true });
+  const content = page.getByLabel("Övrigt", { exact: true });
   const goal = page.getByRole("checkbox", {
     name: new RegExp(fixtures.pendingSaveGoal.title),
   });
@@ -633,7 +633,7 @@ test("Browser Back and Forward protect unsaved Journal work without trapping cle
   page,
 }) => {
   const client = fixtures.clients[6];
-  const content = page.getByLabel("Anteckning", { exact: true });
+  const content = page.getByLabel("Övrigt", { exact: true });
   const editorUrl = `${testEnvironment.origin}/klienter/${client.id}/anteckningar/utkast`;
   const journalUrl = `${testEnvironment.origin}/klienter/${client.id}/anteckningar`;
   const overviewUrl = `${testEnvironment.origin}/klienter/${client.id}`;
@@ -756,7 +756,7 @@ test("Cancelled mobile Journal navigation keeps visible focus and confirmed navi
   await logIn(page, authorEmail, "192.0.2.231");
   await page.setViewportSize({ width: 375, height: 812 });
   await openNewDraft(page, client.id);
-  const content = page.getByLabel("Anteckning", { exact: true });
+  const content = page.getByLabel("Övrigt", { exact: true });
   await content.fill(unsavedContent);
 
   const menuButton = page.locator(".mobile-menu-button");
@@ -806,7 +806,7 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
   await page.getByLabel("Typ av anteckning").selectOption("MEETING");
   await page.getByLabel("Datum för händelsen").fill("2026-08-11");
   await page.getByLabel("Tid för händelsen").fill("14:30");
-  await page.getByLabel("Anteckning", { exact: true }).fill(privateContent);
+  await page.getByLabel("Övrigt", { exact: true }).fill(privateContent);
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
 
@@ -829,7 +829,7 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
   ).toBeVisible();
   await administratorPage.goto(`/klienter/${client.id}/anteckningar/utkast`);
   await expect(
-    administratorPage.getByLabel("Anteckning", { exact: true }),
+    administratorPage.getByLabel("Övrigt", { exact: true }),
   ).toHaveValue("");
 
   const peerContext = await browser.newContext();
@@ -841,9 +841,7 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
   ).toHaveCount(0);
   await expect(peerPage.getByText("1 utkast", { exact: true })).toHaveCount(0);
   await peerPage.goto(`/klienter/${client.id}/anteckningar/utkast`);
-  await expect(peerPage.getByLabel("Anteckning", { exact: true })).toHaveValue(
-    "",
-  );
+  await expect(peerPage.getByLabel("Övrigt", { exact: true })).toHaveValue("");
 
   const draft = await prisma.journalEntry.findFirstOrThrow({
     where: {
@@ -861,7 +859,7 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
     data: { endedAt: new Date() },
   });
   await page
-    .getByLabel("Anteckning", { exact: true })
+    .getByLabel("Övrigt", { exact: true })
     .fill(`${privateContent} Ändrad.`);
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(
@@ -871,7 +869,11 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
   ).toBeVisible();
   await expect(
     prisma.journalEntry.findUniqueOrThrow({ where: { id: draft.id } }),
-  ).resolves.toMatchObject({ content: privateContent, version: draft.version });
+  ).resolves.toMatchObject({
+    content: "",
+    otherContent: privateContent,
+    version: draft.version,
+  });
 
   const signedClient = fixtures.clients[0];
   const signedOriginal = await prisma.journalEntry.findFirstOrThrow({
@@ -964,7 +966,7 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
   await page.getByLabel("Datum för händelsen").fill("2026-08-10");
   await page.getByLabel("Tid för händelsen").fill("09:10");
   await page
-    .getByLabel("Anteckning", { exact: true })
+    .getByLabel("Övrigt", { exact: true })
     .fill("Första sparade versionen.");
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
@@ -978,10 +980,13 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
   });
   await prisma.journalEntry.update({
     where: { id: draft.id },
-    data: { content: "Nyare sparat innehåll.", version: { increment: 1 } },
+    data: {
+      otherContent: "Nyare sparat innehåll.",
+      version: { increment: 1 },
+    },
   });
   await page
-    .getByLabel("Anteckning", { exact: true })
+    .getByLabel("Övrigt", { exact: true })
     .fill("Webbläsarens osparade innehåll.");
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(
@@ -989,14 +994,17 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
       "Utkastet har ändrats i en annan session. Dina ändringar har inte sparats. Ladda om utkastet och granska det sparade innehållet.",
     ),
   ).toBeVisible();
-  await expect(page.getByLabel("Anteckning", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Övrigt", { exact: true })).toHaveValue(
     "Webbläsarens osparade innehåll.",
   );
   await expect(
     prisma.journalEntry.findUniqueOrThrow({ where: { id: draft.id } }),
-  ).resolves.toMatchObject({ content: "Nyare sparat innehåll." });
+  ).resolves.toMatchObject({
+    content: "",
+    otherContent: "Nyare sparat innehåll.",
+  });
   await page.getByRole("link", { name: "Ladda om utkastet" }).click();
-  await expect(page.getByLabel("Anteckning", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Övrigt", { exact: true })).toHaveValue(
     "Nyare sparat innehåll.",
   );
   await page.getByRole("button", { name: "Granska inför signering" }).click();
@@ -1082,14 +1090,10 @@ test("Same-actor initial-create race requires reload before newer content can ch
 
     await firstPage.getByLabel("Datum för händelsen").fill("2026-08-14");
     await firstPage.getByLabel("Tid för händelsen").fill("08:30");
-    await firstPage
-      .getByLabel("Anteckning", { exact: true })
-      .fill(durableContent);
+    await firstPage.getByLabel("Övrigt", { exact: true }).fill(durableContent);
     await secondPage.getByLabel("Datum för händelsen").fill("2026-08-14");
     await secondPage.getByLabel("Tid för händelsen").fill("09:30");
-    await secondPage
-      .getByLabel("Anteckning", { exact: true })
-      .fill(staleContent);
+    await secondPage.getByLabel("Övrigt", { exact: true }).fill(staleContent);
 
     await firstPage.getByRole("button", { name: "Spara utkast" }).click();
     await expect(firstPage.getByText("Utkastet har sparats.")).toBeVisible();
@@ -1107,9 +1111,9 @@ test("Same-actor initial-create race requires reload before newer content can ch
         "Utkastet har ändrats i en annan session. Dina ändringar har inte sparats. Ladda om utkastet och granska det sparade innehållet.",
       ),
     ).toBeVisible();
-    await expect(
-      secondPage.getByLabel("Anteckning", { exact: true }),
-    ).toHaveValue(staleContent);
+    await expect(secondPage.getByLabel("Övrigt", { exact: true })).toHaveValue(
+      staleContent,
+    );
     const secondEditorForm = secondPage.locator("form").filter({
       has: secondPage.getByLabel("Typ av anteckning"),
     });
@@ -1131,14 +1135,15 @@ test("Same-actor initial-create race requires reload before newer content can ch
         where: { id: durableDraft.id },
       }),
     ).resolves.toMatchObject({
-      content: durableContent,
+      content: "",
+      otherContent: durableContent,
       version: durableDraft.version,
     });
 
     await secondPage.getByRole("link", { name: "Ladda om utkastet" }).click();
-    await expect(
-      secondPage.getByLabel("Anteckning", { exact: true }),
-    ).toHaveValue(durableContent);
+    await expect(secondPage.getByLabel("Övrigt", { exact: true })).toHaveValue(
+      durableContent,
+    );
     await expect(
       secondEditorForm.locator('input[name="journalEntryId"]'),
     ).toHaveValue(durableDraft.id);
@@ -1193,7 +1198,7 @@ test("Keyboard reaches the Journal editor and signing action with visible focus"
   await expect(eventTime).toBeFocused();
   await eventTime.fill("11:20");
 
-  const content = page.getByLabel("Anteckning", { exact: true });
+  const content = page.getByLabel("Övrigt", { exact: true });
   await tabTo(page, content, 6);
   await expect(content).toBeFocused();
   await content.fill("Fiktiv anteckning för permanent tangentbordstest.");

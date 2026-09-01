@@ -6,10 +6,6 @@ import {
   parseStockholmEventDateTime,
   readJournalFormValues,
 } from "./journal-form-values";
-import {
-  parseJournalSections,
-  serializeJournalSections,
-} from "./journal-sections";
 
 describe("Journal unsaved-change comparison", () => {
   const savedValues = {
@@ -126,21 +122,23 @@ describe("Journal event time form boundary", () => {
     expect(result.fieldErrors.content).toBeUndefined();
     expect(result.values.healthContent).toBe("Fiktiv hälsouppgift.");
     expect(result.values.educationOccupationContent).toBe("");
-    expect(result.values.content).toContain("KAUL_STRUCTURED_JOURNAL_V1");
+    expect(result.values.content).toBe("");
   });
 
-  it("round-trips multiline structured sections for signed presentation", () => {
-    const sections = {
-      healthContent: "Rad ett.\nRad två.",
-      educationOccupationContent: "",
-      emotionsBehaviorContent: "Fiktiv text",
-      socialRelationsContent: "",
-      dailyLivingIndependenceContent: "",
-      otherContent: "",
-    } as const;
+  it("preserves multiline structured sections as separate values", () => {
+    const form = new FormData();
+    form.set("entryType", "CONVERSATION");
+    form.set("eventDate", "2026-08-12");
+    form.set("eventTime", "08:15");
+    form.set("healthContent", "Rad ett.\nRad två.");
+    form.set("educationOccupationContent", "");
+    form.set("emotionsBehaviorContent", "Fiktiv text");
+    form.set("socialRelationsContent", "");
+    form.set("dailyLivingIndependenceContent", "");
+    form.set("otherContent", "");
 
-    expect(parseJournalSections(serializeJournalSections(sections))).toEqual(
-      sections,
-    );
+    const result = readJournalFormValues(form);
+    expect(result.values.healthContent).toBe("Rad ett.\nRad två.");
+    expect(result.values.emotionsBehaviorContent).toBe("Fiktiv text");
   });
 });

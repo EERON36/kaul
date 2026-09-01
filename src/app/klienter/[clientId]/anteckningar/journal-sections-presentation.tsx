@@ -1,15 +1,36 @@
-import {
-  JOURNAL_SECTION_FIELDS,
-  parseJournalSections,
-} from "./journal-sections";
+import { JOURNAL_SECTION_FIELDS } from "./journal-sections";
 
 export function JournalSectionsPresentation({
+  contentFormat,
   content,
-}: Readonly<{ content: string }>) {
-  const sections = parseJournalSections(content);
-  if (!sections) {
+  healthContent,
+  educationOccupationContent,
+  emotionsBehaviorContent,
+  socialRelationsContent,
+  dailyLivingIndependenceContent,
+  otherContent,
+}: Readonly<{
+  contentFormat: "LEGACY_NARRATIVE" | "STRUCTURED_V1";
+  content: string;
+  healthContent: string | null;
+  educationOccupationContent: string | null;
+  emotionsBehaviorContent: string | null;
+  socialRelationsContent: string | null;
+  dailyLivingIndependenceContent: string | null;
+  otherContent: string | null;
+}>) {
+  if (contentFormat === "LEGACY_NARRATIVE") {
     return <div className="journal-content">{content}</div>;
   }
+
+  const sections = {
+    healthContent,
+    educationOccupationContent,
+    emotionsBehaviorContent,
+    socialRelationsContent,
+    dailyLivingIndependenceContent,
+    otherContent,
+  };
 
   return (
     <div className="journal-section-list">

@@ -166,6 +166,12 @@ describe("Client Server Action audit operation lifecycle", () => {
       firstName: "Fiktiv",
       lastName: "Klient",
       personIdentifier: "FIKTIV-01",
+      personalIdentityNumber: "",
+      placingUnit: "",
+      legalBasis: "",
+      responsibleSocialWorkerName: "",
+      responsibleSocialWorkerPhone: "",
+      responsibleSocialWorkerEmail: "",
       category: "ADULT",
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/klienter");
@@ -230,6 +236,12 @@ describe("Client creation handoff", () => {
       firstName: "Fiktiv",
       lastName: "Klient",
       personIdentifier: "FIKTIV-01",
+      personalIdentityNumber: "",
+      placingUnit: "",
+      legalBasis: "",
+      responsibleSocialWorkerName: "",
+      responsibleSocialWorkerPhone: "",
+      responsibleSocialWorkerEmail: "",
       category: "ADULT",
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/klienter");

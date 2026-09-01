@@ -6,7 +6,6 @@ import {
 import {
   emptyJournalSectionValues,
   JOURNAL_SECTION_FIELDS,
-  serializeJournalSections,
   type JournalSectionFieldKey,
   type JournalSectionValues,
 } from "./journal-sections";
@@ -188,9 +187,6 @@ export function readJournalFormValues(formData: FormData): Readonly<{
 }> {
   const sections = readJournalSections(formData);
   const submittedContent = String(formData.get("content") ?? "");
-  const hasStructuredContent = Object.values(sections).some(
-    (value) => value.trim().length > 0,
-  );
   const hasStructuredFields = JOURNAL_SECTION_FIELDS.some(({ key }) =>
     formData.has(key),
   );
@@ -198,11 +194,7 @@ export function readJournalFormValues(formData: FormData): Readonly<{
     entryType: String(formData.get("entryType") ?? ""),
     eventDate: String(formData.get("eventDate") ?? ""),
     eventTime: String(formData.get("eventTime") ?? ""),
-    content: hasStructuredFields
-      ? hasStructuredContent
-        ? serializeJournalSections(sections)
-        : ""
-      : submittedContent,
+    content: submittedContent,
     goalIds: formData.getAll("goalIds").map(String),
     ...sections,
   };
@@ -230,9 +222,20 @@ export function readJournalFormValues(formData: FormData): Readonly<{
     fieldErrors.eventTime =
       "Tiden kan inte tolkas entydigt i svensk lokal tid. Kontrollera eller välj en annan tid.";
   }
-  if (values.content.trim().length === 0) {
+  const structuredLength = Object.values(sections).reduce(
+    (total, value) => total + value.length,
+    0,
+  );
+  const hasMeaningfulContent = hasStructuredFields
+    ? Object.values(sections).some((value) => value.trim().length > 0)
+    : values.content.trim().length > 0;
+  if (!hasMeaningfulContent) {
     fieldErrors.content = "Skriv en anteckning.";
-  } else if (values.content.length > JOURNAL_CONTENT_MAX_LENGTH) {
+  } else if (
+    hasStructuredFields
+      ? structuredLength > JOURNAL_CONTENT_MAX_LENGTH
+      : values.content.length > JOURNAL_CONTENT_MAX_LENGTH
+  ) {
     fieldErrors.content = `Anteckningen får innehålla högst ${JOURNAL_CONTENT_MAX_LENGTH.toLocaleString("sv-SE")} tecken.`;
   }
   if (
