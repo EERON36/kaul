@@ -718,6 +718,34 @@ h2 {
   font-weight: 600;
 }
 
+.client-extended-fields {
+  min-width: 0;
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+}
+
+.client-extended-fields legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+}
+
+.journal-section-fields {
+  min-width: 0;
+  margin: 0 0 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+}
+
+.journal-section-fields legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+}
+
+.journal-section-fields .form-field:last-of-type {
+  margin-bottom: 0;
+}
+
 .journal-goal-fields {
   min-width: 0;
   margin: 0 0 1.25rem;
@@ -806,6 +834,14 @@ h2 {
   max-width: 44rem;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.journal-content-subsection + .journal-content-subsection {
+  margin-top: 1.5rem;
+}
+
+.journal-content-subsection h4 {
+  margin-bottom: 0.5rem;
 }
 
 .journal-signing-warning,

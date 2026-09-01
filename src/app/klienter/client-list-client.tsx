@@ -214,6 +214,79 @@ export function ClientList({
                 <option value="YOUTH">{CLIENT_CATEGORY_LABELS.YOUTH}</option>
               </select>
             </div>
+            <fieldset className="client-extended-fields">
+              <legend>Övriga klientuppgifter (valfritt)</legend>
+              <div className="form-field">
+                <label htmlFor="client-personal-identity-number">
+                  Personnummer
+                </label>
+                <input
+                  aria-describedby="client-personal-identity-number-help"
+                  autoComplete="off"
+                  id="client-personal-identity-number"
+                  maxLength={32}
+                  name="personalIdentityNumber"
+                />
+                <p
+                  className="form-help"
+                  id="client-personal-identity-number-help"
+                >
+                  Känslig uppgift. Fyll endast i om organisationens rutiner
+                  tillåter det.
+                </p>
+              </div>
+              <div className="form-field">
+                <label htmlFor="client-placing-unit">Placerande enhet</label>
+                <input
+                  id="client-placing-unit"
+                  maxLength={200}
+                  name="placingUnit"
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="client-legal-basis">Lagrum</label>
+                <input
+                  id="client-legal-basis"
+                  maxLength={200}
+                  name="legalBasis"
+                />
+              </div>
+            </fieldset>
+            <fieldset className="client-extended-fields">
+              <legend>Ansvarig socialsekreterare (valfritt)</legend>
+              <div className="form-field">
+                <label htmlFor="client-responsible-social-worker-name">
+                  Namn
+                </label>
+                <input
+                  id="client-responsible-social-worker-name"
+                  maxLength={200}
+                  name="responsibleSocialWorkerName"
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="client-responsible-social-worker-phone">
+                  Telefon
+                </label>
+                <input
+                  id="client-responsible-social-worker-phone"
+                  maxLength={64}
+                  name="responsibleSocialWorkerPhone"
+                  type="tel"
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="client-responsible-social-worker-email">
+                  E-post
+                </label>
+                <input
+                  id="client-responsible-social-worker-email"
+                  maxLength={254}
+                  name="responsibleSocialWorkerEmail"
+                  type="email"
+                />
+              </div>
+            </fieldset>
             <button className="primary-button" disabled={pending} type="submit">
               {pending ? "Skapar…" : "Skapa klient"}
             </button>

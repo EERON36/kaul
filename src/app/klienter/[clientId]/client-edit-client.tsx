@@ -12,6 +12,12 @@ type EditableClient = Readonly<{
   lastName: string;
   personIdentifier: string;
   category: string;
+  personalIdentityNumber?: string | null;
+  placingUnit?: string | null;
+  legalBasis?: string | null;
+  responsibleSocialWorkerName?: string | null;
+  responsibleSocialWorkerPhone?: string | null;
+  responsibleSocialWorkerEmail?: string | null;
 }>;
 
 export function ClientEdit({
@@ -96,6 +102,85 @@ export function ClientEdit({
             <option value="YOUTH">{CLIENT_CATEGORY_LABELS.YOUTH}</option>
           </select>
         </div>
+        <fieldset className="client-extended-fields">
+          <legend>Övriga klientuppgifter (valfritt)</legend>
+          <div className="form-field">
+            <label htmlFor="edit-client-personal-identity-number">
+              Personnummer
+            </label>
+            <input
+              aria-describedby="edit-client-personal-identity-number-help"
+              autoComplete="off"
+              defaultValue={client.personalIdentityNumber ?? ""}
+              id="edit-client-personal-identity-number"
+              maxLength={32}
+              name="personalIdentityNumber"
+            />
+            <p
+              className="form-help"
+              id="edit-client-personal-identity-number-help"
+            >
+              Känslig uppgift. Fyll endast i om organisationens rutiner tillåter
+              det.
+            </p>
+          </div>
+          <div className="form-field">
+            <label htmlFor="edit-client-placing-unit">Placerande enhet</label>
+            <input
+              defaultValue={client.placingUnit ?? ""}
+              id="edit-client-placing-unit"
+              maxLength={200}
+              name="placingUnit"
+            />
+          </div>
+          <div className="form-field">
+            <label htmlFor="edit-client-legal-basis">Lagrum</label>
+            <input
+              defaultValue={client.legalBasis ?? ""}
+              id="edit-client-legal-basis"
+              maxLength={200}
+              name="legalBasis"
+            />
+          </div>
+        </fieldset>
+        <fieldset className="client-extended-fields">
+          <legend>Ansvarig socialsekreterare (valfritt)</legend>
+          <div className="form-field">
+            <label htmlFor="edit-client-responsible-social-worker-name">
+              Namn
+            </label>
+            <input
+              defaultValue={client.responsibleSocialWorkerName ?? ""}
+              id="edit-client-responsible-social-worker-name"
+              maxLength={200}
+              name="responsibleSocialWorkerName"
+            />
+          </div>
+          <div className="form-field">
+            <label htmlFor="edit-client-responsible-social-worker-phone">
+              Telefon
+            </label>
+            <input
+              defaultValue={client.responsibleSocialWorkerPhone ?? ""}
+              id="edit-client-responsible-social-worker-phone"
+              maxLength={64}
+              name="responsibleSocialWorkerPhone"
+              type="tel"
+            />
+          </div>
+          <div className="form-field">
+            <label htmlFor="edit-client-responsible-social-worker-email">
+              E-post
+            </label>
+            <input
+              defaultValue={client.responsibleSocialWorkerEmail ?? ""}
+              id="edit-client-responsible-social-worker-email"
+              maxLength={254}
+              name="responsibleSocialWorkerEmail"
+              type="email"
+            />
+          </div>
+        </fieldset>
         <div className="form-actions">
           <button className="primary-button" disabled={pending} type="submit">
             {pending ? "Sparar…" : "Spara ändringar"}

@@ -3,12 +3,26 @@ import {
   JOURNAL_ENTRY_TYPE_VALUES,
 } from "@/modules/journal/journal-entry-type";
 
+import {
+  emptyJournalSectionValues,
+  JOURNAL_SECTION_FIELDS,
+  serializeJournalSections,
+  type JournalSectionFieldKey,
+  type JournalSectionValues,
+} from "./journal-sections";
+
 export type JournalFormValues = Readonly<{
   entryType: string;
   eventDate: string;
   eventTime: string;
   content: string;
   goalIds: readonly string[];
+  healthContent?: string;
+  educationOccupationContent?: string;
+  emotionsBehaviorContent?: string;
+  socialRelationsContent?: string;
+  dailyLivingIndependenceContent?: string;
+  otherContent?: string;
 }>;
 
 export type JournalFormFieldErrors = Partial<
@@ -25,10 +39,37 @@ export function areJournalFormValuesEqual(
     first.entryType === second.entryType &&
     first.eventDate === second.eventDate &&
     first.eventTime === second.eventTime &&
-    first.content === second.content &&
+    getSectionValue(first, "healthContent") ===
+      getSectionValue(second, "healthContent") &&
+    getSectionValue(first, "educationOccupationContent") ===
+      getSectionValue(second, "educationOccupationContent") &&
+    getSectionValue(first, "emotionsBehaviorContent") ===
+      getSectionValue(second, "emotionsBehaviorContent") &&
+    getSectionValue(first, "socialRelationsContent") ===
+      getSectionValue(second, "socialRelationsContent") &&
+    getSectionValue(first, "dailyLivingIndependenceContent") ===
+      getSectionValue(second, "dailyLivingIndependenceContent") &&
+    getSectionValue(first, "otherContent") ===
+      getSectionValue(second, "otherContent") &&
     [...first.goalIds].sort().join("\u0000") ===
       [...second.goalIds].sort().join("\u0000")
   );
+}
+
+function getSectionValue(
+  values: JournalFormValues,
+  key: JournalSectionFieldKey,
+): string {
+  if (values[key] !== undefined) return values[key];
+  return key === "otherContent" ? values.content : "";
+}
+
+function readJournalSections(formData: FormData): JournalSectionValues {
+  const values = { ...emptyJournalSectionValues() };
+  for (const { key } of JOURNAL_SECTION_FIELDS) {
+    values[key] = String(formData.get(key) ?? "");
+  }
+  return values;
 }
 
 const stockholmDateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
@@ -145,12 +186,25 @@ export function readJournalFormValues(formData: FormData): Readonly<{
   eventOccurredAt: Date | null;
   entryType: JournalEntryTypeValue | null;
 }> {
+  const sections = readJournalSections(formData);
+  const submittedContent = String(formData.get("content") ?? "");
+  const hasStructuredContent = Object.values(sections).some(
+    (value) => value.trim().length > 0,
+  );
+  const hasStructuredFields = JOURNAL_SECTION_FIELDS.some(({ key }) =>
+    formData.has(key),
+  );
   const values: JournalFormValues = {
     entryType: String(formData.get("entryType") ?? ""),
     eventDate: String(formData.get("eventDate") ?? ""),
     eventTime: String(formData.get("eventTime") ?? ""),
-    content: String(formData.get("content") ?? ""),
+    content: hasStructuredFields
+      ? hasStructuredContent
+        ? serializeJournalSections(sections)
+        : ""
+      : submittedContent,
     goalIds: formData.getAll("goalIds").map(String),
+    ...sections,
   };
   const fieldErrors: JournalFormFieldErrors = {};
 

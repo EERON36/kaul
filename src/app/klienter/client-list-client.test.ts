@@ -69,4 +69,29 @@ describe("Client list category navigation", () => {
     expect(markup).toContain("REF-VUXEN");
     expect(markup).toContain("REF-UNGDOM");
   });
+
+  it("renders the expanded optional Client information fields for administrators", () => {
+    const html = renderToStaticMarkup(
+      createElement(ClientList, {
+        activeCategoryView: "ADULT",
+        canCreate: true,
+        clients,
+        operationId: "123e4567-e89b-42d3-a456-426614174001",
+        showPrimaryStaff: false,
+      }),
+    );
+
+    for (const fieldName of [
+      "personalIdentityNumber",
+      "placingUnit",
+      "legalBasis",
+      "responsibleSocialWorkerName",
+      "responsibleSocialWorkerPhone",
+      "responsibleSocialWorkerEmail",
+    ]) {
+      expect(html).toContain(`name="${fieldName}"`);
+    }
+    expect(html).toContain("Personreferens");
+    expect(html).toContain("Ansvarig socialsekreterare (valfritt)");
+  });
 });

@@ -78,5 +78,18 @@ describe("Journal draft partial-save recovery", () => {
     )?.[0];
     expect(durableGoalInput).toContain('checked=""');
     expect(requestedGoalInput).not.toContain('checked=""');
+
+    for (const fieldName of [
+      "healthContent",
+      "educationOccupationContent",
+      "emotionsBehaviorContent",
+      "socialRelationsContent",
+      "dailyLivingIndependenceContent",
+      "otherContent",
+    ]) {
+      expect(html).toContain(`name="${fieldName}"`);
+    }
+    expect(html).toContain("Utbildning/Sysselsättning");
+    expect(html).toContain("ADL/självständighet");
   });
 });

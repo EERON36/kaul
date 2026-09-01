@@ -22,18 +22,38 @@ import {
   areJournalFormValuesEqual,
   type JournalFormValues,
 } from "./journal-form-values";
+import {
+  JOURNAL_SECTION_FIELDS,
+  serializeJournalSections,
+  type JournalSectionValues,
+} from "./journal-sections";
 
 function readCurrentJournalFormValues(
   form: HTMLFormElement,
 ): JournalFormValues {
   const formData = new FormData(form);
+  const sections = Object.fromEntries(
+    JOURNAL_SECTION_FIELDS.map(({ key }) => [
+      key,
+      String(formData.get(key) ?? ""),
+    ]),
+  ) as JournalSectionValues;
   return {
     entryType: String(formData.get("entryType") ?? ""),
     eventDate: String(formData.get("eventDate") ?? ""),
     eventTime: String(formData.get("eventTime") ?? ""),
     content: String(formData.get("content") ?? ""),
     goalIds: formData.getAll("goalIds").map(String),
+    ...sections,
   };
+}
+
+function getSectionValue(
+  values: JournalFormValues,
+  key: (typeof JOURNAL_SECTION_FIELDS)[number]["key"],
+): string {
+  if (values[key] !== undefined) return values[key];
+  return key === "otherContent" ? values.content : "";
 }
 
 export function JournalDraftForm({
@@ -97,8 +117,56 @@ export function JournalDraftForm({
           dirtyRef.current = dirty;
           setNavigationBlocked(dirty);
         }}
+        onSubmit={(event) => {
+          const formData = new FormData(event.currentTarget);
+          const sections = Object.fromEntries(
+            JOURNAL_SECTION_FIELDS.map(({ key }) => [
+              key,
+              String(formData.get(key) ?? ""),
+            ]),
+          ) as JournalSectionValues;
+          const content = event.currentTarget.elements.namedItem("content");
+          if (content instanceof HTMLInputElement) {
+            content.value = serializeJournalSections(sections);
+          }
+        }}
       >
         <input name="clientId" type="hidden" value={clientId} />
+        <input name="content" type="hidden" value={state.values.content} />
+
+        <fieldset
+          aria-describedby={
+            fieldErrors.content ? "journal-content-error" : undefined
+          }
+          className="journal-section-fields"
+        >
+          <legend>Anteckning</legend>
+          <p className="form-help">
+            Fyll i de delar som är relevanta. Du behöver inte fylla i alla
+            delar.
+          </p>
+          {JOURNAL_SECTION_FIELDS.map(({ key, label, id }) => (
+            <div className="form-field" key={key}>
+              <label htmlFor={id}>{label}</label>
+              <textarea
+                defaultValue={getSectionValue(state.values, key)}
+                disabled={disabled}
+                id={id}
+                maxLength={JOURNAL_CONTENT_MAX_LENGTH}
+                name={key}
+                rows={8}
+              />
+            </div>
+          ))}
+          {fieldErrors.content ? (
+            <p className="field-error" id="journal-content-error">
+              {fieldErrors.content}
+            </p>
+          ) : null}
+        </fieldset>
+
+        {/* Kept as a server-action compatibility field until structured Journal
+            columns are available at the domain boundary. */}
         <input
           name="journalEntryId"
           type="hidden"
@@ -186,28 +254,6 @@ export function JournalDraftForm({
             ) : null}
           </div>
         </fieldset>
-
-        <div className="form-field">
-          <label htmlFor="journal-content">Anteckning</label>
-          <textarea
-            aria-describedby={
-              fieldErrors.content ? "journal-content-error" : undefined
-            }
-            aria-invalid={fieldErrors.content ? true : undefined}
-            defaultValue={state.values.content}
-            disabled={disabled}
-            id="journal-content"
-            maxLength={JOURNAL_CONTENT_MAX_LENGTH}
-            name="content"
-            required
-            rows={14}
-          />
-          {fieldErrors.content ? (
-            <p className="field-error" id="journal-content-error">
-              {fieldErrors.content}
-            </p>
-          ) : null}
-        </div>
 
         <fieldset className="journal-goal-fields">
           <legend>Mål (valfritt)</legend>
