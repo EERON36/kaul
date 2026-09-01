@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kaul — A. Varsam förfining</title>
+  <style>
+    :root { color-scheme: light; --ink:#20313b; --muted:#66757d; --paper:#f4f1eb; --surface:#fffefa; --surface-soft:#ece9e2; --nav:#294e65; --nav-deep:#203e51; --nav-text:#e8f0f2; --line:#cfd5d5; --line-strong:#aebbc0; --teal:#347a78; --teal-soft:#deece8; --amber:#936c23; --amber-soft:#f5ead1; --red:#8e3e3e; --focus:#116a94; }
+    * { box-sizing:border-box; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family:"IBM Plex Sans",Arial,sans-serif; font-size:16px; line-height:1.45; }
+    button, input, textarea { font:inherit; }
+    button { cursor:pointer; }
+    :focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
+    .pilot { background:#f5e8b7; color:#49370d; border-bottom:1px solid #d0bd77; padding:8px 24px; font-size:13px; font-weight:600; }
+    .shell { min-height:100vh; display:grid; grid-template-columns:242px 1fr; }
+    .sidebar { background:var(--nav); color:var(--nav-text); padding:28px 18px 18px; display:flex; flex-direction:column; }
+    .wordmark { font-family:"IBM Plex Serif",Georgia,serif; font-size:31px; color:#fff; margin:0 10px 3px; }
+    .product { margin:0 10px 34px; color:#c4d5db; font-size:12px; }
+    .nav-label { color:#adc4cc; text-transform:uppercase; letter-spacing:.12em; font-size:11px; margin:0 10px 8px; }
+    .nav { display:grid; gap:4px; }
+    .nav button { border:0; border-left:3px solid transparent; text-align:left; color:inherit; background:transparent; border-radius:2px; padding:11px 10px; }
+    .nav button:hover, .nav button[aria-current="page"] { background:#37637d; border-left-color:#fff; }
+    .nav .sub { padding-left:28px; color:#d1e0e4; font-size:14px; }
+    .account { margin-top:auto; border-top:1px solid #527287; padding:18px 10px 4px; }
+    .account strong { display:block; color:#fff; font-size:14px; }
+    .account small { color:#bdd0d7; }
+    .signout { margin-top:12px; border:0; padding:0; background:none; color:#e6f0f2; text-decoration:underline; font-size:13px; }
+    main { min-width:0; }
+    .topbar { min-height:68px; background:var(--surface); border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; padding:14px 40px; gap:20px; }
+    .crumb { color:var(--muted); font-size:14px; }
+    .crumb strong { color:var(--ink); font-weight:500; }
+    .switcher { display:flex; gap:4px; }
+    .switcher button { border:1px solid var(--line-strong); background:var(--surface); color:var(--nav); padding:8px 12px; font-size:13px; }
+    .switcher button[aria-pressed="true"] { background:var(--nav); color:#fff; border-color:var(--nav); }
+    .page { max-width:1260px; margin:0 auto; padding:38px 40px 64px; }
+    .page-head { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin-bottom:26px; }
+    h1, h2, h3 { font-weight:500; margin:0; }
+    h1 { font-family:"IBM Plex Serif",Georgia,serif; font-size:38px; line-height:1.16; color:#233e4c; }
+    h2 { font-size:20px; }
+    h3 { font-size:16px; }
+    .eyebrow { color:var(--muted); font-size:13px; margin:0 0 6px; }
+    .primary { border:1px solid var(--nav-deep); color:#fff; background:var(--nav); padding:10px 16px; font-weight:500; }
+    .secondary { border:1px solid var(--line-strong); color:var(--nav); background:var(--surface); padding:10px 16px; font-weight:500; }
+    .notice { border-left:4px solid var(--amber); background:var(--amber-soft); padding:12px 14px; margin-bottom:22px; font-size:14px; }
+    .list-grid { border:1px solid var(--line); background:var(--surface); }
+    .list-tools { display:flex; justify-content:space-between; align-items:center; padding:16px 18px; border-bottom:1px solid var(--line); gap:18px; }
+    .search { border:1px solid var(--line-strong); background:#fff; padding:10px 12px; width:min(380px,100%); }
+    .filter { color:var(--muted); font-size:14px; }
+    .client-row { display:grid; grid-template-columns:minmax(190px,1.2fr) minmax(140px,1fr) minmax(150px,1fr) 112px; gap:20px; align-items:center; padding:18px; border-bottom:1px solid var(--line); }
+    .client-row:last-child { border-bottom:0; }
+    .client-row:hover { background:#faf9f4; }
+    .client-link { border:0; padding:0; text-align:left; background:transparent; color:#1d5971; text-decoration:underline; font-weight:500; }
+    .ref { color:var(--muted); font-family:"IBM Plex Mono",Consolas,monospace; font-size:13px; margin-top:3px; }
+    .label { color:var(--muted); font-size:12px; display:block; margin-bottom:2px; }
+    .status { display:inline-block; border:1px solid #8bb4a9; background:var(--teal-soft); color:#24625c; padding:4px 8px; font-size:12px; }
+    .row-action { color:#1d5971; background:none; border:0; text-decoration:underline; text-align:right; }
+    .workspace-head { border-bottom:1px solid var(--line-strong); padding-bottom:20px; margin-bottom:24px; }
+    .workspace-head .identity { display:flex; justify-content:space-between; align-items:end; gap:20px; }
+    .identity-meta { display:flex; flex-wrap:wrap; gap:16px 28px; margin-top:12px; }
+    .identity-meta div { min-width:150px; }
+    .identity-meta .value { font-size:14px; }
+    .workspace-tabs { display:flex; gap:22px; margin-top:24px; }
+    .workspace-tabs button { border:0; border-bottom:3px solid transparent; background:transparent; color:var(--muted); padding:8px 2px; }
+    .workspace-tabs button[aria-current="page"] { border-bottom-color:var(--nav); color:var(--nav); font-weight:500; }
+    .content-columns { display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:24px; }
+    .record, .side-box { background:var(--surface); border:1px solid var(--line); }
+    .record-head { display:flex; justify-content:space-between; gap:18px; padding:20px; border-bottom:1px solid var(--line); }
+    .draft { color:var(--amber); font-size:13px; font-weight:500; }
+    .record-body { padding:20px; }
+    .record-body > p { margin-top:0; }
+    .section-list { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:20px; }
+    .section { border-top:3px solid #7896a1; padding:12px 12px 14px; background:#faf9f4; }
+    .section p { margin:7px 0 0; color:#40545c; font-size:14px; }
+    .signature { border-top:1px solid var(--line); padding:16px 20px; color:var(--muted); font-size:13px; display:flex; justify-content:space-between; gap:12px; }
+    .side-box { padding:18px; }
+    .side-box h3 { padding-bottom:12px; border-bottom:1px solid var(--line); margin-bottom:14px; }
+    .side-box dl { margin:0; display:grid; gap:12px; }
+    .side-box dt { color:var(--muted); font-size:12px; }
+    .side-box dd { margin:2px 0 0; font-size:14px; }
+    .side-box + .side-box { margin-top:16px; }
+    .screen[hidden] { display:none; }
+    @media (max-width:850px) { .shell { grid-template-columns:1fr; } .sidebar { padding:16px; min-height:auto; } .product { margin-bottom:14px; } .nav { grid-template-columns:repeat(4,1fr); } .nav-label,.account,.nav .sub { display:none; } .topbar,.page { padding-left:20px; padding-right:20px; } .content-columns { grid-template-columns:1fr; } }
+    @media (max-width:620px) { .topbar,.page-head,.list-tools { align-items:stretch; flex-direction:column; } .topbar { gap:12px; } .switcher { align-self:flex-start; } .page { padding:24px 16px 44px; } h1 { font-size:32px; } .nav { grid-template-columns:repeat(2,1fr); } .client-row { grid-template-columns:1fr 1fr; gap:12px; } .row-action { text-align:left; } .section-list { grid-template-columns:1fr; } .workspace-head .identity { align-items:stretch; flex-direction:column; } .workspace-tabs { flex-wrap:wrap; gap:4px 18px; } }
+  </style>
+</head>
+<body>
+  <div class="pilot">Pilotmiljö – använd inte verkliga personuppgifter eller känslig information.</div>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Huvudnavigation">
+      <p class="wordmark">Kaul</p><p class="product">Journal- och dokumentationssystem</p>
+      <p class="nav-label">Navigation</p>
+      <nav class="nav">
+        <button type="button">Hem</button><button type="button" aria-current="page">Klienter</button><button type="button" class="sub">Ungdomar</button><button type="button" class="sub">Vuxna</button><button type="button">Sök journal</button><button type="button">Dokument</button>
+      </nav>
+      <div class="account"><strong>Elin Berg</strong><small>Socialsekreterare</small><button class="signout" type="button">Logga ut</button></div>
+    </aside>
+    <main>
+      <header class="topbar"><div class="crumb">Hem / <strong id="crumb-label">Klienter</strong></div><div class="switcher" aria-label="Visa konceptskärm"><button type="button" data-screen="clients" aria-pressed="true">Klienter</button><button type="button" data-screen="client" aria-pressed="false">Klientöversikt</button></div></header>
+      <section class="page">
+        <div id="clients" class="screen">
+          <div class="page-head"><div><p class="eyebrow">Mina klienter</p><h1>Klienter</h1></div><button type="button" class="primary">Skapa klient</button></div>
+          <div class="notice">Det här är en pilotmiljö. Använd endast fiktiva eller sanerade uppgifter.</div>
+          <section class="list-grid" aria-labelledby="client-list-heading"><div class="list-tools"><h2 id="client-list-heading">Aktiva klienter <span class="ref">03</span></h2><div><label class="label" for="search-a">Sök klient</label><input id="search-a" class="search" placeholder="Namn eller personreferens"></div></div>
+            <div class="client-row"><div><button class="client-link" type="button" data-screen="client">Alva Lind</button><div class="ref">KL-2026-014</div></div><div><span class="label">Kategori</span>Ungdom</div><div><span class="label">Ansvar</span>Elin Berg</div><div><span class="status">Pågående</span></div><button class="row-action" type="button" data-screen="client">Öppna</button></div>
+            <div class="client-row"><div><button class="client-link" type="button" data-screen="client">Noah Ek</button><div class="ref">KL-2026-009</div></div><div><span class="label">Kategori</span>Vuxen</div><div><span class="label">Ansvar</span>Johan Nyström</div><div><span class="status">Pågående</span></div><button class="row-action" type="button" data-screen="client">Öppna</button></div>
+            <div class="client-row"><div><button class="client-link" type="button" data-screen="client">Mira Holm</button><div class="ref">KL-2026-021</div></div><div><span class="label">Kategori</span>Ungdom</div><div><span class="label">Ansvar</span>Elin Berg</div><div><span class="status">Pågående</span></div><button class="row-action" type="button" data-screen="client">Öppna</button></div>
+          </section>
+        </div>
+        <div id="client" class="screen" hidden>
+          <div class="workspace-head"><p class="eyebrow">Klient / Översikt</p><div class="identity"><div><h1>Alva Lind</h1><div class="ref">KL-2026-014 · Ungdom</div></div><button type="button" class="primary">Ny anteckning</button></div><div class="identity-meta"><div><span class="label">Placerande enhet</span><span class="value">Solgläntans öppenvård</span></div><div><span class="label">Ansvarig socialsekreterare</span><span class="value">Elin Berg</span></div><div><span class="label">Senast uppdaterad</span><span class="value">28 augusti 2026, 14:22</span></div></div><nav class="workspace-tabs" aria-label="Klientens delar"><button type="button" aria-current="page">Översikt</button><button type="button">Anteckningar</button><button type="button">Mål</button><button type="button">Uppföljningar</button></nav></div>
+          <div class="content-columns"><article class="record"><div class="record-head"><div><h2>Senaste anteckning</h2><p class="eyebrow">Utkast · 28 augusti 2026, 14:22</p></div><span class="draft">UTKAST</span></div><div class="record-body"><p><strong>Pågående uppföljning</strong></p><p>En lugn avstämning efter sommaren. Alva beskriver att rutinerna har blivit lättare att hålla när skoldagen är tydligt planerad.</p><div class="section-list"><section class="section"><h3>Hälsa</h3><p>Inga nya uppgifter dokumenterade.</p></section><section class="section"><h3>Utbildning/Sysselsättning</h3><p>Planering inför skolstart pågår tillsammans med mentor.</p></section><section class="section"><h3>Känslor och Beteende</h3><p>Alva upplever mindre oro inför måndagar.</p></section><section class="section"><h3>Sociala relationer</h3><p>Har fortsatt kontakt med två vänner under lovet.</p></section><section class="section"><h3>ADL/självständighet</h3><p>Behöver fortsatt stöd med veckoplanering.</p></section><section class="section"><h3>Övrigt</h3><p>Nästa samtal bokat till 4 september.</p></section></div></div><div class="signature"><span>Du kan redigera ditt eget utkast.</span><button class="secondary" type="button">Öppna anteckning</button></div></article><aside><section class="side-box"><h3>Klientinformation</h3><dl><div><dt>Förnamn</dt><dd>Alva</dd></div><div><dt>Efternamn</dt><dd>Lind</dd></div><div><dt>Personnummer</dt><dd>••••••-••••</dd></div><div><dt>Telefon</dt><dd>Visas enligt behörighet</dd></div><div><dt>E-post</dt><dd>Visas enligt behörighet</dd></div></dl></section><section class="side-box"><h3>Kommande</h3><p><strong>Uppföljning</strong><br>4 september 2026</p><button class="row-action" type="button">Visa uppföljningar</button></section></aside></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script>
+    const screens = [...document.querySelectorAll('.screen')];
+    const controls = [...document.querySelectorAll('[data-screen]')];
+    function showScreen(name) { screens.forEach((screen) => { screen.hidden = screen.id !== name; }); controls.forEach((control) => { const active = control.dataset.screen === name; if (control.tagName === 'BUTTON') control.setAttribute('aria-pressed', String(active)); }); document.querySelector('#crumb-label').textContent = name === 'client' ? 'Alva Lind' : 'Klienter'; }
+    controls.forEach((control) => control.addEventListener('click', () => showScreen(control.dataset.screen)));
+    const requested = new URLSearchParams(location.search).get('screen'); if (requested === 'client' || requested === 'clients') showScreen(requested);
+  </script>
+</body>
+</html>
