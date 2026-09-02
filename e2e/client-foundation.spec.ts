@@ -856,7 +856,9 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   });
   await page.goto("/klienter");
   await expect(page.getByText("19000101-0202")).toHaveCount(0);
-  await page.getByLabel("Sök klienter", { exact: true }).fill("19000101-0202");
+  await page
+    .getByRole("textbox", { name: "Sök klienter", exact: true })
+    .fill("19000101-0202");
   await page.getByRole("button", { name: "Sök", exact: true }).click();
   await expect(page.getByText("19000101-0202")).toHaveCount(0);
   await expect(

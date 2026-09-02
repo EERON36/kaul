@@ -591,7 +591,7 @@ test("Goal, Follow-up, responsibility, and Journal controls work from the keyboa
   test.setTimeout(90_000);
   const { activeClient, administrator, owner, peer } = fixtures;
   const today = formatStockholmCalendarDate(new Date());
-  const [pauseGoal, firstJournalGoal, secondJournalGoal] = await Promise.all(
+  const [pauseGoal] = await Promise.all(
     [
       "Tangentbordsmål att pausa",
       "Tangentbordsmål ett",
@@ -687,12 +687,13 @@ test("Goal, Follow-up, responsibility, and Journal controls work from the keyboa
   await page
     .getByRole("textbox", { name: "Övrigt", exact: true })
     .fill("Fiktivt tangentbordstest av målval.");
-  const firstGoalCheckbox = page.getByRole("checkbox", {
-    name: new RegExp(firstJournalGoal.title),
-  });
-  const secondGoalCheckbox = page.getByRole("checkbox", {
-    name: new RegExp(secondJournalGoal.title),
-  });
+  const keyboardGoalCheckboxes = page
+    .locator(".journal-goal-options label")
+    .filter({ hasText: /Tangentbordsmål (ett|två)/ })
+    .getByRole("checkbox");
+  await expect(keyboardGoalCheckboxes).toHaveCount(2);
+  const firstGoalCheckbox = keyboardGoalCheckboxes.first();
+  const secondGoalCheckbox = keyboardGoalCheckboxes.nth(1);
   await tabTo(page, firstGoalCheckbox);
   await expectVisibleFocus(firstGoalCheckbox);
   await page.keyboard.press("Space");

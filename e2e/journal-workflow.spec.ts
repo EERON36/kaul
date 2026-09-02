@@ -1175,10 +1175,10 @@ test("Keyboard reaches the Journal editor and signing action with visible focus"
   await expect(newEntry).toBeFocused();
   await page.keyboard.press("Enter");
 
-  const entryType = page.getByLabel("Typ av anteckning");
-  await tabTo(page, entryType);
-  await expect(entryType).toBeFocused();
-  const focusStyle = await entryType.evaluate((element) => {
+  const healthContent = page.getByLabel("Hälsa", { exact: true });
+  await tabTo(page, healthContent);
+  await expect(healthContent).toBeFocused();
+  const focusStyle = await healthContent.evaluate((element) => {
     const style = getComputedStyle(element);
     return {
       outlineStyle: style.outlineStyle,
@@ -1187,6 +1187,15 @@ test("Keyboard reaches the Journal editor and signing action with visible focus"
   });
   expect(focusStyle.outlineStyle).not.toBe("none");
   expect(Number.parseFloat(focusStyle.outlineWidth)).toBeGreaterThan(0);
+
+  const content = page.getByLabel("Övrigt", { exact: true });
+  await tabTo(page, content, 6);
+  await expect(content).toBeFocused();
+  await content.fill("Fiktiv anteckning för permanent tangentbordstest.");
+
+  const entryType = page.getByLabel("Typ av anteckning");
+  await tabTo(page, entryType, 3);
+  await expect(entryType).toBeFocused();
   await entryType.selectOption("CONVERSATION");
 
   const eventDate = page.getByLabel("Datum för händelsen");
@@ -1198,11 +1207,6 @@ test("Keyboard reaches the Journal editor and signing action with visible focus"
   await tabTo(page, eventTime, 6);
   await expect(eventTime).toBeFocused();
   await eventTime.fill("11:20");
-
-  const content = page.getByLabel("Övrigt", { exact: true });
-  await tabTo(page, content, 6);
-  await expect(content).toBeFocused();
-  await content.fill("Fiktiv anteckning för permanent tangentbordstest.");
 
   const save = page.getByRole("button", { name: "Spara utkast" });
   await tabTo(page, save, 3);
