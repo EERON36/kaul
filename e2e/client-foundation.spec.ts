@@ -777,7 +777,7 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
   await page.getByRole("link", { name: /Före Redigering/ }).click();
 
-  await page.getByRole("button", { name: "Redigera klient" }).click();
+  await page.getByRole("link", { name: "Redigera klientuppgifter" }).click();
   await expect(page.getByLabel("Personnummer", { exact: true })).toHaveValue(
     "19000101-0101",
   );
@@ -871,7 +871,7 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   ).toBeVisible();
 
   await page.goto(`/klienter/${editedClient.id}`);
-  await page.getByRole("button", { name: "Redigera klient" }).click();
+  await page.getByRole("link", { name: "Redigera klientuppgifter" }).click();
   await page.getByLabel("Förnamn").fill("Får inte");
   await page.getByLabel("Efternamn").fill("Sparas");
   await page.getByLabel("Personreferens").fill("e2e-edit-conflict");
@@ -910,7 +910,7 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   await logIn(staffPage, primaryEmail, "192.0.2.187");
   await staffPage.goto(`/klienter/${editedClient.id}`);
   await expect(
-    staffPage.getByRole("button", { name: "Redigera klient" }),
+    staffPage.getByRole("link", { name: "Redigera klientuppgifter" }),
   ).toHaveCount(0);
 
   const directMutation = await staffPage.evaluate(async (request) => {
@@ -955,7 +955,7 @@ test("Client editing remains functional at a 375px viewport", async ({
     where: { personIdentifier: "E2E-EDIT-UPDATED" },
   });
   await page.goto(`/klienter/${client.id}`);
-  await page.getByRole("button", { name: "Redigera klient" }).click();
+  await page.getByRole("link", { name: "Redigera klientuppgifter" }).click();
 
   await expect(page.getByLabel("Förnamn")).toBeVisible();
   await expect(page.getByLabel("Efternamn")).toBeVisible();
@@ -1079,7 +1079,7 @@ test("Administrator archives only after ending all Assignments while Staff remai
   await expect(page.getByText("Fiktiv Primär")).toBeVisible();
   await expect(page.getByText("Fiktiv Sekundär")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Redigera klient" }),
+    page.getByRole("link", { name: "Redigera klientuppgifter" }),
   ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Lägg till tilldelning" }),

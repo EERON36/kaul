@@ -883,16 +883,17 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
       status: "SIGNED",
     },
   });
+  expect(signedOriginal.otherContent).not.toBeNull();
   await administratorPage.goto(
     `/klienter/${signedClient.id}/anteckningar/${signedOriginal.id}`,
   );
   await expect(
-    administratorPage.getByText(signedOriginal.content),
+    administratorPage.getByText(signedOriginal.otherContent!),
   ).toBeVisible();
   await peerPage.goto(
     `/klienter/${signedClient.id}/anteckningar/${signedOriginal.id}`,
   );
-  await expect(peerPage.getByText(signedOriginal.content)).toBeVisible();
+  await expect(peerPage.getByText(signedOriginal.otherContent!)).toBeVisible();
   await prisma.assignment.updateMany({
     where: {
       clientId: signedClient.id,

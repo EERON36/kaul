@@ -320,15 +320,16 @@ test("shared monthly report draft can be saved, signed, and replaced", async ({
     },
   });
   await page.getByRole("button", { name: "Skapa ersättningsrapport" }).click();
-  const replacement = await prisma.monthlyReport.findFirstOrThrow({
-    where: {
-      clientId: fixtures.client.id,
-      replacesReportId: signedReport.id,
-    },
+  await expect(page).toHaveURL(/\/manadsrapporter\/utkast\/[0-9a-f-]+$/);
+  const replacementId = new URL(page.url()).pathname.split("/").at(-1);
+  expect(replacementId).toBeTruthy();
+  const replacement = await prisma.monthlyReport.findUniqueOrThrow({
+    where: { id: replacementId! },
   });
-  await expect(page).toHaveURL(
-    new RegExp(`/manadsrapporter/utkast/${replacement.id}$`),
-  );
+  expect(replacement).toMatchObject({
+    clientId: fixtures.client.id,
+    replacesReportId: signedReport.id,
+  });
   await expect(
     page.getByRole("heading", { name: "Månadsrapport Augusti 2026" }),
   ).toBeVisible();

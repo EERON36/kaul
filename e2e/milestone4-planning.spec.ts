@@ -685,7 +685,7 @@ test("Goal, Follow-up, responsibility, and Journal controls work from the keyboa
 
   await page.goto(`/klienter/${activeClient.id}/anteckningar/utkast`);
   await page
-    .getByRole("textbox", { name: "Anteckning", exact: true })
+    .getByRole("textbox", { name: "Övrigt", exact: true })
     .fill("Fiktivt tangentbordstest av målval.");
   const firstGoalCheckbox = page.getByRole("checkbox", {
     name: new RegExp(firstJournalGoal.title),
@@ -981,7 +981,7 @@ test("Journal Goal snapshots remain optional, immutable, keyboard usable, and mo
   await logIn(page, peerEmail, "192.0.2.235");
   await page.goto(`/klienter/${activeClient.id}/anteckningar/utkast`);
   await page
-    .getByRole("textbox", { name: "Anteckning", exact: true })
+    .getByRole("textbox", { name: "Övrigt", exact: true })
     .fill("Fiktiv anteckning utan mål.");
   await page.getByRole("button", { name: "Granska inför signering" }).click();
   await expect(page.getByText("Inga mål är valda.")).toBeVisible();
@@ -993,7 +993,7 @@ test("Journal Goal snapshots remain optional, immutable, keyboard usable, and mo
 
   await page.goto(`/klienter/${activeClient.id}/anteckningar/utkast`);
   await page
-    .getByRole("textbox", { name: "Anteckning", exact: true })
+    .getByRole("textbox", { name: "Övrigt", exact: true })
     .fill("Fiktiv anteckning med två mål.");
   await page.getByRole("checkbox", { name: new RegExp(longGoalTitle) }).check();
   await page
