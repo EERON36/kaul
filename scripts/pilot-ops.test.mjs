@@ -797,8 +797,16 @@ describe("Pilot operator safety controls", () => {
     expect(validateWorkflow).toContain("backup-rehearsal:");
     expect(validateWorkflow).toContain("runs-on: ubuntu-latest");
     expect(validateWorkflow).toContain("scripts/install-pinned-restic-ci.sh");
-    expect(validateWorkflow).toContain("getent passwd 1000");
+    expect(validateWorkflow).toContain("set -o pipefail");
+    expect(validateWorkflow).toContain(
+      "if operator_entry=$(getent passwd 1000)",
+    );
+    expect(validateWorkflow).toContain("operator_name=${operator_entry%%:*}");
+    expect(validateWorkflow).toContain("kaul-backup-ci-checkout.XXXXXX");
+    expect(validateWorkflow).toContain("--exclude='./.git'");
+    expect(validateWorkflow).toContain("--exclude='./.next'");
     expect(validateWorkflow).toContain('sudo --user "$KAUL_CI_OPERATOR"');
+    expect(validateWorkflow).toContain('bash "$KAUL_CI_OPERATOR_WORKSPACE"');
     expect(validateWorkflow).toContain(
       'PATH="/usr/local/kaul-backup-tools:$PATH"',
     );

@@ -57,21 +57,32 @@ jobs:
 
       - name: Prepare the pinned Pilot operator identity
         run: |
-          operator_name=$(getent passwd 1000 | cut -d: -f1)
+          set -o pipefail
+          operator_name=
+          if operator_entry=$(getent passwd 1000); then
+            operator_name=${operator_entry%%:*}
+          fi
           if [ -z "$operator_name" ]; then
             operator_name=kaul-ci-operator
             sudo useradd --uid 1000 --create-home "$operator_name"
           fi
           docker_group=$(stat --format='%G' /var/run/docker.sock)
           sudo usermod --append --groups "$docker_group" "$operator_name"
+          operator_workspace=$(sudo --user "$operator_name" -- \
+            mktemp --directory --tmpdir kaul-backup-ci-checkout.XXXXXX)
+          tar --exclude='./.git' --exclude='./.next' --create --file=- . | \
+            sudo --user "$operator_name" -- \
+              tar --extract --file=- --directory="$operator_workspace"
           printf 'KAUL_CI_OPERATOR=%s\n' "$operator_name" >> "$GITHUB_ENV"
+          printf 'KAUL_CI_OPERATOR_WORKSPACE=%s\n' "$operator_workspace" >> "$GITHUB_ENV"
 
       - name: Rehearse append-only backup and exact restore
         run: |
           sudo --user "$KAUL_CI_OPERATOR" -- \
             env PATH="/usr/local/kaul-backup-tools:$PATH" \
             GITHUB_RUN_ID="$GITHUB_RUN_ID" \
-            scripts/pilot-backup-rehearsal.sh
+            bash -c 'cd "$1" && exec scripts/pilot-backup-rehearsal.sh' \
+            bash "$KAUL_CI_OPERATOR_WORKSPACE"
 
   validate:
     runs-on: ubuntu-latest
