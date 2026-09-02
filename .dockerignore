@@ -10,6 +10,7 @@ out
 coverage
 playwright-report
 test-results
+test-fixtures
 backups
 uploads
 tmp

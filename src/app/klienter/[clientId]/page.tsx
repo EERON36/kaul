@@ -12,6 +12,7 @@ import {
 import { getAssignmentResponsibilityLabel } from "@/modules/clients/client-presentation";
 import {
   getClientEditingDetails,
+  getClientPersonalIdentityNumberForEditing,
   getClientSensitiveSummary,
   listAssignableStaff,
 } from "@/modules/clients/clients";
@@ -136,15 +137,19 @@ export default async function ClientPage({
 
   const isArchived = result.client.status === "ARCHIVED";
   const editRequested = query.redigera === "ja";
-  const [sensitiveSummary, staff, editingDetails] = await Promise.all([
-    getClientSensitiveSummary(clientId),
-    result.user.role === "ADMINISTRATOR" && !isArchived
-      ? listAssignableStaff()
-      : Promise.resolve([]),
-    result.user.role === "ADMINISTRATOR" && !isArchived && editRequested
-      ? getClientEditingDetails(clientId)
-      : Promise.resolve(null),
-  ]);
+  const [sensitiveSummary, staff, editingDetails, personalIdentityNumber] =
+    await Promise.all([
+      getClientSensitiveSummary(clientId),
+      result.user.role === "ADMINISTRATOR" && !isArchived
+        ? listAssignableStaff()
+        : Promise.resolve([]),
+      result.user.role === "ADMINISTRATOR" && !isArchived && editRequested
+        ? getClientEditingDetails(clientId)
+        : Promise.resolve(null),
+      result.user.role === "ADMINISTRATOR" && !isArchived && editRequested
+        ? getClientPersonalIdentityNumberForEditing(clientId)
+        : Promise.resolve(null),
+    ]);
   const formatDate = (date: Date) =>
     new Intl.DateTimeFormat("sv-SE", {
       dateStyle: "long",
@@ -233,7 +238,7 @@ export default async function ClientPage({
         {result.user.role === "ADMINISTRATOR" && !isArchived ? (
           editRequested && editingDetails ? (
             <ClientEdit
-              client={editingDetails}
+              client={{ ...editingDetails, personalIdentityNumber }}
               operationId={generateAuditOperationId()}
               startEditing
             />

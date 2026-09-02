@@ -66,6 +66,10 @@ done
 umask 077
 printf '%s\n' 'fictional-ci-restic-encryption-password-2026' > "$PASSWORD_FILE"
 chmod 600 "$PASSWORD_FILE"
+PERSONNUMMER_KEYRING_FILE="$WORK_DIRECTORY/personnummer-keyring.json"
+printf '%s\n' '{"formatVersion":1,"activeKeyId":"fictional-ci-key","keys":[{"id":"fictional-ci-key","key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}]}' > "$PERSONNUMMER_KEYRING_FILE"
+chmod 400 "$PERSONNUMMER_KEYRING_FILE"
+export KAUL_PERSONNUMMER_KEYRING_FILE="$PERSONNUMMER_KEYRING_FILE"
 
 cat > "$ENV_FILE" <<EOF
 COMPOSE_PROJECT_NAME=$PROJECT_NAME
@@ -77,6 +81,7 @@ PILOT_NPM_TRUSTED_PROXY_CIDR=192.168.50.10/32
 DEPLOYMENT_ENV=pilot
 BETTER_AUTH_URL=https://pilot-ci.invalid
 BETTER_AUTH_SECRET=fictional-ci-auth-secret-2026-000000000000
+KAUL_PERSONNUMMER_KEYRING_HOST_FILE=$PERSONNUMMER_KEYRING_FILE
 POSTGRES_ADMIN_USER=kaul_pilot_admin
 POSTGRES_ADMIN_PASSWORD=fictional-ci-admin-secret-2026-000000000
 KAUL_DB_USER=kaul_pilot_app
@@ -124,6 +129,12 @@ CREATE TABLE "_prisma_migrations" (id text PRIMARY KEY);
 INSERT INTO "_prisma_migrations" (id) VALUES ('fictional-ci-migration');
 SQL
 
+node --import tsx "$SCRIPT_DIR/verify-personnummer-backup-envelope.ts" create-fixture |
+  compose exec -T postgres psql \
+    --username=kaul_pilot_app \
+    --dbname=kaul_pilot_ci \
+    --set=ON_ERROR_STOP=1
+
 backup_output=$("$SCRIPT_DIR/pilot-ops.sh" backup --env-file "$ENV_FILE")
 snapshot_id=$(printf '%s\n' "$backup_output" |
   sed -n 's/^Backup snapshot created and validated: \([0-9a-f]\{64\}\)$/\1/p')
@@ -133,6 +144,12 @@ printf '%s\n' "$snapshot_id" | grep -Eq '^[0-9a-f]{64}$'
 "$SCRIPT_DIR/pilot-ops.sh" validate-backup \
   --env-file "$ENV_FILE" \
   --snapshot "$snapshot_id"
+
+if restic dump "$snapshot_id" /kaul-pilot.dump |
+  grep -aF '20000101-1234' >/dev/null; then
+  printf 'ERROR: Plaintext Personnummer was found in the database backup.\n' >&2
+  exit 1
+fi
 
 if find "$WORK_DIRECTORY" -type f -name '*.dump' -print -quit | grep -q .; then
   printf 'ERROR: A completed plaintext dump file was found.\n' >&2
@@ -173,6 +190,59 @@ restored_marker=$(compose exec -T postgres psql \
   --no-align \
   --command='SELECT marker FROM backup_rehearsal_fixture WHERE id = 1;')
 [ "$restored_marker" = fictional-restic-round-trip ]
+
+compose exec -T postgres psql \
+  --username=kaul_pilot_app \
+  --dbname=kaul_restore_ci \
+  --tuples-only \
+  --no-align \
+  --command='SELECT json_build_object(
+    '\''encryptionVersion'\'', "encryptionVersion",
+    '\''keyId'\'', "keyId",
+    '\''nonce'\'', encode("nonce", '\''base64'\''),
+    '\''ciphertext'\'', encode("ciphertext", '\''base64'\''),
+    '\''authenticationTag'\'', encode("authenticationTag", '\''base64'\'')
+  ) FROM "clientPersonalIdentityNumber";' |
+  node --import tsx "$SCRIPT_DIR/verify-personnummer-backup-envelope.ts" verify-fixture
+
+WRONG_KEYRING_FILE="$WORK_DIRECTORY/wrong-personnummer-keyring.json"
+printf '%s\n' '{"formatVersion":1,"activeKeyId":"fictional-ci-key","keys":[{"id":"fictional-ci-key","key":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"}]}' > "$WRONG_KEYRING_FILE"
+chmod 400 "$WRONG_KEYRING_FILE"
+if compose exec -T postgres psql \
+  --username=kaul_pilot_app \
+  --dbname=kaul_restore_ci \
+  --tuples-only \
+  --no-align \
+  --command='SELECT json_build_object(
+    '\''encryptionVersion'\'', "encryptionVersion",
+    '\''keyId'\'', "keyId",
+    '\''nonce'\'', encode("nonce", '\''base64'\''),
+    '\''ciphertext'\'', encode("ciphertext", '\''base64'\''),
+    '\''authenticationTag'\'', encode("authenticationTag", '\''base64'\'')
+  ) FROM "clientPersonalIdentityNumber";' |
+  KAUL_PERSONNUMMER_KEYRING_FILE="$WRONG_KEYRING_FILE" \
+    node --import tsx "$SCRIPT_DIR/verify-personnummer-backup-envelope.ts" verify-fixture; then
+  printf 'ERROR: Restored Personnummer accepted the wrong key.\n' >&2
+  exit 1
+fi
+
+if compose exec -T postgres psql \
+  --username=kaul_pilot_app \
+  --dbname=kaul_restore_ci \
+  --tuples-only \
+  --no-align \
+  --command='SELECT json_build_object(
+    '\''encryptionVersion'\'', "encryptionVersion",
+    '\''keyId'\'', "keyId",
+    '\''nonce'\'', encode("nonce", '\''base64'\''),
+    '\''ciphertext'\'', encode("ciphertext", '\''base64'\''),
+    '\''authenticationTag'\'', encode("authenticationTag", '\''base64'\'')
+  ) FROM "clientPersonalIdentityNumber";' |
+  KAUL_PERSONNUMMER_KEYRING_FILE="$WORK_DIRECTORY/missing-keyring.json" \
+    node --import tsx "$SCRIPT_DIR/verify-personnummer-backup-envelope.ts" verify-fixture; then
+  printf 'ERROR: Restored Personnummer accepted a missing keyring.\n' >&2
+  exit 1
+fi
 
 if restic forget "$snapshot_id" >/dev/null 2>&1; then
   printf 'ERROR: The append-only writer deleted a snapshot.\n' >&2

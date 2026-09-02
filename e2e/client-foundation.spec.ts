@@ -48,6 +48,9 @@ async function cleanupFixtures(): Promise<void> {
     await prisma.assignment.deleteMany({
       where: { organisationId: { in: organisationIds } },
     });
+    await prisma.clientPersonalIdentityNumber.deleteMany({
+      where: { organisationId: { in: organisationIds } },
+    });
     await prisma.client.deleteMany({
       where: { organisationId: { in: organisationIds } },
     });
@@ -906,12 +909,25 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
     lastName: "Redigering",
     personIdentifier: "E2E-EDIT-UPDATED",
     category: "YOUTH",
-    personalIdentityNumber: "19000101-0202",
+    personalIdentityNumberLegacyPlaintext: null,
     placingUnit: "Uppdaterad placerande enhet",
     legalBasis: "LVU 1 §",
     responsibleSocialWorkerName: "Uppdaterad socialsekreterare",
     responsibleSocialWorkerPhone: "010-987 65 43",
     responsibleSocialWorkerEmail: "uppdaterad.socialsekreterare@example.test",
+  });
+  await expect(
+    prisma.clientPersonalIdentityNumber.findUniqueOrThrow({
+      where: {
+        organisationId_clientId: {
+          organisationId: editedClient.organisationId,
+          clientId: editedClient.id,
+        },
+      },
+    }),
+  ).resolves.toMatchObject({
+    encryptionVersion: 1,
+    keyId: "fictional-test-key",
   });
 
   await page

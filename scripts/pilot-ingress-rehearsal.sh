@@ -142,6 +142,9 @@ PY
 )
 
 umask 077
+PERSONNUMMER_KEYRING_FILE="$WORK_DIRECTORY/personnummer-keyring.json"
+printf '%s\n' '{"formatVersion":1,"activeKeyId":"fictional-ci-key","keys":[{"id":"fictional-ci-key","key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}]}' > "$PERSONNUMMER_KEYRING_FILE"
+chmod 400 "$PERSONNUMMER_KEYRING_FILE"
 cat > "$STUB_CADDYFILE" <<'EOF'
 :3000 {
 	respond "{http.request.host}|{http.request.header.X-Real-IP}|{http.request.header.X-Forwarded-For}|{http.request.header.X-Forwarded-Host}|{http.request.header.X-Forwarded-Proto}|{http.request.header.Forwarded}|{http.request.header.CF-Connecting-IP}|{http.request.header.True-Client-IP}" 200
@@ -158,6 +161,7 @@ PILOT_NPM_TRUSTED_PROXY_CIDR=$NPM_PEER_IP/32
 DEPLOYMENT_ENV=pilot
 BETTER_AUTH_URL=https://pilot-ci.invalid
 BETTER_AUTH_SECRET=fictional-ci-auth-secret-2026-000000000000
+KAUL_PERSONNUMMER_KEYRING_HOST_FILE=$PERSONNUMMER_KEYRING_FILE
 POSTGRES_ADMIN_USER=kaul_pilot_admin
 POSTGRES_ADMIN_PASSWORD=fictional-ci-admin-secret-2026-000000000
 KAUL_DB_USER=kaul_pilot_app

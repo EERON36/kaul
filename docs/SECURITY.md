@@ -130,6 +130,17 @@ Examples:
 
 Highly sensitive information requires the strongest access, logging, storage, export, and backup controls.
 
+Personnummer uses the separate authenticated-encryption boundary defined by
+[ADR 0003](decisions/0003-personnummer-envelope-encryption.md). It must remain
+absent from ordinary Client projections, search, URLs, logs, and audit metadata.
+Only the authorised Administrator edit path may decrypt it. Database backups
+contain ciphertext; the separately controlled historical keyring is also
+required for recovery.
+Application health remains unavailable while legacy Personnummer plaintext
+awaits conversion or a representative stored envelope cannot authenticate with
+its configured key. Health responses remain generic and the compatibility
+result is cached for the process lifetime.
+
 ---
 
 ## Authentication

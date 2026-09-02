@@ -21,6 +21,7 @@ import {
   createClientInternal,
   endAssignmentInternal,
   getClientEditingDetailsInternal,
+  getClientPersonalIdentityNumberForEditingInternal,
   getClientSensitiveSummaryInternal,
   listAssignableStaffInternal,
   listArchivedClientsInternal,
@@ -56,6 +57,13 @@ export async function getClientSensitiveSummary(clientId: string) {
 export async function getClientEditingDetails(clientId: string) {
   const actor = await requireAdministrator();
   return getClientEditingDetailsInternal(actor, clientId);
+}
+
+export async function getClientPersonalIdentityNumberForEditing(
+  clientId: string,
+) {
+  const actor = await requireAdministrator();
+  return getClientPersonalIdentityNumberForEditingInternal(actor, clientId);
 }
 
 export async function listAssignedClientsForHome(): Promise<{

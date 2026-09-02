@@ -25,6 +25,10 @@ import {
 } from "./client-access";
 import { lockClientForMutation } from "./client-mutation-lock";
 import {
+  readPersonalIdentityNumber,
+  writePersonalIdentityNumber,
+} from "./personal-identity-number";
+import {
   archiveClientInputSchema,
   canonicalizePersonIdentifier,
   createAssignmentInputSchema,
@@ -77,7 +81,6 @@ export type ClientEditingDetails = Readonly<{
   firstName: string;
   lastName: string;
   personIdentifier: string;
-  personalIdentityNumber: string | null;
   placingUnit: string | null;
   legalBasis: string | null;
   responsibleSocialWorkerName: string | null;
@@ -214,7 +217,6 @@ type EditableClientFields = Readonly<{
   firstName: string;
   lastName: string;
   personIdentifier: string;
-  personalIdentityNumber: string | null;
   placingUnit: string | null;
   legalBasis: string | null;
   responsibleSocialWorkerName: string | null;
@@ -226,12 +228,14 @@ type EditableClientFields = Readonly<{
 function clientEditableFieldsEqual(
   current: EditableClientFields,
   next: EditableClientFields,
+  currentPersonalIdentityNumber: string | null,
+  nextPersonalIdentityNumber: string | null,
 ): boolean {
   return (
     current.firstName === next.firstName &&
     current.lastName === next.lastName &&
     current.personIdentifier === next.personIdentifier &&
-    current.personalIdentityNumber === next.personalIdentityNumber &&
+    currentPersonalIdentityNumber === nextPersonalIdentityNumber &&
     current.placingUnit === next.placingUnit &&
     current.legalBasis === next.legalBasis &&
     current.responsibleSocialWorkerName === next.responsibleSocialWorkerName &&
@@ -252,7 +256,9 @@ export async function getClientSensitiveSummaryInternal(
       id: clientId,
       ...getClientDetailAccessWhere(actor),
     },
-    select: { personalIdentityNumber: true },
+    select: {
+      personalIdentityNumber: { select: { clientId: true } },
+    },
   });
 
   if (!client) throw new ClientManagementError("TARGET_UNAVAILABLE");
@@ -276,7 +282,6 @@ export async function getClientEditingDetailsInternal(
       firstName: true,
       lastName: true,
       personIdentifier: true,
-      personalIdentityNumber: true,
       placingUnit: true,
       legalBasis: true,
       responsibleSocialWorkerName: true,
@@ -288,6 +293,25 @@ export async function getClientEditingDetailsInternal(
 
   if (!client) throw new ClientManagementError("TARGET_UNAVAILABLE");
   return client;
+}
+
+export async function getClientPersonalIdentityNumberForEditingInternal(
+  actor: AdministratorUser,
+  clientId: string,
+): Promise<string | null> {
+  const client = await prisma.client.findFirst({
+    where: {
+      id: clientId,
+      organisationId: actor.organisationId,
+      status: { not: ClientStatus.ARCHIVED },
+    },
+    select: { id: true, organisationId: true },
+  });
+  if (!client) throw new ClientManagementError("TARGET_UNAVAILABLE");
+  return readPersonalIdentityNumber(prisma, {
+    organisationId: client.organisationId,
+    clientId: client.id,
+  });
 }
 
 async function finishFailed(
@@ -513,7 +537,6 @@ export async function createClientInternal(
             firstName: parsed.firstName,
             lastName: parsed.lastName,
             personIdentifier: parsed.personIdentifier,
-            personalIdentityNumber: parsed.personalIdentityNumber,
             placingUnit: parsed.placingUnit,
             legalBasis: parsed.legalBasis,
             responsibleSocialWorkerName: parsed.responsibleSocialWorkerName,
@@ -551,6 +574,12 @@ export async function createClientInternal(
         throw new DefinitiveMutationError();
       }
 
+      await writePersonalIdentityNumber(
+        transaction,
+        { organisationId: actor.organisationId, clientId },
+        parsed.personalIdentityNumber,
+      );
+
       await dependencies.afterBusinessMutation?.();
 
       await appendAuditOutcomeInTransaction(
@@ -582,7 +611,6 @@ export async function updateClientInternal(
     firstName: parsed.firstName,
     lastName: parsed.lastName,
     personIdentifier: parsed.personIdentifier,
-    personalIdentityNumber: parsed.personalIdentityNumber,
     placingUnit: parsed.placingUnit,
     legalBasis: parsed.legalBasis,
     responsibleSocialWorkerName: parsed.responsibleSocialWorkerName,
@@ -600,7 +628,6 @@ export async function updateClientInternal(
       firstName: true,
       lastName: true,
       personIdentifier: true,
-      personalIdentityNumber: true,
       placingUnit: true,
       legalBasis: true,
       responsibleSocialWorkerName: true,
@@ -617,7 +644,18 @@ export async function updateClientInternal(
   if (preflightClient.status === ClientStatus.ARCHIVED) {
     throw new ClientManagementError("TARGET_UNAVAILABLE");
   }
-  if (clientEditableFieldsEqual(preflightClient, nextFields)) {
+  const preflightPersonalIdentityNumber = await readPersonalIdentityNumber(
+    prisma,
+    { organisationId: actor.organisationId, clientId: parsed.clientId },
+  );
+  if (
+    clientEditableFieldsEqual(
+      preflightClient,
+      nextFields,
+      preflightPersonalIdentityNumber,
+      parsed.personalIdentityNumber,
+    )
+  ) {
     return { changed: false, client: preflightClient };
   }
 
@@ -643,7 +681,6 @@ export async function updateClientInternal(
           firstName: true,
           lastName: true,
           personIdentifier: true,
-          personalIdentityNumber: true,
           placingUnit: true,
           legalBasis: true,
           responsibleSocialWorkerName: true,
@@ -660,7 +697,18 @@ export async function updateClientInternal(
       if (current.status === ClientStatus.ARCHIVED) {
         throw new DefinitiveMutationError("TARGET_UNAVAILABLE");
       }
-      if (clientEditableFieldsEqual(current, nextFields)) {
+      const currentPersonalIdentityNumber = await readPersonalIdentityNumber(
+        transaction,
+        { organisationId: actor.organisationId, clientId: parsed.clientId },
+      );
+      if (
+        clientEditableFieldsEqual(
+          current,
+          nextFields,
+          currentPersonalIdentityNumber,
+          parsed.personalIdentityNumber,
+        )
+      ) {
         throw new DefinitiveMutationError("NO_CHANGES");
       }
 
@@ -683,6 +731,11 @@ export async function updateClientInternal(
             status: true,
           },
         });
+        await writePersonalIdentityNumber(
+          transaction,
+          { organisationId: actor.organisationId, clientId: parsed.clientId },
+          parsed.personalIdentityNumber,
+        );
       } catch (error) {
         throw new DefinitiveMutationError(
           isUpdateDuplicateClientIdentifierError(error)

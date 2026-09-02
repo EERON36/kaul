@@ -24,12 +24,16 @@ RUN set -eu; \
     export DEPLOYMENT_ENV="test"; \
     export BETTER_AUTH_SECRET="fictional-container-build-value-not-a-runtime-secret"; \
     export BETTER_AUTH_URL="http://127.0.0.1:3000"; \
+    printf '%s\n' '{"formatVersion":1,"activeKeyId":"fictional-build-key","keys":[{"id":"fictional-build-key","key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}]}' > /tmp/kaul-fictional-keyring.json; \
+    export KAUL_PERSONNUMMER_KEYRING_FILE="/tmp/kaul-fictional-keyring.json"; \
     npm run prisma:generate; \
     npm run build
 
 FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS runtime
 
-RUN apt-get update \
+RUN test "$(id -u node)" = 1000 \
+    && test "$(id -g node)" = 1000 \
+    && apt-get update \
     && apt-get install --yes --no-install-recommends openssl \
     && rm -rf /var/lib/apt/lists/*
 

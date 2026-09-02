@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -15,6 +16,9 @@ const fictionalEnvironment = {
   DEPLOYMENT_ENV: "test",
   BETTER_AUTH_SECRET: "fictional-container-build-value-not-a-runtime-secret",
   BETTER_AUTH_URL: "http://127.0.0.1:3000",
+  KAUL_PERSONNUMMER_KEYRING_FILE: fileURLToPath(
+    new URL("../test-fixtures/personnummer-keyring.json", import.meta.url),
+  ),
 };
 
 function operatorCommand(name) {

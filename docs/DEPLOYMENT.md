@@ -518,6 +518,10 @@ The exact names will be defined during implementation.
 - Do not require source-code changes when moving between supported environments.
 - Back up necessary non-secret configuration documentation.
 - Store production secrets in an approved secret-management method.
+- Keep the Personnummer keyring outside Git and outside the database backup.
+  Supply only its file path to Kaul, mount the file read-only for the non-root
+  application identity, and retain every old key required by live rows or
+  retained backups. See [ADR 0003](decisions/0003-personnummer-envelope-encryption.md).
 
 ---
 

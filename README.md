@@ -59,7 +59,10 @@ Zod, Tailwind CSS, Vitest, Playwright, Docker Compose, and GitHub Actions.
 
 ## Start development
 
-1. Copy `.env.example` to `.env`; keep fictional local values only.
+1. Copy `.env.example` to `.env`; keep fictional local values only. Set
+   `KAUL_PERSONNUMMER_KEYRING_FILE` to an absolute path. The committed
+   `test-fixtures/personnummer-keyring.json` is fictional and may be used only
+   for local development and automated tests; never reuse it elsewhere.
 2. Start PostgreSQL:
 
    ```powershell

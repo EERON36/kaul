@@ -23,6 +23,7 @@ RESTIC_DUMP_PID=
 BACKUP_FILENAME=kaul-pilot.dump
 PINNED_RESTIC_VERSION=0.19.1
 MINIMUM_DATABASE_PASSWORD_LENGTH=32
+PINNED_APPLICATION_UID=1000
 CARRIAGE_RETURN=$(printf '\r')
 OPERATION_LOCK_HELD=false
 LOCKED_COMPOSE_PROJECT=
@@ -37,6 +38,7 @@ PILOT_NPM_TRUSTED_PROXY_CIDR
 DEPLOYMENT_ENV
 BETTER_AUTH_URL
 BETTER_AUTH_SECRET
+KAUL_PERSONNUMMER_KEYRING_HOST_FILE
 POSTGRES_ADMIN_USER
 POSTGRES_ADMIN_PASSWORD
 KAUL_DB_USER
@@ -91,6 +93,7 @@ Usage:
   scripts/pilot-ops.sh stop-restore-check --env-file PATH
   scripts/pilot-ops.sh migrate --env-file PATH
   scripts/pilot-ops.sh migrate-pristine --env-file PATH
+  scripts/pilot-ops.sh convert-personnummer --env-file PATH
   scripts/pilot-ops.sh update --env-file PATH
   scripts/pilot-ops.sh start-postgres --env-file PATH
   scripts/pilot-ops.sh bootstrap-admin --env-file PATH
@@ -231,6 +234,34 @@ validate_environment_file() {
   ' "$ENV_FILE" || exit 1
 }
 
+validate_personnummer_keyring_file() {
+  [ "$(id -u)" -eq "$PINNED_APPLICATION_UID" ] ||
+    die "The dedicated Pilot operator UID must match the Kaul runtime UID $PINNED_APPLICATION_UID."
+  keyring_file=$(environment_value KAUL_PERSONNUMMER_KEYRING_HOST_FILE)
+  case "$keyring_file" in
+    /*) ;;
+    *) die "KAUL_PERSONNUMMER_KEYRING_HOST_FILE must be an absolute path." ;;
+  esac
+
+  perl -MFcntl=:DEFAULT,:mode -e '
+    use strict;
+    use warnings;
+
+    my ($path) = @ARGV;
+    sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+      or die "ERROR: The Personnummer keyring must be readable and not a symlink.\n";
+    my @stat = stat($file);
+    S_ISREG($stat[2])
+      or die "ERROR: The Personnummer keyring must be a regular file.\n";
+    $stat[4] == $<
+      or die "ERROR: The Personnummer keyring must be owned by the dedicated Pilot operator.\n";
+    if ($^O ne q{msys} && $^O ne q{cygwin}) {
+      ($stat[2] & 0777) == 0400
+        or die "ERROR: The Personnummer keyring must have mode 0400.\n";
+    }
+  ' "$keyring_file" || exit 1
+}
+
 load_compose_project() {
   [ -r "$ENV_FILE" ] || die "A readable --env-file is required."
   command -v awk >/dev/null 2>&1 || die "awk is required."
@@ -246,7 +277,7 @@ load_compose_project() {
 
 command_requires_operation_lock() {
   case "$1" in
-    backup|restore|start-restore-check|stop-restore-check|migrate|migrate-pristine|update|start-postgres|bootstrap-admin|start-stack) return 0 ;;
+    backup|restore|start-restore-check|stop-restore-check|migrate|migrate-pristine|convert-personnummer|update|start-postgres|bootstrap-admin|start-stack) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -620,6 +651,7 @@ preflight() {
   load_compose_project
   [ -r "$COMPOSE_FILE" ] || die "Pilot Compose file not found: $COMPOSE_FILE"
   command -v docker >/dev/null 2>&1 || die "Docker is required."
+  command -v id >/dev/null 2>&1 || die "id is required."
   command -v awk >/dev/null 2>&1 || die "awk is required."
   command -v grep >/dev/null 2>&1 || die "grep is required."
   command -v mktemp >/dev/null 2>&1 || die "mktemp is required."
@@ -632,6 +664,7 @@ preflight() {
 
   deployment_environment=$(environment_value DEPLOYMENT_ENV)
   [ "$deployment_environment" = pilot ] || die "DEPLOYMENT_ENV must be pilot."
+  validate_personnummer_keyring_file
 
   image=$(environment_value KAUL_IMAGE)
   if ! printf '%s\n' "$image" | grep -Eq '^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'; then
@@ -1066,6 +1099,13 @@ case "$COMMAND" in
     note "Pristine first-install migration completed without an off-host backup."
     note "Backup readiness remains deferred. This exception cannot be reused after application schema creation."
     note "Kaul remains stopped. Start it deliberately after review."
+    ;;
+  convert-personnummer)
+    preflight
+    compose stop kaul
+    create_backup
+    compose run --rm --no-deps kaul npm run personnummer:convert-legacy -- --confirm-stage-b
+    note "Personnummer conversion completed and Kaul remains stopped. Review counts and run the private restore check before deliberate startup."
     ;;
   update)
     preflight

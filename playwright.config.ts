@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { fileURLToPath } from "node:url";
 
 import { getTestEnvironment } from "./src/test/test-environment";
 
@@ -6,6 +7,11 @@ const testEnvironment = getTestEnvironment();
 const betterAuthSecret =
   process.env.BETTER_AUTH_SECRET ??
   "fictional-playwright-secret-at-least-32-characters";
+const personalIdentityNumberKeyringFile =
+  process.env.KAUL_PERSONNUMMER_KEYRING_FILE ??
+  fileURLToPath(
+    new URL("./test-fixtures/personnummer-keyring.json", import.meta.url),
+  );
 
 export default defineConfig({
   testDir: "./e2e",
@@ -40,6 +46,7 @@ export default defineConfig({
       DEPLOYMENT_ENV: "test",
       BETTER_AUTH_SECRET: betterAuthSecret,
       BETTER_AUTH_URL: testEnvironment.origin,
+      KAUL_PERSONNUMMER_KEYRING_FILE: personalIdentityNumberKeyringFile,
     },
   },
 });

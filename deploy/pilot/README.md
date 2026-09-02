@@ -77,6 +77,26 @@ secrets. Both PostgreSQL passwords must contain at least 32 characters. Never
 paste the rendered Compose configuration into tickets or logs because it
 contains environment values.
 
+Personnummer keys use a separate file boundary. Create the keyring outside the
+checkout, set `KAUL_PERSONNUMMER_KEYRING_HOST_FILE` to its absolute path, and do
+not put its JSON contents in `pilot.env`. The current image runs as the
+non-root `node` identity (numeric UID 1000), so the dedicated Pilot operator and
+the keyring owner must use that same numeric UID. Set the keyring to mode `0400`.
+Preflight rejects relative paths, symlinks, non-regular files, different owners,
+and any group or world access without reading or printing the file contents.
+Compose bind-mounts it read-only into only Kaul and the private restore-check at
+`/run/secrets/kaul-personnummer-keyring.json`; Caddy and PostgreSQL do not receive
+it.
+
+Stage A does not convert existing plaintext automatically. A future authorised
+Pilot change window must run `scripts/pilot-ops.sh convert-personnummer
+--env-file /etc/kaul/pilot.env` after the Stage A migration and before the
+application is made available. The guarded command stops Kaul, creates and
+validates a pre-conversion backup, invokes the explicit converter confirmation,
+and leaves Kaul stopped. Record only its counts. Do not run Stage C until
+conversion, clean restore, and retained-backup key compatibility have been
+verified.
+
 The Gate C firewall policy is a separate non-secret host configuration. It may
 be installed and verified before this complete deployment environment exists.
 When `host-preflight` or `preflight` later runs, it cross-checks the installed
@@ -465,9 +485,13 @@ route public traffic to the restore. Do not copy or modify the Pilot environment
 file and do not use raw Docker Compose for this check.
 
 The command waits for the restored application's database-backed health check.
-That proves image and database startup compatibility only. It does not prove
-login, authorisation, history, audit, or stakeholder acceptance without a
-separately reviewed private interactive-access method.
+That check rejects pending legacy Personnummer plaintext and authenticates one
+representative envelope for every stored version/key-ID pair. A missing key or
+a correctly sized but incorrect key under the same ID therefore keeps the
+restore check unhealthy; it does not decrypt every Personnummer on each probe.
+This proves image, database, and configured-key startup compatibility only. It
+does not prove login, authorisation, history, audit, or stakeholder acceptance
+without a separately reviewed private interactive-access method.
 
 Stop and remove only the private application container after inspection:
 

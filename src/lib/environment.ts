@@ -1,4 +1,8 @@
+import { isAbsolute } from "node:path";
+
 import { z } from "zod";
+
+import { loadPersonalIdentityNumberKeyring } from "./personal-identity-number-keyring";
 
 const databaseUrlSchema = z
   .string()
@@ -38,6 +42,10 @@ export const environmentSchema = z
       .default("development"),
     BETTER_AUTH_SECRET: z.string().min(32),
     BETTER_AUTH_URL: betterAuthUrlSchema,
+    KAUL_PERSONNUMMER_KEYRING_FILE: z
+      .string()
+      .min(1)
+      .refine(isAbsolute, "KAUL_PERSONNUMMER_KEYRING_FILE must be absolute."),
   })
   .superRefine((environment, context) => {
     if (
@@ -99,5 +107,8 @@ let cachedEnvironment: Environment | undefined;
 
 export function getEnvironment(): Environment {
   cachedEnvironment ??= parseEnvironment(process.env);
+  loadPersonalIdentityNumberKeyring(
+    cachedEnvironment.KAUL_PERSONNUMMER_KEYRING_FILE,
+  );
   return cachedEnvironment;
 }

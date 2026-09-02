@@ -1241,6 +1241,13 @@ structured sections without rewriting legacy records, and implements the
 Client-scoped Monthly Report lifecycle. This product work does not authorise a
 deployment or the use of real sensitive information.
 
+Personnummer in this product track uses the separately approved Stage A
+envelope-encryption design in ADR 0003. The schema migration preserves old
+plaintext only as an explicit conversion source; attended Stage B conversion,
+restore proof with retained keys, and separately approved Stage C removal are
+required before that transition is complete. Client Documents remain deferred
+and must later stay Client-scoped.
+
 Pilot Readiness should establish:
 
 - Repeatable deployment to the pilot server through an HTTPS subdomain

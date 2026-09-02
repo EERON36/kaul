@@ -37,19 +37,41 @@ jobs:
 
   backup-rehearsal:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      - name: Set up Node.js for encrypted backup verification
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install application dependencies for backup verification
+        run: npm ci
+
       - name: Install pinned Restic tools
+        run: sudo scripts/install-pinned-restic-ci.sh /usr/local/kaul-backup-tools
+
+      - name: Prepare the pinned Pilot operator identity
         run: |
-          scripts/install-pinned-restic-ci.sh "$RUNNER_TEMP/kaul-backup-tools"
-          printf '%s\n' "$RUNNER_TEMP/kaul-backup-tools" >> "$GITHUB_PATH"
+          operator_name=$(getent passwd 1000 | cut -d: -f1)
+          if [ -z "$operator_name" ]; then
+            operator_name=kaul-ci-operator
+            sudo useradd --uid 1000 --create-home "$operator_name"
+          fi
+          docker_group=$(stat --format='%G' /var/run/docker.sock)
+          sudo usermod --append --groups "$docker_group" "$operator_name"
+          printf 'KAUL_CI_OPERATOR=%s\n' "$operator_name" >> "$GITHUB_ENV"
 
       - name: Rehearse append-only backup and exact restore
-        run: scripts/pilot-backup-rehearsal.sh
+        run: |
+          sudo --user "$KAUL_CI_OPERATOR" -- \
+            env PATH="/usr/local/kaul-backup-tools:$PATH" \
+            GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            scripts/pilot-backup-rehearsal.sh
 
   validate:
     runs-on: ubuntu-latest
@@ -62,6 +84,7 @@ jobs:
       DEPLOYMENT_ENV: test
       BETTER_AUTH_SECRET: fictional-ci-better-auth-secret-at-least-32-characters
       BETTER_AUTH_URL: http://127.0.0.1:3101
+      KAUL_PERSONNUMMER_KEYRING_FILE: ${{ github.workspace }}/test-fixtures/personnummer-keyring.json
 
     services:
       database:
@@ -107,6 +130,17 @@ jobs:
 
       - name: Apply database migrations
         run: npm run db:deploy
+
+      - name: Rehearse Personnummer encryption migration and conversion
+        env:
+          KAUL_TEST_ID: ci_personnummer_migration
+          KAUL_TEST_PORT: 3103
+          DATABASE_URL: postgresql://kaul:ci-development-only@127.0.0.1:5432/kaul_test_ci_personnummer_migration
+          INTEGRATION_DATABASE_URL: postgresql://kaul:ci-development-only@127.0.0.1:5432/kaul_test_ci_personnummer_migration
+          BETTER_AUTH_URL: http://127.0.0.1:3103
+        run: |
+          npm run test:db:create
+          npm run test:migration:personnummer-encryption
 
       - name: Check formatting
         run: npm run format:check

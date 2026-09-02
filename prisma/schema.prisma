@@ -137,33 +137,48 @@ model User {
 }
 
 model Client {
-  id                           String          @id @db.Uuid
-  organisationId               String
-  organisation                 Organisation    @relation("OrganisationClients", fields: [organisationId], references: [id], onDelete: Restrict)
-  firstName                    String
-  lastName                     String
-  personIdentifier             String
-  personalIdentityNumber       String?
-  placingUnit                  String?
-  legalBasis                   String?
-  responsibleSocialWorkerName  String?
-  responsibleSocialWorkerPhone String?
-  responsibleSocialWorkerEmail String?
-  category                     String
-  status                       ClientStatus    @default(INACTIVE)
-  archivedAt                   DateTime?
-  createdAt                    DateTime        @default(now())
-  updatedAt                    DateTime        @updatedAt
-  assignments                  Assignment[]    @relation("ClientAssignments")
-  journalEntries               JournalEntry[]  @relation("ClientJournalEntries")
-  goals                        Goal[]          @relation("ClientGoals")
-  followUps                    FollowUp[]      @relation("ClientFollowUps")
-  monthlyReports               MonthlyReport[] @relation("ClientMonthlyReports")
+  id                                    String                        @id @db.Uuid
+  organisationId                        String
+  organisation                          Organisation                  @relation("OrganisationClients", fields: [organisationId], references: [id], onDelete: Restrict)
+  firstName                             String
+  lastName                              String
+  personIdentifier                      String
+  personalIdentityNumberLegacyPlaintext String?
+  placingUnit                           String?
+  legalBasis                            String?
+  responsibleSocialWorkerName           String?
+  responsibleSocialWorkerPhone          String?
+  responsibleSocialWorkerEmail          String?
+  category                              String
+  status                                ClientStatus                  @default(INACTIVE)
+  archivedAt                            DateTime?
+  createdAt                             DateTime                      @default(now())
+  updatedAt                             DateTime                      @updatedAt
+  assignments                           Assignment[]                  @relation("ClientAssignments")
+  journalEntries                        JournalEntry[]                @relation("ClientJournalEntries")
+  goals                                 Goal[]                        @relation("ClientGoals")
+  followUps                             FollowUp[]                    @relation("ClientFollowUps")
+  monthlyReports                        MonthlyReport[]               @relation("ClientMonthlyReports")
+  personalIdentityNumber                ClientPersonalIdentityNumber?
 
   @@unique([organisationId, personIdentifier])
   @@unique([organisationId, id])
   @@index([organisationId, status, lastName, firstName, personIdentifier])
   @@map("client")
+}
+
+model ClientPersonalIdentityNumber {
+  organisationId    String
+  clientId          String @db.Uuid
+  encryptionVersion Int    @db.SmallInt
+  keyId             String @db.VarChar(64)
+  nonce             Bytes
+  ciphertext        Bytes
+  authenticationTag Bytes
+  client            Client @relation(fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict, map: "clientPersonalIdentityNumber_scope_client_fkey")
+
+  @@id([organisationId, clientId], map: "clientPersonalIdentityNumber_pkey")
+  @@map("clientPersonalIdentityNumber")
 }
 
 model Assignment {

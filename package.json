@@ -25,6 +25,8 @@
     "test:db:create": "jiti scripts/test-database.ts create",
     "test:db:migrate": "jiti scripts/test-database.ts migrate",
     "test:migration:structured-records": "tsx scripts/verify-structured-records-migration.ts",
+    "test:migration:personnummer-encryption": "node --conditions=react-server --import tsx scripts/verify-personnummer-encryption-migration.ts",
+    "personnummer:convert-legacy": "node --conditions=react-server --import tsx scripts/convert-legacy-personal-identity-numbers.ts",
     "test:db:list": "jiti scripts/test-database.ts list",
     "test:db:drop": "jiti scripts/test-database.ts drop",
     "cleanup:merged-slice": "node scripts/cleanup-merged-slice.mjs",

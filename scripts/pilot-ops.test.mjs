@@ -180,6 +180,7 @@ function validPilotValues(overrides = {}) {
     DEPLOYMENT_ENV: "pilot",
     BETTER_AUTH_URL: "https://pilot.example.test",
     BETTER_AUTH_SECRET: generatedSecret(),
+    KAUL_PERSONNUMMER_KEYRING_HOST_FILE: "/tmp/overridden-by-fixture",
     POSTGRES_ADMIN_USER: "kaul_pilot_admin",
     POSTGRES_ADMIN_PASSWORD: generatedSecret(),
     KAUL_DB_USER: "kaul_pilot_app",
@@ -231,7 +232,7 @@ function dockerStubLines() {
     'printf \'%s\\n\' "$*" >> "$KAUL_TEST_COMMAND_LOG"',
     'case " $* " in',
     '  *" compose --project-name "*)',
-    "    for key in COMPOSE_PROJECT_NAME KAUL_IMAGE PILOT_HOSTNAME PILOT_INGRESS_MODE PILOT_CADDY_PRIVATE_BIND PILOT_NPM_TRUSTED_PROXY_CIDR DEPLOYMENT_ENV BETTER_AUTH_URL BETTER_AUTH_SECRET POSTGRES_ADMIN_USER POSTGRES_ADMIN_PASSWORD KAUL_DB_USER KAUL_DB_PASSWORD KAUL_DB_NAME DATABASE_URL; do",
+    "    for key in COMPOSE_PROJECT_NAME KAUL_IMAGE PILOT_HOSTNAME PILOT_INGRESS_MODE PILOT_CADDY_PRIVATE_BIND PILOT_NPM_TRUSTED_PROXY_CIDR DEPLOYMENT_ENV BETTER_AUTH_URL BETTER_AUTH_SECRET KAUL_PERSONNUMMER_KEYRING_HOST_FILE POSTGRES_ADMIN_USER POSTGRES_ADMIN_PASSWORD KAUL_DB_USER KAUL_DB_PASSWORD KAUL_DB_NAME DATABASE_URL; do",
     '      if printenv "$key" >/dev/null 2>&1; then source=ambient; else source=env-file; fi',
     '      printf \'%s=%s\\n\' "$key" "$source" >> "$KAUL_TEST_INTERPOLATION_LOG"',
     '      if [ "$key" = DATABASE_URL ] && [ -n "${KAUL_TEST_EXPECTED_DATABASE_URL:-}" ]; then',
@@ -313,16 +314,29 @@ function createPilotCommandFixture({ overrides = {}, omittedKey } = {}) {
   const directory = createTemporaryDirectory();
   const stubDirectory = join(directory, "bin");
   const resticPasswordPath = join(directory, "restic-password");
+  const personnummerKeyringPath = join(directory, "personnummer-keyring.json");
   writeFileSync(resticPasswordPath, `${generatedSecret()}\n`, { mode: 0o600 });
   chmodSync(resticPasswordPath, 0o600);
+  writeFileSync(
+    personnummerKeyringPath,
+    '{"formatVersion":1,"activeKeyId":"fictional-test-key","keys":[{"id":"fictional-test-key","key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}]}\n',
+    { mode: 0o400 },
+  );
+  chmodSync(personnummerKeyringPath, 0o400);
   const values = validPilotValues({
     RESTIC_PASSWORD_FILE: toPosixPath(resticPasswordPath),
+    KAUL_PERSONNUMMER_KEYRING_HOST_FILE: toPosixPath(personnummerKeyringPath),
     ...overrides,
   });
   const environmentPath = writeEnvironmentFile(directory, values, omittedKey);
   mkdirSync(stubDirectory);
   writeExecutable(stubDirectory, "docker", dockerStubLines());
   writeExecutable(stubDirectory, "restic", resticStubLines());
+  writeExecutable(stubDirectory, "id", [
+    "#!/bin/sh",
+    "set -eu",
+    "case \"${1:-}\" in -u|-g) printf '1000\\n' ;; *) exit 2 ;; esac",
+  ]);
   if (process.platform === "win32") {
     writeExecutable(stubDirectory, "mkfifo", [
       "#!/bin/sh",
@@ -783,6 +797,11 @@ describe("Pilot operator safety controls", () => {
     expect(validateWorkflow).toContain("backup-rehearsal:");
     expect(validateWorkflow).toContain("runs-on: ubuntu-latest");
     expect(validateWorkflow).toContain("scripts/install-pinned-restic-ci.sh");
+    expect(validateWorkflow).toContain("getent passwd 1000");
+    expect(validateWorkflow).toContain('sudo --user "$KAUL_CI_OPERATOR"');
+    expect(validateWorkflow).toContain(
+      'PATH="/usr/local/kaul-backup-tools:$PATH"',
+    );
     expect(validateWorkflow).toContain("scripts/pilot-backup-rehearsal.sh");
     expect(backupRehearsal).toContain("--append-only");
     expect(backupRehearsal).toContain('"$SCRIPT_DIR/pilot-ops.sh" backup');
@@ -822,7 +841,7 @@ describe("Pilot operator safety controls", () => {
       "Another Pilot operator workflow is already running",
     );
     expect(script).toMatch(
-      /backup\|restore\|start-restore-check\|stop-restore-check\|migrate\|migrate-pristine\|update\|start-postgres\|bootstrap-admin\|start-stack\) return 0/,
+      /backup\|restore\|start-restore-check\|stop-restore-check\|migrate\|migrate-pristine\|convert-personnummer\|update\|start-postgres\|bootstrap-admin\|start-stack\) return 0/,
     );
   });
 
@@ -897,6 +916,22 @@ describe("Pilot operator safety controls", () => {
     expect(outputOf(result)).not.toContain("Backup readiness remains deferred");
   }, 15_000);
 
+  it("keeps attended Personnummer conversion behind a backup and stopped application", () => {
+    const result = executePilotCommand("convert-personnummer");
+
+    expect(result.status, outputOf(result)).toBe(0);
+    const stopPosition = commandPosition(result.commandLog, "stop kaul");
+    const backupPosition = commandPosition(result.commandLog, "pg_dump");
+    const conversionPosition = commandPosition(
+      result.commandLog,
+      "npm run personnummer:convert-legacy -- --confirm-stage-b",
+    );
+    expect(stopPosition).toBeGreaterThan(-1);
+    expect(backupPosition).toBeGreaterThan(stopPosition);
+    expect(conversionPosition).toBeGreaterThan(backupPosition);
+    expect(outputOf(result)).toContain("Kaul remains stopped");
+  }, 15_000);
+
   it("sanitizes every variable interpolated by the Pilot Compose contract", () => {
     const composeKeys = [
       ...[compose, npmIngressCompose, publicIngressCompose].flatMap((file) => [
@@ -923,6 +958,7 @@ describe("Pilot operator safety controls", () => {
       "start-stack",
       "start-restore-check",
       "stop-restore-check",
+      "convert-personnummer",
     ]) {
       expect(pilotRunbook).toContain(`scripts/pilot-ops.sh ${command}`);
     }
@@ -1042,6 +1078,10 @@ describe("Pilot operator safety controls", () => {
       ),
     ).toHaveLength(2);
     expect(dockerfile).toMatch(/USER node\s+\n\s*EXPOSE 3000/);
+    expect(dockerfile).toContain('test "$(id -u node)" = 1000');
+    expect(script).toContain(
+      "The dedicated Pilot operator UID must match the Kaul runtime UID",
+    );
     expect(dockerfile).toContain("org.opencontainers.image.revision");
     expect(dockerignore).toMatch(/^\.env\*$/m);
     expect(dockerignore).toMatch(/^\*\*\/\.env\*$/m);
@@ -1050,6 +1090,16 @@ describe("Pilot operator safety controls", () => {
     expect(compose).toMatch(
       /image: postgres:18\.4-bookworm@sha256:[0-9a-f]{64}/,
     );
+    expect(
+      compose.match(
+        /KAUL_PERSONNUMMER_KEYRING_FILE: \/run\/secrets\/kaul-personnummer-keyring\.json/g,
+      ),
+    ).toHaveLength(2);
+    expect(
+      compose.match(/source: \$\{KAUL_PERSONNUMMER_KEYRING_HOST_FILE:/g),
+    ).toHaveLength(2);
+    expect(compose.match(/read_only: true/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(compose).not.toMatch(/KAUL_PERSONNUMMER_KEYRING=(?!_FILE)/);
   });
 
   it("applies the fictional build environment to Prisma and Next without runtime metadata", () => {
@@ -1327,6 +1377,7 @@ describe("Pilot preflight behavior", () => {
     "PILOT_NPM_TRUSTED_PROXY_CIDR",
     "KAUL_IMAGE",
     "BETTER_AUTH_SECRET",
+    "KAUL_PERSONNUMMER_KEYRING_HOST_FILE",
     "RESTIC_REPOSITORY",
   ])("rejects a missing required %s value", (key) => {
     const result = executePilotCommand("preflight", {
@@ -1363,6 +1414,59 @@ describe("Pilot preflight behavior", () => {
     expect(outputOf(result)).toContain("BETTER_AUTH_SECRET");
     expect(outputOf(result).includes(malformedSecret)).toBe(false);
   });
+
+  it("rejects a relative Personnummer keyring path", () => {
+    const result = executePilotCommand("preflight", {
+      overrides: {
+        KAUL_PERSONNUMMER_KEYRING_HOST_FILE: "relative-keyring.json",
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain("must be an absolute path");
+  });
+
+  it("rejects a Pilot operator UID that cannot read the runtime keyring", () => {
+    const fixture = createPilotCommandFixture();
+    writeExecutable(fixture.stubDirectory, "id", [
+      "#!/bin/sh",
+      "set -eu",
+      "printf '1001\\n'",
+    ]);
+    const result = executePilotCommand("preflight", { fixture });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain("must match the Kaul runtime UID 1000");
+  });
+
+  it("rejects a directory as the Personnummer keyring", () => {
+    const fixture = createPilotCommandFixture();
+    const result = executePilotCommand("preflight", {
+      fixture,
+      overrides: undefined,
+    });
+    const directoryResult = executePilotCommand("preflight", {
+      overrides: {
+        KAUL_PERSONNUMMER_KEYRING_HOST_FILE: toPosixPath(fixture.directory),
+      },
+    });
+
+    expect(result.status, outputOf(result)).toBe(0);
+    expect(directoryResult.status).not.toBe(0);
+    expect(outputOf(directoryResult)).toContain("regular file");
+  });
+
+  it.runIf(process.platform !== "win32")(
+    "rejects group-readable Personnummer keyring permissions",
+    () => {
+      const fixture = createPilotCommandFixture();
+      chmodSync(fixture.values.KAUL_PERSONNUMMER_KEYRING_HOST_FILE, 0o440);
+      const result = executePilotCommand("preflight", { fixture });
+
+      expect(result.status).not.toBe(0);
+      expect(outputOf(result)).toContain("mode 0400");
+    },
+  );
 });
 
 describe("Pilot Compose environment isolation", () => {
@@ -1382,6 +1486,7 @@ describe("Pilot Compose environment isolation", () => {
         DATABASE_URL: "postgresql://ambient:ambient@127.0.0.1:5432/kaul",
         DEPLOYMENT_ENV: "production",
         BETTER_AUTH_SECRET: hostileSecret,
+        KAUL_PERSONNUMMER_KEYRING_HOST_FILE: "/tmp/hostile-keyring.json",
         PILOT_CADDY_PRIVATE_BIND: "192.168.50.20:9443",
       },
     });
@@ -1393,6 +1498,7 @@ describe("Pilot Compose environment isolation", () => {
       "DATABASE_URL",
       "DEPLOYMENT_ENV",
       "BETTER_AUTH_SECRET",
+      "KAUL_PERSONNUMMER_KEYRING_HOST_FILE",
       "PILOT_CADDY_PRIVATE_BIND",
     ]) {
       const sources = result.interpolationSources.filter((entry) =>
@@ -1515,6 +1621,7 @@ describe("Pilot private restore-check behavior", () => {
       "KAUL_IMAGE",
       "DEPLOYMENT_ENV",
       "BETTER_AUTH_SECRET",
+      "KAUL_PERSONNUMMER_KEYRING_HOST_FILE",
       "KAUL_DB_NAME",
     ]) {
       const sources = result.interpolationSources.filter((entry) =>

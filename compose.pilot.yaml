@@ -44,6 +44,14 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?Set BETTER_AUTH_URL in the Pilot environment file}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in the Pilot environment file}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the Pilot environment file}
+      KAUL_PERSONNUMMER_KEYRING_FILE: /run/secrets/kaul-personnummer-keyring.json
+    volumes:
+      - type: bind
+        source: ${KAUL_PERSONNUMMER_KEYRING_HOST_FILE:?Set KAUL_PERSONNUMMER_KEYRING_HOST_FILE in the Pilot environment file}
+        target: /run/secrets/kaul-personnummer-keyring.json
+        read_only: true
+        bind:
+          create_host_path: false
     expose:
       - "3000"
     networks:
@@ -69,6 +77,14 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?Set BETTER_AUTH_URL in the Pilot environment file}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in the Pilot environment file}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the Pilot environment file}
+      KAUL_PERSONNUMMER_KEYRING_FILE: /run/secrets/kaul-personnummer-keyring.json
+    volumes:
+      - type: bind
+        source: ${KAUL_PERSONNUMMER_KEYRING_HOST_FILE:?Set KAUL_PERSONNUMMER_KEYRING_HOST_FILE in the Pilot environment file}
+        target: /run/secrets/kaul-personnummer-keyring.json
+        read_only: true
+        bind:
+          create_host_path: false
     expose:
       - "3000"
     networks:

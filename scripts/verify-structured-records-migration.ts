@@ -115,8 +115,25 @@ ALTER TABLE "journalEntry" ENABLE TRIGGER USER;
     adapter: new PrismaPg({ connectionString: environment.databaseUrl }),
   });
   try {
-    const [client, entry, reportTable, journalConstraint] = await Promise.all([
-      prisma.client.findUniqueOrThrow({ where: { id: LEGACY_CLIENT_ID } }),
+    const [clients, entry, reportTable, journalConstraint] = await Promise.all([
+      prisma.$queryRaw<
+        Array<{
+          personalIdentityNumber: string | null;
+          placingUnit: string | null;
+          legalBasis: string | null;
+          responsibleSocialWorkerName: string | null;
+          responsibleSocialWorkerPhone: string | null;
+          responsibleSocialWorkerEmail: string | null;
+        }>
+      >`SELECT
+          "personalIdentityNumber",
+          "placingUnit",
+          "legalBasis",
+          "responsibleSocialWorkerName",
+          "responsibleSocialWorkerPhone",
+          "responsibleSocialWorkerEmail"
+        FROM "client"
+        WHERE "id" = ${LEGACY_CLIENT_ID}::uuid`,
       prisma.journalEntry.findUniqueOrThrow({
         where: { id: LEGACY_ENTRY_ID },
       }),
@@ -131,7 +148,9 @@ ALTER TABLE "journalEntry" ENABLE TRIGGER USER;
         ) AS "exists"
       `,
     ]);
+    const client = clients[0];
     if (
+      !client ||
       client.personalIdentityNumber !== null ||
       client.placingUnit !== null ||
       client.legalBasis !== null ||
