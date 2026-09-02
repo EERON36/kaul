@@ -856,10 +856,23 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   });
   await page.goto("/klienter");
   await expect(page.getByText("19000101-0202")).toHaveCount(0);
-  await page
-    .getByRole("textbox", { name: "Sök klienter", exact: true })
-    .fill("19000101-0202");
+  const searchInput = page.getByRole("textbox", {
+    name: "Sök klienter",
+    exact: true,
+  });
+  await searchInput.fill("19000101-0202");
+  await expect(searchInput).toHaveValue("19000101-0202");
+  const searchRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.headers()["next-action"] !== undefined,
+  );
   await page.getByRole("button", { name: "Sök", exact: true }).click();
+  const searchRequest = await searchRequestPromise;
+  expect(new URL(searchRequest.url()).search).toBe("");
+  await expect(page.getByRole("button", { name: "Rensa sökning" })).toBeVisible(
+    { timeout: 15_000 },
+  );
   await expect(page.getByText("19000101-0202")).toHaveCount(0);
   await expect(
     page.getByText("Inga klienter matchar din sökning."),

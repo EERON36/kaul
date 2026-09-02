@@ -338,7 +338,9 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   );
   await page.getByRole("button", { name: "Granska inför signering" }).click();
 
-  await expect(page.getByRole("heading", { name: "Anteckning" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Anteckning", exact: true }),
+  ).toBeVisible();
   await expect(page.getByText("Telefonsamtal", { exact: true })).toBeVisible();
   await expect(page.getByText(originalContent)).toBeVisible();
   await expect(
@@ -1009,6 +1011,7 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
     "Nyare sparat innehåll.",
   );
   await page.getByRole("button", { name: "Granska inför signering" }).click();
+  await expect(page.getByRole("heading", { name: "Anteckning" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   let signingRequest:
@@ -1209,7 +1212,7 @@ test("Keyboard reaches the Journal editor and signing action with visible focus"
   await eventTime.fill("11:20");
 
   const save = page.getByRole("button", { name: "Spara utkast" });
-  await tabTo(page, save, 3);
+  await tabTo(page, save);
   await expect(save).toBeFocused();
 
   const review = page.getByRole("button", {
