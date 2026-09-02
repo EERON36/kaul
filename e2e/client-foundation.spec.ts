@@ -854,7 +854,7 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   const editedClient = await prisma.client.findFirstOrThrow({
     where: { personIdentifier: "E2E-EDIT-UPDATED" },
   });
-  await page.goto("/klienter");
+  await page.goto("/klienter?kategori=alla");
   await expect(page.getByText("19000101-0202")).toHaveCount(0);
   const searchInput = page.getByRole("textbox", {
     name: "Sök klienter",
@@ -869,14 +869,15 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   );
   await page.getByRole("button", { name: "Sök", exact: true }).click();
   const searchRequest = await searchRequestPromise;
-  expect(new URL(searchRequest.url()).search).toBe("");
+  expect(new URL(searchRequest.url()).search).toBe("?kategori=alla");
   await expect(page.getByRole("button", { name: "Rensa sökning" })).toBeVisible(
     { timeout: 15_000 },
   );
   await expect(page.getByText("19000101-0202")).toHaveCount(0);
   await expect(
-    page.getByText("Inga klienter matchar din sökning."),
-  ).toBeVisible();
+    page.getByRole("link", { name: /Efter Redigering/ }),
+  ).toHaveCount(0);
+  await expect(page.getByText("E2E-EDIT-UPDATED")).toHaveCount(0);
   await page.goto("/klienter?kategori=ungdomar");
   const youthGroup = page.locator(".client-category-group", {
     has: page.getByRole("heading", { name: "Ungdomar" }),
