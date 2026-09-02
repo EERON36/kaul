@@ -421,7 +421,8 @@ describe("Journal foundation with PostgreSQL", () => {
       status: JournalEntryStatus.DRAFT,
       version: 2,
       eventOccurredAt: eventTwo,
-      content: "  Fiktiv andra version.\n\nBevarat stycke.  ",
+      content: "",
+      otherContent: "  Fiktiv andra version.\n\nBevarat stycke.  ",
       signedAt: null,
     });
     expect(saved.eventOccurredAt.getTime()).not.toBe(saved.createdAt.getTime());
@@ -452,7 +453,8 @@ describe("Journal foundation with PostgreSQL", () => {
       prisma.journalEntry.findUniqueOrThrow({ where: { id: draft.id } }),
     ).resolves.toMatchObject({
       version: 2,
-      content: "  Fiktiv andra version.\n\nBevarat stycke.  ",
+      content: "",
+      otherContent: "  Fiktiv andra version.\n\nBevarat stycke.  ",
     });
 
     await discardJournalDraftForTest(
@@ -576,7 +578,9 @@ describe("Journal foundation with PostgreSQL", () => {
       targetId: draft.id,
       actorUserId: fixture.author.userId,
     });
-    expect(JSON.stringify(successfulOperation)).not.toContain(saved.content);
+    expect(JSON.stringify(successfulOperation)).not.toContain(
+      "Fiktiv aktuell version för samtidig signering.",
+    );
   });
 
   it("rechecks access during signing and rolls back signing before recording FAILED", async () => {
@@ -701,7 +705,7 @@ describe("Journal foundation with PostgreSQL", () => {
     await expect(
       prisma.journalEntry.update({
         where: { id: signed.id },
-        data: { content: "Lägre nivå får inte ändra signerad text." },
+        data: { otherContent: "Lägre nivå får inte ändra signerad text." },
       }),
     ).rejects.toThrow();
     await expect(
@@ -710,7 +714,8 @@ describe("Journal foundation with PostgreSQL", () => {
     await expect(
       prisma.journalEntry.findUniqueOrThrow({ where: { id: signed.id } }),
     ).resolves.toMatchObject({
-      content: "Fiktiv signerad originalanteckning.",
+      content: "",
+      otherContent: "Fiktiv signerad originalanteckning.",
       status: JournalEntryStatus.SIGNED,
     });
 
@@ -891,6 +896,7 @@ describe("Journal foundation with PostgreSQL", () => {
       entryType: draft.entryType,
       eventOccurredAt: draft.eventOccurredAt,
       content: draft.content,
+      otherContent: draft.otherContent,
       correctionOfId: null,
     });
   });
