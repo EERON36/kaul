@@ -20,6 +20,9 @@ import {
   createAssignmentInternal,
   createClientInternal,
   endAssignmentInternal,
+  getClientEditingDetailsInternal,
+  getClientPersonalIdentityNumberForEditingInternal,
+  getClientSensitiveSummaryInternal,
   listAssignableStaffInternal,
   listArchivedClientsInternal,
   listAssignedClientsForHomeInternal,
@@ -28,6 +31,8 @@ import {
   updateClientInternal,
   type AssignedClientHomeItem,
   type ClientListItem,
+  type ClientEditingDetails,
+  type ClientSensitiveSummary,
 } from "./clients-internal";
 
 export {
@@ -36,11 +41,30 @@ export {
   type AssignedClientHomeItem,
   type ClientSearchInput,
   type ClientListItem,
+  type ClientEditingDetails,
+  type ClientSensitiveSummary,
   type CreateAssignmentInput,
   type CreateClientInput,
   type EndAssignmentInput,
   type UpdateClientInput,
 };
+
+export async function getClientSensitiveSummary(clientId: string) {
+  const actor = await requireApplicationUser();
+  return getClientSensitiveSummaryInternal(actor, clientId);
+}
+
+export async function getClientEditingDetails(clientId: string) {
+  const actor = await requireAdministrator();
+  return getClientEditingDetailsInternal(actor, clientId);
+}
+
+export async function getClientPersonalIdentityNumberForEditing(
+  clientId: string,
+) {
+  const actor = await requireAdministrator();
+  return getClientPersonalIdentityNumberForEditingInternal(actor, clientId);
+}
 
 export async function listAssignedClientsForHome(): Promise<{
   user: ApplicationUser;

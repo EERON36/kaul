@@ -1,7 +1,7 @@
-import Link from "next/link";
-
 import { getClientCategoryLabel } from "@/modules/clients/client-category";
 import { getClientStatusLabel } from "@/modules/clients/client-presentation";
+
+import { NavigationGuardLink as Link } from "@/components/navigation-guard";
 
 type ClientWorkspaceClient = Readonly<{
   id: string;
@@ -18,7 +18,8 @@ export function ClientWorkspaceHeader({
   currentSection,
 }: Readonly<{
   client: ClientWorkspaceClient;
-  currentSection: "overview" | "journal" | "goals" | "follow-ups";
+  currentSection:
+    "overview" | "journal" | "goals" | "follow-ups" | "monthly-reports";
 }>) {
   const formatDate = (date: Date) =>
     new Intl.DateTimeFormat("sv-SE", {
@@ -85,6 +86,14 @@ export function ClientWorkspaceHeader({
           href={`/klienter/${client.id}/uppfoljningar`}
         >
           Uppföljningar
+        </Link>
+        <Link
+          aria-current={
+            currentSection === "monthly-reports" ? "page" : undefined
+          }
+          href={`/klienter/${client.id}/manadsrapporter`}
+        >
+          Månadsrapporter
         </Link>
       </nav>
     </>

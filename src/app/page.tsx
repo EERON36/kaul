@@ -94,6 +94,28 @@ export default async function Home() {
             : "Du är inloggad i Kaul."}
         </p>
 
+        {result.user.role === "ADMINISTRATOR" ? (
+          <section
+            aria-labelledby="administrator-orientation-heading"
+            className="client-section"
+          >
+            <h2 id="administrator-orientation-heading">Kom igång</h2>
+            <p>Gör klienten redo för arbete i den här ordningen:</p>
+            <ol className="orientation-steps">
+              <li>
+                <Link href="/personal">Lägg till personal</Link>
+              </li>
+              <li>
+                <Link href="/klienter">Skapa klient</Link>
+              </li>
+              <li>
+                <Link href="/klienter">Lägg till primär tilldelning</Link>
+                <span>Då blir klienten aktiv.</span>
+              </li>
+            </ol>
+          </section>
+        ) : null}
+
         <section
           aria-labelledby="own-follow-ups-heading"
           className="client-section"

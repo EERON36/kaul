@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ZodError } from "zod";
 
 const mocks = vi.hoisted(() => ({
   archiveClient: vi.fn(),
@@ -165,6 +166,12 @@ describe("Client Server Action audit operation lifecycle", () => {
       firstName: "Fiktiv",
       lastName: "Klient",
       personIdentifier: "FIKTIV-01",
+      personalIdentityNumber: "",
+      placingUnit: "",
+      legalBasis: "",
+      responsibleSocialWorkerName: "",
+      responsibleSocialWorkerPhone: "",
+      responsibleSocialWorkerEmail: "",
       category: "ADULT",
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/klienter");
@@ -205,6 +212,55 @@ describe("Client Server Action audit operation lifecycle", () => {
     expect(mocks.redirect).toHaveBeenCalledWith(
       `/klienter/${trustedClientId}?arkiverad=klar`,
     );
+  });
+});
+
+describe("Client creation handoff", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns only the exact Client ID from the successful authenticated operation", async () => {
+    const trustedClientId = "123e4567-e89b-42d3-a456-426614174010";
+    const form = clientForm();
+    form.set("clientId", "browser-controlled-client-id");
+    mocks.createClient.mockResolvedValueOnce({ id: trustedClientId });
+
+    await expect(createClientAction(initialState, form)).resolves.toEqual({
+      status: "SUCCESS",
+      operationId: "123e4567-e89b-42d3-a456-426614174099",
+      message:
+        "Klienten har skapats. Lägg till en primär tilldelning för att aktivera klienten.",
+      clientId: trustedClientId,
+    });
+    expect(mocks.createClient).toHaveBeenCalledWith({
+      operationId,
+      firstName: "Fiktiv",
+      lastName: "Klient",
+      personIdentifier: "FIKTIV-01",
+      personalIdentityNumber: "",
+      placingUnit: "",
+      legalBasis: "",
+      responsibleSocialWorkerName: "",
+      responsibleSocialWorkerPhone: "",
+      responsibleSocialWorkerEmail: "",
+      category: "ADULT",
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/klienter");
+  });
+
+  it("removes any previous Client link target when validation fails", async () => {
+    mocks.createClient.mockRejectedValueOnce(new ZodError([]));
+
+    const result = await createClientAction(
+      { ...initialState, status: "SUCCESS", clientId },
+      clientForm(),
+    );
+
+    expect(result).toEqual({
+      status: "ERROR",
+      operationId: "123e4567-e89b-42d3-a456-426614174099",
+      message: "Kontrollera uppgifterna och försök igen.",
+    });
+    expect(result).not.toHaveProperty("clientId");
   });
 });
 

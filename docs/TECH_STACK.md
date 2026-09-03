@@ -387,7 +387,6 @@ The application is intended for Swedish users.
 - The operational timezone for the initial organisation is `Europe/Stockholm`.
 - Stored timestamps should use an unambiguous database representation.
 - The interface should distinguish event time, creation time, and signing time.
-- Calendar weeks follow Swedish ISO week conventions.
 - User-facing timestamps must not rely on the browser's locale defaults without explicit formatting.
 
 ---
@@ -423,7 +422,7 @@ Printable reports and generated documents should be produced from server-side da
 
 Initial generated documents include:
 
-- Weekly reports
+- Monthly reports
 - Journal summaries
 - Organisation exports
 - Selected document templates

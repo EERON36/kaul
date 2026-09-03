@@ -1,10 +1,49 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  areJournalFormValuesEqual,
   formatJournalFormDateTime,
   parseStockholmEventDateTime,
   readJournalFormValues,
 } from "./journal-form-values";
+
+describe("Journal unsaved-change comparison", () => {
+  const savedValues = {
+    entryType: "CONVERSATION",
+    eventDate: "2026-08-12",
+    eventTime: "08:15",
+    content: "Fiktiv anteckning.",
+    goalIds: [
+      "123e4567-e89b-42d3-a456-426614174010",
+      "123e4567-e89b-42d3-a456-426614174011",
+    ],
+  };
+
+  it("treats unchanged values and reordered Goal selections as clean", () => {
+    expect(areJournalFormValuesEqual(savedValues, savedValues)).toBe(true);
+    expect(
+      areJournalFormValuesEqual(savedValues, {
+        ...savedValues,
+        goalIds: [...savedValues.goalIds].reverse(),
+      }),
+    ).toBe(true);
+  });
+
+  it("treats changed Journal content or Goal selections as dirty", () => {
+    expect(
+      areJournalFormValuesEqual(savedValues, {
+        ...savedValues,
+        content: "Ändrad fiktiv anteckning.",
+      }),
+    ).toBe(false);
+    expect(
+      areJournalFormValuesEqual(savedValues, {
+        ...savedValues,
+        goalIds: savedValues.goalIds.slice(0, 1),
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("Journal event time form boundary", () => {
   it("resolves Swedish summer and winter wall times to unambiguous instants", () => {
@@ -64,5 +103,42 @@ describe("Journal event time form boundary", () => {
       "123e4567-e89b-42d3-a456-426614174010",
       "123e4567-e89b-42d3-a456-426614174011",
     ]);
+  });
+
+  it("reads structured sections without requiring any individual section", () => {
+    const form = new FormData();
+    form.set("entryType", "CONVERSATION");
+    form.set("eventDate", "2026-08-12");
+    form.set("eventTime", "08:15");
+    form.set("healthContent", "Fiktiv hälsouppgift.");
+    form.set("educationOccupationContent", "");
+    form.set("emotionsBehaviorContent", "");
+    form.set("socialRelationsContent", "");
+    form.set("dailyLivingIndependenceContent", "");
+    form.set("otherContent", "");
+
+    const result = readJournalFormValues(form);
+
+    expect(result.fieldErrors.content).toBeUndefined();
+    expect(result.values.healthContent).toBe("Fiktiv hälsouppgift.");
+    expect(result.values.educationOccupationContent).toBe("");
+    expect(result.values.content).toBe("");
+  });
+
+  it("preserves multiline structured sections as separate values", () => {
+    const form = new FormData();
+    form.set("entryType", "CONVERSATION");
+    form.set("eventDate", "2026-08-12");
+    form.set("eventTime", "08:15");
+    form.set("healthContent", "Rad ett.\nRad två.");
+    form.set("educationOccupationContent", "");
+    form.set("emotionsBehaviorContent", "Fiktiv text");
+    form.set("socialRelationsContent", "");
+    form.set("dailyLivingIndependenceContent", "");
+    form.set("otherContent", "");
+
+    const result = readJournalFormValues(form);
+    expect(result.values.healthContent).toBe("Rad ett.\nRad två.");
+    expect(result.values.emotionsBehaviorContent).toBe("Fiktiv text");
   });
 });

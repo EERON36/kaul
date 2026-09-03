@@ -18,7 +18,13 @@ import {
   endAssignmentForTest,
   updateClientForTest,
 } from "./clients.test-support";
-import { listClientsInternal } from "./clients-internal";
+import {
+  getClientEditingDetailsInternal,
+  getClientPersonalIdentityNumberForEditingInternal,
+  getClientSensitiveSummaryInternal,
+  listClientsInternal,
+  searchClientsInternal,
+} from "./clients-internal";
 
 const organisationIds = new Set<string>();
 
@@ -26,6 +32,9 @@ async function cleanupFixtures(): Promise<void> {
   if (organisationIds.size === 0) return;
   const ids = [...organisationIds];
   await prisma.assignment.deleteMany({
+    where: { organisationId: { in: ids } },
+  });
+  await prisma.clientPersonalIdentityNumber.deleteMany({
     where: { organisationId: { in: ids } },
   });
   await prisma.client.deleteMany({ where: { organisationId: { in: ids } } });
@@ -129,6 +138,161 @@ async function assign(
 }
 
 describe("Client foundation with PostgreSQL", () => {
+  it("isolates Personnummer from ordinary projections while preserving expanded Client fields", async () => {
+    const organisationId = await createOrganisation(
+      "Fiktiva känsliga klientorganisationen",
+    );
+    const actorUser = await createUser(
+      organisationId,
+      UserRole.ADMINISTRATOR,
+      "Administratör känslig klient",
+    );
+    const admin = administrator(
+      actorUser,
+      "Fiktiva känsliga klientorganisationen",
+    );
+    const operationId = generateAuditOperationId();
+    const created = await createClientForTest(
+      {
+        operationId,
+        firstName: "Fiktiv",
+        lastName: "Klient",
+        personIdentifier: "FIKTIV-SENSITIV-01",
+        personalIdentityNumber: "20000101-1234",
+        placingUnit: "Fiktiv placerande enhet",
+        legalBasis: "SoL",
+        responsibleSocialWorkerName: "Fiktiv socialsekreterare",
+        responsibleSocialWorkerPhone: "070-000 00 00",
+        responsibleSocialWorkerEmail: "socialsekreterare@example.test",
+        category: "ADULT",
+      },
+      admin,
+      {},
+    );
+    expect("personalIdentityNumber" in created).toBe(false);
+
+    const [listed] = await listClientsInternal(admin);
+    const [searched] = await searchClientsInternal(admin, "FIKTIV-SENSITIV-01");
+    expect("personalIdentityNumber" in listed).toBe(false);
+    expect("personalIdentityNumber" in searched).toBe(false);
+    await expect(
+      getClientSensitiveSummaryInternal(admin, created.id),
+    ).resolves.toEqual({ hasPersonalIdentityNumber: true });
+    const editingDetails = await getClientEditingDetailsInternal(
+      admin,
+      created.id,
+    );
+    expect("personalIdentityNumber" in editingDetails).toBe(false);
+    expect(editingDetails).toMatchObject({
+      placingUnit: "Fiktiv placerande enhet",
+      legalBasis: "SoL",
+      responsibleSocialWorkerName: "Fiktiv socialsekreterare",
+      responsibleSocialWorkerPhone: "070-000 00 00",
+      responsibleSocialWorkerEmail: "socialsekreterare@example.test",
+    });
+    await expect(
+      getClientPersonalIdentityNumberForEditingInternal(admin, created.id),
+    ).resolves.toBe("20000101-1234");
+    const stored = await prisma.clientPersonalIdentityNumber.findUniqueOrThrow({
+      where: {
+        organisationId_clientId: {
+          organisationId,
+          clientId: created.id,
+        },
+      },
+    });
+    expect(stored).toMatchObject({
+      encryptionVersion: 1,
+      keyId: "fictional-test-key",
+    });
+    expect(stored.nonce).toHaveLength(12);
+    expect(stored.authenticationTag).toHaveLength(16);
+    expect(Buffer.from(stored.ciphertext).includes("20000101-1234")).toBe(
+      false,
+    );
+    expect(
+      JSON.stringify(
+        await prisma.auditOperation.findUniqueOrThrow({
+          where: { id: operationId },
+        }),
+      ),
+    ).not.toContain("20000101-1234");
+    await expect(
+      prisma.client.findUniqueOrThrow({ where: { id: created.id } }),
+    ).resolves.toMatchObject({ personalIdentityNumberLegacyPlaintext: null });
+
+    const otherOrganisationId = await createOrganisation(
+      "Fiktiva andra klientorganisationen",
+    );
+    const otherAdminUser = await createUser(
+      otherOrganisationId,
+      UserRole.ADMINISTRATOR,
+      "Andra administratören",
+    );
+    const otherAdmin = administrator(
+      otherAdminUser,
+      "Fiktiva andra klientorganisationen",
+    );
+    await expect(
+      getClientSensitiveSummaryInternal(otherAdmin, created.id),
+    ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+    await expect(
+      getClientPersonalIdentityNumberForEditingInternal(otherAdmin, created.id),
+    ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+
+    const editableValues = {
+      clientId: created.id,
+      firstName: "Fiktiv",
+      lastName: "Klient",
+      personIdentifier: "FIKTIV-SENSITIV-01",
+      placingUnit: "Fiktiv placerande enhet",
+      legalBasis: "SoL",
+      responsibleSocialWorkerName: "Fiktiv socialsekreterare",
+      responsibleSocialWorkerPhone: "070-000 00 00",
+      responsibleSocialWorkerEmail: "socialsekreterare@example.test",
+      category: "ADULT",
+    } as const;
+    await expect(
+      updateClientForTest(
+        {
+          ...editableValues,
+          operationId: generateAuditOperationId(),
+          personalIdentityNumber: "20000101-1234",
+        },
+        admin,
+        {},
+      ),
+    ).resolves.toMatchObject({ changed: false });
+    await expect(
+      updateClientForTest(
+        {
+          ...editableValues,
+          operationId: generateAuditOperationId(),
+          personalIdentityNumber: "20000101-5678",
+        },
+        admin,
+        {},
+      ),
+    ).resolves.toMatchObject({ changed: true });
+    await expect(
+      getClientPersonalIdentityNumberForEditingInternal(admin, created.id),
+    ).resolves.toBe("20000101-5678");
+    await expect(
+      updateClientForTest(
+        {
+          ...editableValues,
+          operationId: generateAuditOperationId(),
+          personalIdentityNumber: "",
+        },
+        admin,
+        {},
+      ),
+    ).resolves.toMatchObject({ changed: true });
+    await expect(
+      getClientSensitiveSummaryInternal(admin, created.id),
+    ).resolves.toEqual({ hasPersonalIdentityNumber: false });
+  });
+
   it("creates an INACTIVE organisation-owned Client with canonical uniqueness and audit", async () => {
     const organisationId = await createOrganisation(
       "Fiktiva Klientorganisationen",
@@ -757,6 +921,7 @@ describe("Client foundation with PostgreSQL", () => {
           firstName: "Fiktiv",
           lastName: "Återställd",
           personIdentifier: "ÅTERSTÄLL-01",
+          personalIdentityNumber: "20000101-8080",
           category: "ADULT",
         },
         actor,
@@ -768,6 +933,11 @@ describe("Client foundation with PostgreSQL", () => {
       ),
     ).rejects.toMatchObject({ code: "INCONSISTENT_RESULT" });
     expect(await prisma.client.count({ where: { organisationId } })).toBe(0);
+    expect(
+      await prisma.clientPersonalIdentityNumber.count({
+        where: { organisationId },
+      }),
+    ).toBe(0);
     await expect(
       prisma.auditEvent.findUniqueOrThrow({
         where: { operationId_type: { operationId, type: "OUTCOME" } },
@@ -1131,6 +1301,7 @@ describe("Client foundation with PostgreSQL", () => {
           firstName: "Ska",
           lastName: "Återställas",
           personIdentifier: "REDIGERINGSÅTERSTÄLL-02",
+          personalIdentityNumber: "20000101-9090",
           category: "YOUTH",
         },
         actor,
@@ -1144,6 +1315,16 @@ describe("Client foundation with PostgreSQL", () => {
     await expect(
       prisma.client.findUniqueOrThrow({ where: { id: client.id } }),
     ).resolves.toMatchObject(client);
+    await expect(
+      prisma.clientPersonalIdentityNumber.findUnique({
+        where: {
+          organisationId_clientId: {
+            organisationId,
+            clientId: client.id,
+          },
+        },
+      }),
+    ).resolves.toBeNull();
     await expect(
       prisma.auditEvent.findUniqueOrThrow({
         where: { operationId_type: { operationId, type: "OUTCOME" } },

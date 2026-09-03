@@ -71,7 +71,7 @@ Klient
 Anteckning
 Ansvarig pedagog
 Signerad
-Skapa veckorapport
+Skapa månadsrapport
 ```
 
 ### Language Rules
@@ -621,7 +621,7 @@ Prefer:
 Spara anteckning
 Tilldela pedagog
 Arkivera klient
-Skapa veckorapport
+Skapa månadsrapport
 ```
 
 Avoid:

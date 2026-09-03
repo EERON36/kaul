@@ -17,13 +17,28 @@ import {
   type ClientActionState,
   type ClientSearchActionState,
 } from "./actions";
+import {
+  filterClientsForCategoryView,
+  type ClientCategoryView,
+} from "./client-category-view";
+
+const categoryChoices = [
+  { href: "/klienter", label: "Vuxna", value: "ADULT" },
+  {
+    href: "/klienter?kategori=ungdomar",
+    label: "Ungdomar",
+    value: "YOUTH",
+  },
+] as const;
 
 export function ClientList({
+  activeCategoryView,
   clients,
   canCreate,
   operationId,
   showPrimaryStaff,
 }: Readonly<{
+  activeCategoryView: ClientCategoryView;
   clients: readonly ClientListItem[];
   canCreate: boolean;
   operationId: string;
@@ -45,10 +60,54 @@ export function ClientList({
     initialSearchState,
   );
   const [searchQuery, setSearchQuery] = useState("");
-  const displayedClients = searchState.searched ? searchState.clients : clients;
+  const availableClients = searchState.searched ? searchState.clients : clients;
+  const displayedClients = filterClientsForCategoryView(
+    availableClients,
+    activeCategoryView,
+  );
+  const activeCategoryLabel =
+    activeCategoryView === "ALL"
+      ? "Alla klienter"
+      : CLIENT_CATEGORY_LABELS[activeCategoryView];
 
   return (
     <>
+      <section
+        aria-labelledby="client-category-view-heading"
+        className="client-section client-category-view"
+      >
+        <h2 id="client-category-view-heading">Välj klientkategori</h2>
+        <nav aria-label="Klientkategori">
+          <div className="client-category-primary-choices">
+            {categoryChoices.map((choice) => (
+              <Link
+                aria-current={
+                  activeCategoryView === choice.value ? "page" : undefined
+                }
+                className="client-category-choice"
+                href={choice.href}
+                key={choice.value}
+              >
+                {choice.label}
+              </Link>
+            ))}
+          </div>
+          <Link
+            aria-current={activeCategoryView === "ALL" ? "page" : undefined}
+            className="client-category-all-choice"
+            href="/klienter?kategori=alla"
+          >
+            Alla klienter
+          </Link>
+        </nav>
+      </section>
+
+      {canCreate ? (
+        <p>
+          <Link href="/klienter/arkiverade">Visa arkiverade klienter</Link>
+        </p>
+      ) : null}
+
       <section
         aria-labelledby="client-search-heading"
         className="client-section"
@@ -155,6 +214,79 @@ export function ClientList({
                 <option value="YOUTH">{CLIENT_CATEGORY_LABELS.YOUTH}</option>
               </select>
             </div>
+            <fieldset className="client-extended-fields">
+              <legend>Övriga klientuppgifter (valfritt)</legend>
+              <div className="form-field">
+                <label htmlFor="client-personal-identity-number">
+                  Personnummer
+                </label>
+                <input
+                  aria-describedby="client-personal-identity-number-help"
+                  autoComplete="off"
+                  id="client-personal-identity-number"
+                  maxLength={32}
+                  name="personalIdentityNumber"
+                />
+                <p
+                  className="form-help"
+                  id="client-personal-identity-number-help"
+                >
+                  Känslig uppgift. Fyll endast i om organisationens rutiner
+                  tillåter det.
+                </p>
+              </div>
+              <div className="form-field">
+                <label htmlFor="client-placing-unit">Placerande enhet</label>
+                <input
+                  id="client-placing-unit"
+                  maxLength={200}
+                  name="placingUnit"
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="client-legal-basis">Lagrum</label>
+                <input
+                  id="client-legal-basis"
+                  maxLength={200}
+                  name="legalBasis"
+                />
+              </div>
+            </fieldset>
+            <fieldset className="client-extended-fields">
+              <legend>Ansvarig socialsekreterare (valfritt)</legend>
+              <div className="form-field">
+                <label htmlFor="client-responsible-social-worker-name">
+                  Namn
+                </label>
+                <input
+                  id="client-responsible-social-worker-name"
+                  maxLength={200}
+                  name="responsibleSocialWorkerName"
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="client-responsible-social-worker-phone">
+                  Telefon
+                </label>
+                <input
+                  id="client-responsible-social-worker-phone"
+                  maxLength={50}
+                  name="responsibleSocialWorkerPhone"
+                  type="tel"
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="client-responsible-social-worker-email">
+                  E-post
+                </label>
+                <input
+                  id="client-responsible-social-worker-email"
+                  maxLength={254}
+                  name="responsibleSocialWorkerEmail"
+                  type="email"
+                />
+              </div>
+            </fieldset>
             <button className="primary-button" disabled={pending} type="submit">
               {pending ? "Skapar…" : "Skapa klient"}
             </button>
@@ -166,6 +298,14 @@ export function ClientList({
             >
               {state.message}
             </p>
+            {state.status === "SUCCESS" && state.clientId ? (
+              <Link
+                className="primary-button button-link client-create-result-link"
+                href={`/klienter/${state.clientId}`}
+              >
+                Öppna klienten och lägg till tilldelning
+              </Link>
+            ) : null}
           </form>
         </section>
       ) : null}
@@ -174,9 +314,13 @@ export function ClientList({
         <h2 id="client-list-heading">Klientlista</h2>
         {displayedClients.length === 0 ? (
           <p>
-            {searchState.searched
-              ? "Inga klienter matchar din sökning."
-              : "Det finns inga klienter som du kan öppna."}
+            {activeCategoryView === "ALL"
+              ? searchState.searched
+                ? "Inga klienter matchar din sökning."
+                : "Det finns inga klienter som du kan öppna."
+              : searchState.searched
+                ? `Inga klienter under ${activeCategoryLabel} matchar din sökning.`
+                : `Det finns inga klienter under ${activeCategoryLabel} som du kan öppna.`}
           </p>
         ) : (
           <div className="client-category-groups">

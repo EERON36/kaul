@@ -36,18 +36,23 @@ describe("journal entry vocabulary and input", () => {
     });
   });
 
-  it("validates required plain content, type, event time and optimistic version", () => {
+  it("validates six structured sections, type, event time and optimistic version", () => {
     expect(
       createJournalDraftInputSchema.parse({
         clientId,
         entryType: "CONVERSATION",
         eventOccurredAt,
-        content: "  Rad ett.\n\nRad två.  ",
+        healthContent: "  Rad ett.\n\nRad två.  ",
+        educationOccupationContent: "",
+        emotionsBehaviorContent: "",
+        socialRelationsContent: "",
+        dailyLivingIndependenceContent: "",
+        otherContent: "",
       }),
     ).toMatchObject({
       clientId,
       entryType: "CONVERSATION",
-      content: "  Rad ett.\n\nRad två.  ",
+      healthContent: "  Rad ett.\n\nRad två.  ",
       eventOccurredAt: new Date(eventOccurredAt),
     });
 
@@ -57,7 +62,12 @@ describe("journal entry vocabulary and input", () => {
           clientId,
           entryType,
           eventOccurredAt,
-          content: "Fiktiv anteckning",
+          healthContent: "Fiktiv anteckning",
+          educationOccupationContent: "",
+          emotionsBehaviorContent: "",
+          socialRelationsContent: "",
+          dailyLivingIndependenceContent: "",
+          otherContent: "",
         }).success,
       ).toBe(false);
     }
@@ -66,7 +76,12 @@ describe("journal entry vocabulary and input", () => {
         clientId,
         entryType: "OTHER",
         eventOccurredAt,
-        content: "  \n  ",
+        healthContent: "",
+        educationOccupationContent: "",
+        emotionsBehaviorContent: "",
+        socialRelationsContent: "",
+        dailyLivingIndependenceContent: "",
+        otherContent: "  \n  ",
       }).success,
     ).toBe(false);
     expect(
@@ -75,7 +90,23 @@ describe("journal entry vocabulary and input", () => {
         expectedVersion: 0,
         entryType: "OTHER",
         eventOccurredAt,
-        content: "Fiktiv anteckning",
+        healthContent: "Fiktiv anteckning",
+        educationOccupationContent: "",
+        emotionsBehaviorContent: "",
+        socialRelationsContent: "",
+        dailyLivingIndependenceContent: "",
+        otherContent: "",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects crafted legacy narrative creation payloads", () => {
+    expect(
+      createJournalDraftInputSchema.safeParse({
+        clientId,
+        entryType: "CONVERSATION",
+        eventOccurredAt,
+        content: "Ny ospecificerad narrativ anteckning",
       }).success,
     ).toBe(false);
   });

@@ -1,0 +1,27 @@
+{$PILOT_HOSTNAME} {
+	encode zstd gzip
+
+	log {
+		output stdout
+		format json
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	reverse_proxy kaul:3000 {
+		# In direct-public mode Caddy is the first trusted hop. Overwrite every
+		# client-supplied identity header with the direct connection address.
+		header_up Host {$PILOT_HOSTNAME}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Host {$PILOT_HOSTNAME}
+		header_up X-Forwarded-Proto https
+		header_up -Forwarded
+		header_up -CF-Connecting-IP
+		header_up -True-Client-IP
+	}
+}

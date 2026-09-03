@@ -30,14 +30,20 @@ Implemented now:
   lifecycle and responsibility history, the current user's authorised **Att
   göra**, and immutable signing-time Goal context in Journal records.
 
-The next project focus is **Pilot Readiness**: a repeatable, isolated pilot
-using fictional or sanitised data, with HTTPS, environment separation,
-operational monitoring, and verified backup and restore procedures. Documents,
-reports, global search, exports, and other deferred features are not pulled
-into the pilot merely by this change; initial user feedback should determine
-which are blocking needs. Production credential-delivery,
-sole-Administrator recovery, legal, operational, and security gates remain
-unresolved. Kaul is not production-ready.
+The next project focus is **Homelab Pilot Readiness**: a repeatable, isolated
+Pilot using fictional or sanitised data, with HTTPS, environment separation,
+operational monitoring, and verified backup and restore procedures. It is
+separate from the later **Production / Cloud Launch Readiness** decision for
+live organisational information. Documents, reports, global search, exports,
+and other deferred features are not pulled into the Pilot merely by this
+change; initial user feedback should determine which are blocking needs. The
+Milestone 7 dependency/security gates and the stricter production credential,
+recovery, legal, provider, and operational gates remain unresolved. Kaul is not
+Pilot-ready or production-ready.
+
+See the [current project state](docs/PROJECT_STATE.md) for the short operational
+snapshot and open release gates. `docs/MILESTONES.md` remains authoritative for
+milestone scope and completion.
 
 ## Core stack
 
@@ -53,7 +59,10 @@ Zod, Tailwind CSS, Vitest, Playwright, Docker Compose, and GitHub Actions.
 
 ## Start development
 
-1. Copy `.env.example` to `.env`; keep fictional local values only.
+1. Copy `.env.example` to `.env`; keep fictional local values only. Set
+   `KAUL_PERSONNUMMER_KEYRING_FILE` to an absolute path. The committed
+   `test-fixtures/personnummer-keyring.json` is fictional and may be used only
+   for local development and automated tests; never reuse it elsewhere.
 2. Start PostgreSQL:
 
    ```powershell
@@ -94,23 +103,46 @@ npm run build
 npm run audit:ci
 ```
 
-Database integration and browser tests need their documented disposable test
-resources; do not run their setup against the normal local `kaul` database.
-Install the Playwright browser before the first local browser-test run:
+Database integration and browser tests need an explicit disposable test ID,
+port, matching local URLs, and fictional process-local authentication values as
+documented in `AGENTS.md`. Never run their setup against the normal local
+`kaul` database. After setting those values, validate and create the new test
+database before use:
+
+```powershell
+npm run test:db:check
+npm run test:db:create
+npm run test:db:migrate
+npm run test:integration
+```
+
+Install the Playwright browser before the first local browser-test run, then use
+the same guarded lifecycle for the browser suite:
 
 ```powershell
 npx playwright install chromium
-npm run test:integration
 npm run test:e2e
 ```
 
+Drop only the current derived test database with `npm run test:db:drop` when
+cleanup is explicitly authorised. The command refuses the normal `kaul`
+database.
+
 Use `npm run db:status` to inspect migration status. Prisma migrations are
 committed to Git and applied shared migrations must not be rewritten.
+
+## Pilot deployment foundation
+
+The repository contains a separate production-like Pilot stack with Caddy,
+Kaul, and PostgreSQL, plus manual release, migration, backup, restore, and
+update tooling. It does not deploy anything or approve real data. Start with
+the [Pilot operator runbook](deploy/pilot/README.md).
 
 ## Authoritative documentation
 
 - [Project scope and milestones](docs/PROJECT_SPEC.md) and
   [current milestone status](docs/MILESTONES.md)
+- [Current operational snapshot and release gates](docs/PROJECT_STATE.md)
 - [Domain model](docs/DOMAIN_MODEL.md) and
   [architecture](docs/ARCHITECTURE.md)
 - [Security requirements](docs/SECURITY.md) and

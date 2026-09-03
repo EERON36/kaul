@@ -45,6 +45,11 @@ enum JournalEntryStatus {
   SIGNED
 }
 
+enum JournalContentFormat {
+  LEGACY_NARRATIVE
+  STRUCTURED_V1
+}
+
 enum JournalEntryType {
   DAILY_NOTE
   CONVERSATION
@@ -69,17 +74,23 @@ enum FollowUpStatus {
   CANCELLED
 }
 
+enum MonthlyReportStatus {
+  DRAFT
+  SIGNED
+}
+
 model Organisation {
-  id             String         @id
+  id             String          @id
   name           String
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
   users          User[]
-  clients        Client[]       @relation("OrganisationClients")
-  assignments    Assignment[]   @relation("OrganisationAssignments")
-  journalEntries JournalEntry[] @relation("OrganisationJournalEntries")
-  goals          Goal[]         @relation("OrganisationGoals")
-  followUps      FollowUp[]     @relation("OrganisationFollowUps")
+  clients        Client[]        @relation("OrganisationClients")
+  assignments    Assignment[]    @relation("OrganisationAssignments")
+  journalEntries JournalEntry[]  @relation("OrganisationJournalEntries")
+  goals          Goal[]          @relation("OrganisationGoals")
+  followUps      FollowUp[]      @relation("OrganisationFollowUps")
+  monthlyReports MonthlyReport[] @relation("OrganisationMonthlyReports")
 
   @@map("organisation")
 }
@@ -116,6 +127,8 @@ model User {
   previousResponsibilities     FollowUpResponsibilityHistory[] @relation("PreviousResponsibleUsers")
   newResponsibilities          FollowUpResponsibilityHistory[] @relation("NewResponsibleUsers")
   actedResponsibilityChanges   FollowUpResponsibilityHistory[] @relation("ResponsibilityChangeActors")
+  createdMonthlyReports        MonthlyReport[]                 @relation("MonthlyReportCreators")
+  updatedMonthlyReports        MonthlyReport[]                 @relation("MonthlyReportUpdaters")
 
   @@unique([email])
   @@unique([organisationId, id])
@@ -124,26 +137,48 @@ model User {
 }
 
 model Client {
-  id               String         @id @db.Uuid
-  organisationId   String
-  organisation     Organisation   @relation("OrganisationClients", fields: [organisationId], references: [id], onDelete: Restrict)
-  firstName        String
-  lastName         String
-  personIdentifier String
-  category         String
-  status           ClientStatus   @default(INACTIVE)
-  archivedAt       DateTime?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  assignments      Assignment[]   @relation("ClientAssignments")
-  journalEntries   JournalEntry[] @relation("ClientJournalEntries")
-  goals            Goal[]         @relation("ClientGoals")
-  followUps        FollowUp[]     @relation("ClientFollowUps")
+  id                                    String                        @id @db.Uuid
+  organisationId                        String
+  organisation                          Organisation                  @relation("OrganisationClients", fields: [organisationId], references: [id], onDelete: Restrict)
+  firstName                             String
+  lastName                              String
+  personIdentifier                      String
+  personalIdentityNumberLegacyPlaintext String?
+  placingUnit                           String?
+  legalBasis                            String?
+  responsibleSocialWorkerName           String?
+  responsibleSocialWorkerPhone          String?
+  responsibleSocialWorkerEmail          String?
+  category                              String
+  status                                ClientStatus                  @default(INACTIVE)
+  archivedAt                            DateTime?
+  createdAt                             DateTime                      @default(now())
+  updatedAt                             DateTime                      @updatedAt
+  assignments                           Assignment[]                  @relation("ClientAssignments")
+  journalEntries                        JournalEntry[]                @relation("ClientJournalEntries")
+  goals                                 Goal[]                        @relation("ClientGoals")
+  followUps                             FollowUp[]                    @relation("ClientFollowUps")
+  monthlyReports                        MonthlyReport[]               @relation("ClientMonthlyReports")
+  personalIdentityNumber                ClientPersonalIdentityNumber?
 
   @@unique([organisationId, personIdentifier])
   @@unique([organisationId, id])
   @@index([organisationId, status, lastName, firstName, personIdentifier])
   @@map("client")
+}
+
+model ClientPersonalIdentityNumber {
+  organisationId    String
+  clientId          String @db.Uuid
+  encryptionVersion Int    @db.SmallInt
+  keyId             String @db.VarChar(64)
+  nonce             Bytes
+  ciphertext        Bytes
+  authenticationTag Bytes
+  client            Client @relation(fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict, map: "clientPersonalIdentityNumber_scope_client_fkey")
+
+  @@id([organisationId, clientId], map: "clientPersonalIdentityNumber_pkey")
+  @@map("clientPersonalIdentityNumber")
 }
 
 model Assignment {
@@ -259,30 +294,37 @@ model AuditEvent {
 }
 
 model JournalEntry {
-  id                      String                 @id @db.Uuid
-  reference               String                 @unique @db.VarChar(40)
-  organisationId          String
-  organisation            Organisation           @relation("OrganisationJournalEntries", fields: [organisationId], references: [id], onDelete: Restrict)
-  clientId                String                 @db.Uuid
-  client                  Client                 @relation("ClientJournalEntries", fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict)
-  authorUserId            String
-  author                  User                   @relation("JournalEntryAuthors", fields: [organisationId, authorUserId], references: [organisationId, id], onDelete: Restrict)
-  status                  JournalEntryStatus     @default(DRAFT)
-  entryType               JournalEntryType
-  eventOccurredAt         DateTime               @db.Timestamptz(3)
-  content                 String
-  version                 Int                    @default(1)
-  createdAt               DateTime               @default(now())
-  updatedAt               DateTime               @updatedAt
-  signedAt                DateTime?              @db.Timestamptz(3)
-  signerUserId            String?
-  signerName              String?
-  signerProfessionalTitle String?
-  signerRole              UserRole?
-  correctionOfId          String?                @db.Uuid
-  correctionOf            JournalEntry?          @relation("JournalCorrections", fields: [organisationId, clientId, correctionOfId], references: [organisationId, clientId, id], onDelete: Restrict)
-  corrections             JournalEntry[]         @relation("JournalCorrections")
-  goalReferences          JournalGoalReference[]
+  id                             String                 @id @db.Uuid
+  reference                      String                 @unique @db.VarChar(40)
+  organisationId                 String
+  organisation                   Organisation           @relation("OrganisationJournalEntries", fields: [organisationId], references: [id], onDelete: Restrict)
+  clientId                       String                 @db.Uuid
+  client                         Client                 @relation("ClientJournalEntries", fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict)
+  authorUserId                   String
+  author                         User                   @relation("JournalEntryAuthors", fields: [organisationId, authorUserId], references: [organisationId, id], onDelete: Restrict)
+  status                         JournalEntryStatus     @default(DRAFT)
+  entryType                      JournalEntryType
+  eventOccurredAt                DateTime               @db.Timestamptz(3)
+  content                        String
+  contentFormat                  JournalContentFormat   @default(LEGACY_NARRATIVE)
+  healthContent                  String?
+  educationOccupationContent     String?
+  emotionsBehaviorContent        String?
+  socialRelationsContent         String?
+  dailyLivingIndependenceContent String?
+  otherContent                   String?
+  version                        Int                    @default(1)
+  createdAt                      DateTime               @default(now())
+  updatedAt                      DateTime               @updatedAt
+  signedAt                       DateTime?              @db.Timestamptz(3)
+  signerUserId                   String?
+  signerName                     String?
+  signerProfessionalTitle        String?
+  signerRole                     UserRole?
+  correctionOfId                 String?                @db.Uuid
+  correctionOf                   JournalEntry?          @relation("JournalCorrections", fields: [organisationId, clientId, correctionOfId], references: [organisationId, clientId, id], onDelete: Restrict)
+  corrections                    JournalEntry[]         @relation("JournalCorrections")
+  goalReferences                 JournalGoalReference[]
 
   @@unique([organisationId, clientId, id])
   @@index([organisationId, clientId, status, eventOccurredAt, signedAt, id])
@@ -392,4 +434,44 @@ model JournalGoalReference {
   @@id([journalEntryId, goalId])
   @@index([organisationId, clientId, goalId], map: "journalGoalReference_scope_goal_idx")
   @@map("journalGoalReference")
+}
+
+model MonthlyReport {
+  id                             String              @id @db.Uuid
+  reference                      String              @unique @db.VarChar(40)
+  organisationId                 String
+  organisation                   Organisation        @relation("OrganisationMonthlyReports", fields: [organisationId], references: [id], onDelete: Restrict, map: "monthlyReport_organisationId_fkey")
+  clientId                       String              @db.Uuid
+  client                         Client              @relation("ClientMonthlyReports", fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict, map: "monthlyReport_scope_client_fkey")
+  calendarYear                   Int
+  calendarMonth                  Int
+  revision                       Int                 @default(1)
+  replacesReportId               String?             @db.Uuid
+  replacesReport                 MonthlyReport?      @relation("MonthlyReportReplacements", fields: [organisationId, clientId, calendarYear, calendarMonth, replacesReportId], references: [organisationId, clientId, calendarYear, calendarMonth, id], onDelete: Restrict, map: "monthlyReport_scope_replacement_fkey")
+  replacement                    MonthlyReport?      @relation("MonthlyReportReplacements")
+  status                         MonthlyReportStatus @default(DRAFT)
+  healthContent                  String?
+  educationOccupationContent     String?
+  emotionsBehaviorContent        String?
+  socialRelationsContent         String?
+  dailyLivingIndependenceContent String?
+  otherContent                   String?
+  version                        Int                 @default(1)
+  createdByUserId                String
+  createdByUser                  User                @relation("MonthlyReportCreators", fields: [organisationId, createdByUserId], references: [organisationId, id], onDelete: Restrict, map: "monthlyReport_scope_creator_fkey")
+  updatedByUserId                String
+  updatedByUser                  User                @relation("MonthlyReportUpdaters", fields: [organisationId, updatedByUserId], references: [organisationId, id], onDelete: Restrict, map: "monthlyReport_scope_updater_fkey")
+  createdAt                      DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt                      DateTime            @updatedAt @db.Timestamptz(3)
+  signedAt                       DateTime?           @db.Timestamptz(3)
+  signerUserId                   String?
+  signerName                     String?
+  signerProfessionalTitle        String?
+  signerRole                     UserRole?
+
+  @@unique([organisationId, clientId, calendarYear, calendarMonth, id], map: "monthlyReport_scope_id_key")
+  @@unique([organisationId, clientId, calendarYear, calendarMonth, revision], map: "monthlyReport_scope_revision_key")
+  @@unique([organisationId, clientId, calendarYear, calendarMonth, replacesReportId], map: "monthlyReport_replacement_link_key")
+  @@index([organisationId, clientId, calendarYear, calendarMonth, status, revision], map: "monthlyReport_scope_status_revision_idx")
+  @@map("monthlyReport")
 }

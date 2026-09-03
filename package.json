@@ -24,13 +24,16 @@
     "test:db:check": "jiti scripts/test-database.ts check",
     "test:db:create": "jiti scripts/test-database.ts create",
     "test:db:migrate": "jiti scripts/test-database.ts migrate",
+    "test:migration:structured-records": "tsx scripts/verify-structured-records-migration.ts",
+    "test:migration:personnummer-encryption": "node --conditions=react-server --import tsx scripts/verify-personnummer-encryption-migration.ts",
+    "personnummer:convert-legacy": "node --conditions=react-server --import tsx scripts/convert-legacy-personal-identity-numbers.ts",
     "test:db:list": "jiti scripts/test-database.ts list",
     "test:db:drop": "jiti scripts/test-database.ts drop",
     "cleanup:merged-slice": "node scripts/cleanup-merged-slice.mjs",
     "review:snapshot": "node scripts/reviewed-slice-snapshot.mjs",
     "audit:ci": "node scripts/check-security-audit.mjs",
-    "bootstrap:admin": "jiti scripts/bootstrap-admin.ts",
-    "bootstrap:admin:recover": "jiti scripts/bootstrap-admin-recover.ts",
+    "bootstrap:admin": "node --conditions=react-server --import tsx scripts/bootstrap-admin.ts",
+    "bootstrap:admin:recover": "node --conditions=react-server --import tsx scripts/bootstrap-admin-recover.ts",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
@@ -41,9 +44,13 @@
     "@prisma/adapter-pg": "7.9.1",
     "@prisma/client": "7.9.1",
     "better-auth": "1.6.25",
-    "next": "16.2.12",
+    "dotenv": "17.4.2",
+    "next": "16.3.2",
+    "prisma": "7.9.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "server-only": "0.0.1",
+    "tsx": "4.23.11",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -52,13 +59,11 @@
     "@types/node": "24.13.3",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
-    "dotenv": "17.4.2",
     "eslint": "9.39.5",
-    "eslint-config-next": "16.2.12",
+    "eslint-config-next": "16.3.2",
     "jiti": "2.7.0",
-    "postcss": "8.5.22",
+    "postcss": "8.5.26",
     "prettier": "3.9.6",
-    "prisma": "7.9.1",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "vitest": "4.1.10"
@@ -66,7 +71,6 @@
   "allowScripts": {
     "@prisma/engines@7.9.1": true,
     "prisma@7.9.1": true,
-    "sharp@0.34.5": true,
     "unrs-resolver@1.12.2": true
   }
 }

@@ -1,0 +1,14 @@
+{
+  "formatVersion": 1,
+  "activeKeyId": "fictional-test-key",
+  "keys": [
+    {
+      "id": "fictional-test-key",
+      "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "id": "fictional-old-test-key",
+      "key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+    }
+  ]
+}

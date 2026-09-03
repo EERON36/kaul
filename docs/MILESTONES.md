@@ -249,7 +249,7 @@ Initial sections may include:
 - Dokument
 - Mål
 - Uppföljningar
-- Veckorapporter
+- Månadsrapporter
 - Historik
 
 Sections that do not yet have implemented functionality may be omitted or clearly marked as unavailable. Empty fake functionality should not be added.
@@ -270,7 +270,7 @@ This milestone does not include:
 
 - Journal-entry creation
 - File uploads
-- Weekly reports
+- Monthly reports
 - Advanced timeline functionality
 - Calendar synchronisation
 - Temporary assignment workflows
@@ -698,11 +698,12 @@ gates remain in force.
 
 ---
 
-# Milestone 5 — Documents and Weekly Reports
+# Milestone 5 — Documents and Monthly Reports
 
 ## Goal
 
-Allow authorised users to upload client documents and generate reliable weekly summaries from existing documentation.
+Allow authorised users to upload Client documents and create reliable,
+manually authored monthly reports.
 
 ## Scope
 
@@ -718,25 +719,26 @@ This milestone includes:
 - Allowed file-type restrictions
 - Document replacement or version behaviour
 - Document list within the client workspace
-- Weekly report generation
-- Calendar-week selection
-- Included journal entries
-- Incident overview
-- Goal overview
-- Optional manual summary
-- Draft and final report status
+- Monthly Report creation for an explicit calendar year and month
+- Six structured report sections shared with structured Journal entries
+- One shared optimistic-concurrency draft per Client and month
+- Draft and signed report status
+- Immutable signer snapshots and directly linked replacements
 - Printable report
 - Stable report reference
 - Relevant audit events
 
-## Weekly Report Rules
+## Monthly Report Rules
 
-- Reports summarize existing journal entries.
-- Journal entries remain authoritative.
-- Final reports must not silently change.
-- Regenerating a final report creates a new version or record.
-- Version 1 uses a clear chronological summary.
-- Automated interpretation or AI-generated analysis is excluded.
+- One canonical report lineage exists per Organisation, Client, and calendar
+  month.
+- Drafts are shared Client deliverables, not author-private records.
+- The six sections are manually authored; Journal entries are not copied or
+  synthesised automatically.
+- Signed reports must not change, including for Administrators.
+- A correction is a new, directly linked replacement that preserves every
+  earlier signed report.
+- Automated interpretation or AI-generated analysis remains excluded.
 
 ## Document Security Rules
 
@@ -769,9 +771,10 @@ Milestone 5 is complete when:
 - Unauthorised downloads are denied.
 - File validation occurs on the server.
 - Documents appear in the correct client workspace.
-- Weekly reports correctly include authorised source records.
-- Final reports remain historically stable.
-- Reports display Swedish dates and ISO calendar weeks correctly.
+- Monthly Reports remain Client- and Organisation-scoped.
+- Signed reports remain historically stable and linked replacements are
+  traceable.
+- Reports display Swedish calendar month and year correctly.
 - Reports print cleanly with Swedish characters.
 - Document and report actions create appropriate audit events.
 - Storage can later be replaced without changing the domain model.
@@ -792,7 +795,7 @@ This milestone includes:
 - Search across clients
 - Search across journal entries
 - Search across documents
-- Search across weekly reports
+- Search across monthly reports
 - Administrator organisation export
 - Versioned export format
 - Export manifest
@@ -828,7 +831,7 @@ A complete export should include, where applicable:
 - Follow-ups
 - Documents
 - Original uploaded files
-- Weekly reports
+- Monthly reports
 - Audit events
 - Manifest and export-version information
 
@@ -863,6 +866,33 @@ Milestone 6 is complete when:
 
 # Milestone 7 — Pilot Readiness
 
+Status: In progress.
+
+The integrated release candidate contains the repository-approved Pilot
+deployment foundation and the approved product-hardening chain: form safety,
+the Swedish non-disclosing not-found page, accessibility hardening, and
+Administrator and Client orientation.
+
+The dependency audit gate remains open and blocking:
+`prisma@7.9.1 -> @prisma/config@7.9.1 -> deepmerge-ts@7.1.5` is affected by
+`GHSA-ggr8-5vv4-36mx`. The candidate must not be merged, tagged, published, or
+described as release-ready or Pilot-ready while this gate remains red.
+
+The concise repository/operations snapshot and current evidence boundaries are
+maintained in `docs/PROJECT_STATE.md`. This milestone remains the authority for
+scope and completion.
+
+Live GHCR image verification, inspection and rehearsal on the existing Ubuntu
+VM, NPM-backed DNS and HTTPS,
+encrypted off-host backup and restore, monitoring, operational ownership, and
+critical user-workflow acceptance remain outstanding. Real or sensitive data
+is not approved.
+
+The Have I Been Pwned plugin review deferred by ADR 0001 also remains an open
+Milestone 7 security decision. Its network, privacy, availability, failure-mode,
+and user-message implications must be reviewed; this is not approval to add the
+plugin.
+
 ## Goal
 
 Prepare Kaul for controlled pilot use on the Proxmox homelab using fictional or non-sensitive information.
@@ -874,6 +904,8 @@ This milestone includes:
 - Production-style Docker image
 - Pilot Docker Compose configuration
 - Caddy reverse proxy
+- Existing Nginx Proxy Manager as the Homelab public TLS edge, without making
+  Kaul application behavior depend on NPM
 - HTTPS
 - Domain configuration
 - Pilot environment warning
@@ -909,8 +941,14 @@ The warning should remain visible and should not depend solely on verbal instruc
 Milestone 7 is complete when:
 
 - Kaul can be deployed from documented instructions.
+- The existing Ubuntu VM passes the supported host preflight or a concrete
+  incompatibility is reviewed before any replacement VM is considered.
 - HTTPS works correctly.
-- Only the required public ports are exposed.
+- The router's public 80/443 path remains on NPM; the Kaul VM's private Caddy
+  listener is bound to its LAN address and accepts only the exact NPM peer
+  observed during authorised runtime inspection.
+- NPM-to-Caddy Host, scheme, and client-IP handling passes spoofed-header and
+  non-NPM negative tests; future direct-public Caddy remains configuration-driven.
 - PostgreSQL is not publicly exposed.
 - Proxmox is not exposed through the Kaul domain.
 - Development and pilot use separate credentials and databases.
@@ -1195,10 +1233,22 @@ and form tests, audit policy, lint, typecheck, build, and successful pull-reques
 CI. The foundation was squash-merged in #38 and the visible workflows in #39.
 Milestone 4 is complete.
 
-### Current focus — Pilot Readiness
+### Current focus — Pilot Readiness and approved product track
 
-The next project focus is a small, repeatable, and safely isolated pilot before
-another major feature milestone is selected. Pilot Readiness should establish:
+Pilot Readiness remains an open release track. In parallel, the approved
+product track expands Client information, converts new Journal drafts to six
+structured sections without rewriting legacy records, and implements the
+Client-scoped Monthly Report lifecycle. This product work does not authorise a
+deployment or the use of real sensitive information.
+
+Personnummer in this product track uses the separately approved Stage A
+envelope-encryption design in ADR 0003. The schema migration preserves old
+plaintext only as an explicit conversion source; attended Stage B conversion,
+restore proof with retained keys, and separately approved Stage C removal are
+required before that transition is complete. Client Documents remain deferred
+and must later stay Client-scoped.
+
+Pilot Readiness should establish:
 
 - Repeatable deployment to the pilot server through an HTTPS subdomain
 - A separate pilot environment, database, configuration, and secrets
@@ -1209,11 +1259,11 @@ another major feature milestone is selected. Pilot Readiness should establish:
 - A later deliberate migration path to organisation-approved infrastructure
 
 Pilot Readiness is not complete and does not make Kaul ready for real sensitive
-information. Documents, uploads, notifications, reports, global search,
-exports, and other deferred features do not become pilot requirements without
-a validated blocking need. Existing credential-delivery, account-recovery,
-legal, operational, backup, security, and production-readiness gates remain
-open.
+information. Documents, uploads, notifications, global search, exports, and
+other deferred features do not become pilot requirements without a validated
+blocking need. The approved Monthly Report product track does not remove any
+credential-delivery, account-recovery, legal, operational, backup, security,
+or production-readiness gate.
 
 ---
 

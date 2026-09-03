@@ -23,6 +23,7 @@ test-results/
 *.db
 *.sqlite
 backups/
+secrets/
 
 # Uploaded files
 uploads/

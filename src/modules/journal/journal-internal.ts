@@ -2,7 +2,12 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { JournalEntryStatus, type Prisma } from "../../generated/prisma/client";
+import {
+  JournalContentFormat,
+  JournalEntryStatus,
+  type Prisma,
+} from "../../generated/prisma/client";
+import type { StructuredSectionValues } from "../../lib/structured-sections";
 import { prisma } from "../../lib/prisma";
 import {
   appendAuditOutcomeInTransaction,
@@ -103,6 +108,13 @@ const journalEntrySelection = {
   entryType: true,
   eventOccurredAt: true,
   content: true,
+  contentFormat: true,
+  healthContent: true,
+  educationOccupationContent: true,
+  emotionsBehaviorContent: true,
+  socialRelationsContent: true,
+  dailyLivingIndependenceContent: true,
+  otherContent: true,
   version: true,
   createdAt: true,
   updatedAt: true,
@@ -163,6 +175,19 @@ function getTestDependencies(
 
 function createJournalReference(): string {
   return `JRN-${randomUUID().toUpperCase()}`;
+}
+
+function getJournalContentData(value: StructuredSectionValues) {
+  return {
+    content: "",
+    contentFormat: JournalContentFormat.STRUCTURED_V1,
+    healthContent: value.healthContent,
+    educationOccupationContent: value.educationOccupationContent,
+    emotionsBehaviorContent: value.emotionsBehaviorContent,
+    socialRelationsContent: value.socialRelationsContent,
+    dailyLivingIndependenceContent: value.dailyLivingIndependenceContent,
+    otherContent: value.otherContent,
+  } as const;
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
@@ -463,7 +488,7 @@ export async function createJournalDraftInternal(
           status: JournalEntryStatus.DRAFT,
           entryType: parsed.entryType,
           eventOccurredAt: parsed.eventOccurredAt,
-          content: parsed.content,
+          ...getJournalContentData(parsed),
           version: 1,
         },
         select: journalEntrySelection,
@@ -524,7 +549,7 @@ export async function saveJournalDraftInternal(
         data: {
           entryType: parsed.entryType,
           eventOccurredAt: parsed.eventOccurredAt,
-          content: parsed.content,
+          ...getJournalContentData(parsed),
           version: { increment: 1 },
         },
       });
@@ -848,7 +873,7 @@ export async function beginJournalCorrectionInternal(
         status: JournalEntryStatus.DRAFT,
         entryType: parsed.entryType,
         eventOccurredAt: parsed.eventOccurredAt,
-        content: parsed.content,
+        ...getJournalContentData(parsed),
         version: 1,
         correctionOfId: original.id,
       },

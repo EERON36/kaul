@@ -1,0 +1,1119 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+umask 077
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+readonly OWNED_CHAIN="KAUL-PILOT-CADDY"
+readonly OWNED_COMMENT="kaul-pilot-private-caddy"
+readonly LOCK_DIRECTORY="/run/kaul-pilot-firewall.lock"
+readonly EXPECTED_DOCKER_VERSION="29.7.2"
+readonly EXPECTED_IPTABLES_VERSION="1.8.11"
+
+CONFIG_FILE=
+LOCK_HELD=false
+SOCKET_STOP_OUTCOME=
+
+die() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+note() {
+  printf '%s\n' "$*"
+}
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  kaul-pilot-firewall preflight --config /etc/kaul/pilot-firewall.conf
+  kaul-pilot-firewall apply --config /etc/kaul/pilot-firewall.conf
+  kaul-pilot-firewall verify --config /etc/kaul/pilot-firewall.conf
+  kaul-pilot-firewall fail-closed --config /etc/kaul/pilot-firewall.conf
+  kaul-pilot-firewall remove --config /etc/kaul/pilot-firewall.conf
+  kaul-pilot-firewall rollback --config /etc/kaul/pilot-firewall.conf
+
+The configuration file is parsed as data and is never sourced as shell code.
+USAGE
+}
+
+cleanup_lock() {
+  if [ "$LOCK_HELD" = true ]; then
+    rmdir -- "$LOCK_DIRECTORY" 2>/dev/null || true
+  fi
+}
+trap cleanup_lock EXIT
+
+require_root() {
+  [ "${EUID:-$(id -u)}" -eq 0 ] || die "This firewall operator must run as root."
+}
+
+acquire_lock() {
+  if ! mkdir -m 0700 -- "$LOCK_DIRECTORY"; then
+    die "Another firewall operation is running, or the root-owned runtime lock requires review: $LOCK_DIRECTORY"
+  fi
+  LOCK_HELD=true
+}
+
+parse_options() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --config)
+        [ "$#" -ge 2 ] || die "--config requires an absolute path."
+        CONFIG_FILE=$2
+        shift 2
+        ;;
+      *) die "Unknown option: $1" ;;
+    esac
+  done
+
+  case "$CONFIG_FILE" in
+    /*) ;;
+    *) die "--config must use an absolute path." ;;
+  esac
+}
+
+validate_secure_operator_file() {
+  perl -MFcntl=:DEFAULT,:mode -MFile::Basename=dirname -e '
+    use strict;
+    use warnings;
+
+    my ($path) = @ARGV;
+    my $directory = dirname($path);
+    while (1) {
+      my @directory_stat = lstat($directory);
+      @directory_stat && S_ISDIR($directory_stat[2])
+        or die "ERROR: Every operator parent must be a directory.\n";
+      $directory_stat[4] == 0
+        or die "ERROR: Every operator parent must be owned by root.\n";
+      ($directory_stat[2] & 0022) == 0
+        or die "ERROR: Operator parents must not be group- or other-writable.\n";
+      last if $directory eq q{/};
+      $directory = dirname($directory);
+    }
+    sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+      or die "ERROR: The firewall operator must be a readable regular file and not a symlink.\n";
+    my @stat = stat($file);
+    S_ISREG($stat[2])
+      or die "ERROR: The firewall operator must be a regular file.\n";
+    $stat[4] == 0
+      or die "ERROR: The installed firewall operator must be owned by root.\n";
+    ($stat[2] & 0022) == 0
+      or die "ERROR: The installed firewall operator must not be group- or other-writable.\n";
+  ' "$0" || exit 1
+}
+
+load_configuration() {
+  local parsed
+  parsed=$(perl -MFcntl=:DEFAULT,:mode -MFile::Basename=dirname -MSocket=AF_INET,inet_ntop,inet_pton -e '
+    use strict;
+    use warnings;
+
+    my ($path) = @ARGV;
+    my $directory = dirname($path);
+    while (1) {
+      my @directory_stat = lstat($directory);
+      @directory_stat && S_ISDIR($directory_stat[2])
+        or die "ERROR: Every configuration parent must be a directory.\n";
+      $directory_stat[4] == 0
+        or die "ERROR: Every configuration parent must be owned by root.\n";
+      ($directory_stat[2] & 0022) == 0
+        or die "ERROR: Configuration parents must not be group- or other-writable.\n";
+      last if $directory eq q{/};
+      $directory = dirname($directory);
+    }
+
+    sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+      or die "ERROR: The firewall configuration must be readable and not a symlink.\n";
+    my @stat = stat($file);
+    S_ISREG($stat[2])
+      or die "ERROR: The firewall configuration must be a regular file.\n";
+    $stat[4] == 0
+      or die "ERROR: The firewall configuration must be owned by root.\n";
+    ($stat[2] & 07777) == 0644
+      or die "ERROR: The firewall configuration mode must be exactly 0644.\n";
+
+    my %allowed = map { $_ => 1 } qw(
+      COMPOSE_PROJECT_NAME
+      INGRESS_INTERFACE
+      HOST_IPV4_CIDR
+      TRUSTED_NPM_IPV4
+      PUBLISHED_TCP_PORT
+    );
+    my %values;
+    while (my $line = <$file>) {
+      chomp $line;
+      $line =~ /[\r\0]/ and die "ERROR: Configuration contains a forbidden control character.\n";
+      next if $line eq q{} || $line =~ /^#/;
+      $line =~ /^([A-Z][A-Z0-9_]*)=(.*)$/
+        or die "ERROR: Every configuration line must use KEY=VALUE syntax.\n";
+      my ($key, $value) = ($1, $2);
+      $allowed{$key}
+        or die "ERROR: Unknown firewall configuration key: $key\n";
+      !exists $values{$key}
+        or die "ERROR: Duplicate firewall configuration key: $key\n";
+      $values{$key} = $value;
+    }
+    close $file or die "ERROR: Could not close the firewall configuration.\n";
+
+    for my $key (sort keys %allowed) {
+      exists $values{$key} && length $values{$key}
+        or die "ERROR: Missing firewall configuration key: $key\n";
+    }
+
+    $values{COMPOSE_PROJECT_NAME} =~ /\A[a-z][a-z0-9_-]{0,62}\z/
+      or die "ERROR: COMPOSE_PROJECT_NAME is invalid.\n";
+    $values{INGRESS_INTERFACE} =~ /\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,14}\z/
+      or die "ERROR: INGRESS_INTERFACE is invalid.\n";
+    $values{HOST_IPV4_CIDR} =~ /\A([^\/]+)\/(\d{1,2})\z/
+      or die "ERROR: HOST_IPV4_CIDR must use canonical IPv4/prefix syntax.\n";
+    my ($host_ip, $prefix) = ($1, 0 + $2);
+    $prefix >= 1 && $prefix <= 32
+      or die "ERROR: HOST_IPV4_CIDR prefix is invalid.\n";
+    my $host_packed = inet_pton(AF_INET, $host_ip);
+    defined $host_packed && inet_ntop(AF_INET, $host_packed) eq $host_ip
+      or die "ERROR: HOST_IPV4_CIDR address must be canonical IPv4.\n";
+
+    my $npm_ip = $values{TRUSTED_NPM_IPV4};
+    my $npm_packed = inet_pton(AF_INET, $npm_ip);
+    defined $npm_packed && inet_ntop(AF_INET, $npm_packed) eq $npm_ip
+      or die "ERROR: TRUSTED_NPM_IPV4 must be canonical IPv4.\n";
+    $npm_ip ne $host_ip
+      or die "ERROR: Host and NPM addresses must differ.\n";
+
+    my $host_number = unpack(q{N}, $host_packed);
+    my $npm_number = unpack(q{N}, $npm_packed);
+    my $mask = $prefix == 0 ? 0 : (0xffffffff << (32 - $prefix)) & 0xffffffff;
+    my $management_network = inet_ntop(AF_INET, pack(q{N}, $host_number & $mask));
+    ($host_number & $mask) == ($npm_number & $mask)
+      or die "ERROR: Host and NPM addresses must share HOST_IPV4_CIDR network.\n";
+    ($host_number & 0xff000000) == 0x0a000000
+      || ($host_number & 0xfff00000) == 0xac100000
+      || ($host_number & 0xffff0000) == 0xc0a80000
+      or die "ERROR: HOST_IPV4_CIDR must use RFC1918 private IPv4.\n";
+    ($npm_number & 0xff000000) == 0x0a000000
+      || ($npm_number & 0xfff00000) == 0xac100000
+      || ($npm_number & 0xffff0000) == 0xc0a80000
+      or die "ERROR: TRUSTED_NPM_IPV4 must use RFC1918 private IPv4.\n";
+
+    $values{PUBLISHED_TCP_PORT} =~ /\A\d{4,5}\z/
+      or die "ERROR: PUBLISHED_TCP_PORT must be an unprivileged decimal port.\n";
+    my $port = 0 + $values{PUBLISHED_TCP_PORT};
+    $port >= 1024 && $port <= 65535 && $port != 3000 && $port != 5432
+      or die "ERROR: PUBLISHED_TCP_PORT is unsafe or invalid.\n";
+
+    print join("\n",
+      $values{COMPOSE_PROJECT_NAME},
+      $values{INGRESS_INTERFACE},
+      $host_ip,
+      $prefix,
+      qq{$management_network/$prefix},
+      $npm_ip,
+      $port,
+    ), "\n";
+  ' "$CONFIG_FILE") || exit 1
+
+  mapfile -t CONFIG_VALUES <<< "$parsed"
+  [ "${#CONFIG_VALUES[@]}" -eq 7 ] || die "The firewall configuration parser returned an invalid result."
+  readonly COMPOSE_PROJECT_NAME=${CONFIG_VALUES[0]}
+  readonly INGRESS_INTERFACE=${CONFIG_VALUES[1]}
+  readonly HOST_IPV4=${CONFIG_VALUES[2]}
+  readonly HOST_IPV4_PREFIX=${CONFIG_VALUES[3]}
+  readonly MANAGEMENT_IPV4_CIDR=${CONFIG_VALUES[4]}
+  readonly TRUSTED_NPM_IPV4=${CONFIG_VALUES[5]}
+  readonly PUBLISHED_TCP_PORT=${CONFIG_VALUES[6]}
+  readonly HOST_IPV4_CIDR="$HOST_IPV4/$HOST_IPV4_PREFIX"
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 is required."
+}
+
+require_unit_stopped() {
+  local state status=0
+  if state=$(systemctl is-active "$1" 2>/dev/null); then
+    status=0
+  else
+    status=$?
+  fi
+  case "$state" in
+    inactive|failed) return ;;
+    active|activating|deactivating|reloading)
+      die "$1 is still $state; Kaul firewall protection was retained."
+      ;;
+    *) die "$1 state could not be inspected (status $status); Kaul firewall protection was retained." ;;
+  esac
+}
+
+request_socket_stop_nonblocking() {
+  local state status=0
+  if state=$(systemctl is-active docker.socket 2>/dev/null); then
+    status=0
+  else
+    status=$?
+  fi
+  case "$state" in
+    inactive|failed)
+      SOCKET_STOP_OUTCOME=stopped
+      note "docker.socket is already stopped."
+      return
+      ;;
+    active|activating|deactivating|reloading) ;;
+    *) die "docker.socket state could not be inspected (status $status); Kaul firewall protection was retained." ;;
+  esac
+
+  systemctl --no-block stop docker.socket ||
+    die "docker.socket stop could not be requested after Docker service failure."
+  if state=$(systemctl is-active docker.socket 2>/dev/null); then
+    status=0
+  else
+    status=$?
+  fi
+  case "$state" in
+    inactive|failed)
+      SOCKET_STOP_OUTCOME=stopped
+      note "docker.socket stopped after the nonblocking stop request."
+      ;;
+    active|activating|deactivating|reloading)
+      SOCKET_STOP_OUTCOME=accepted
+      note "docker.socket stop job was accepted; the owning systemd transaction must prove its final inactive state."
+      ;;
+    *) die "docker.socket state could not be inspected after its stop request (status $status); Kaul firewall protection was retained." ;;
+  esac
+}
+
+stop_recovery_units() {
+  case "$1" in
+    fail-closed)
+      request_socket_stop_nonblocking
+      ;;
+    remove|rollback)
+      systemctl stop docker.socket ||
+        die "Docker socket could not be stopped; Kaul firewall protection was retained."
+      require_unit_stopped docker.socket
+      systemctl stop docker.service ||
+        die "Docker service could not be stopped; Kaul firewall protection was retained."
+      require_unit_stopped docker.service
+      require_unit_stopped docker.socket
+      ;;
+  esac
+}
+
+validate_iptables_frontend() {
+  local ipv4_version ipv6_version
+  ipv4_version=$(iptables --version 2>/dev/null) || die "iptables is unavailable."
+  ipv6_version=$(ip6tables --version 2>/dev/null) || die "ip6tables is unavailable."
+  [ "$ipv4_version" = "iptables v$EXPECTED_IPTABLES_VERSION (nf_tables)" ] ||
+    die "iptables v$EXPECTED_IPTABLES_VERSION using nf_tables is required; found: $ipv4_version"
+  [ "$ipv6_version" = "ip6tables v$EXPECTED_IPTABLES_VERSION (nf_tables)" ] ||
+    die "ip6tables v$EXPECTED_IPTABLES_VERSION using nf_tables is required; found: $ipv6_version"
+}
+
+validate_recovery_iptables_frontend() {
+  local ipv4_version ipv6_version
+  ipv4_version=$(iptables --version 2>/dev/null) || die "iptables is unavailable."
+  ipv6_version=$(ip6tables --version 2>/dev/null) || die "ip6tables is unavailable."
+  case "$ipv4_version" in
+    *"(nf_tables)"*) ;;
+    *) die "Recovery cannot safely locate the Kaul nft-compatible IPv4 state; protection was retained." ;;
+  esac
+  case "$ipv6_version" in
+    *"(nf_tables)"*) ;;
+    *) die "Recovery cannot safely locate the Kaul nft-compatible IPv6 state; protection was retained." ;;
+  esac
+}
+
+validate_docker_daemon_file() {
+  local daemon_file=/etc/docker/daemon.json
+  [ ! -e "$daemon_file" ] && [ ! -L "$daemon_file" ] && return
+
+  perl -MFcntl=:DEFAULT,:mode -MJSON::PP -e '
+    use strict;
+    use warnings;
+
+    my ($path) = @ARGV;
+    sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+      or die "ERROR: Docker daemon configuration must be readable and not a symlink.\n";
+    my @stat = stat($file);
+    S_ISREG($stat[2]) && $stat[4] == 0 && ($stat[2] & 0022) == 0
+      or die "ERROR: Docker daemon configuration ownership or mode is unsafe.\n";
+    local $/;
+    my $document = decode_json(<$file> // q{});
+    ref($document) eq q{HASH}
+      or die "ERROR: Docker daemon configuration must be a JSON object.\n";
+    (!exists $document->{q{firewall-backend}} || $document->{q{firewall-backend}} eq q{iptables})
+      or die "ERROR: Docker native nftables is unsupported by this operator.\n";
+    (!exists $document->{iptables} ||
+      (JSON::PP::is_bool($document->{iptables}) && $document->{iptables} == JSON::PP::true))
+      or die "ERROR: Docker iptables integration must remain enabled.\n";
+    (!exists $document->{ip6tables} ||
+      (JSON::PP::is_bool($document->{ip6tables}) && $document->{ip6tables} == JSON::PP::true))
+      or die "ERROR: Docker ip6tables integration must remain enabled.\n";
+    (!exists $document->{q{live-restore}} ||
+      (JSON::PP::is_bool($document->{q{live-restore}}) &&
+       $document->{q{live-restore}} == JSON::PP::false))
+      or die "ERROR: Docker live-restore is unsupported by the fail-closed startup model.\n";
+    (!exists $document->{q{allow-direct-routing}} ||
+      (JSON::PP::is_bool($document->{q{allow-direct-routing}}) &&
+       $document->{q{allow-direct-routing}} == JSON::PP::false))
+      or die "ERROR: Docker direct routing is unsupported by the reviewed private-listener model.\n";
+    !exists $document->{q{default-network-opts}}
+      or die "ERROR: Docker default network options require separate review.\n";
+  ' "$daemon_file" || exit 1
+}
+
+validate_docker_unit_command() {
+  local exec_start
+  exec_start=$(systemctl show --property=ExecStart --value docker.service 2>/dev/null) ||
+    die "docker.service must be managed by systemd."
+  [ -n "$exec_start" ] || die "docker.service has no visible ExecStart command."
+  case "$exec_start" in
+    *--firewall-backend=nftables*|*--firewall-backend\ nftables*)
+      die "Docker native nftables is unsupported by this operator."
+      ;;
+    *--iptables=false*|*--iptables\ false*|*--ip6tables=false*|*--ip6tables\ false*)
+      die "Docker iptables integration must remain enabled."
+      ;;
+    *--live-restore*) die "Docker live-restore is unsupported by the fail-closed startup model." ;;
+    *--allow-direct-routing*)
+      die "Docker direct-routing flags require separate review."
+      ;;
+    *--default-network-opt*)
+      die "Docker default network options require separate review."
+      ;;
+    *--config-file*) die "A non-default Docker config-file flag requires separate review." ;;
+  esac
+}
+
+validate_no_raw_notrack() {
+  local ipv4_raw ipv6_raw notrack_count
+  ipv4_raw=$(iptables-save -t raw 2>/dev/null) ||
+    die "IPv4 raw-table state could not be inspected."
+  ipv6_raw=$(ip6tables-save -t raw 2>/dev/null) ||
+    die "IPv6 raw-table state could not be inspected."
+  notrack_count=$(printf '%s\n%s\n' "$ipv4_raw" "$ipv6_raw" |
+    awk '
+      /^-A / {
+        for (field_number = 1; field_number <= NF; field_number += 1) {
+          if (($field_number == "-j" || $field_number == "--jump") &&
+              $(field_number + 1) == "NOTRACK") {
+            count += 1
+          }
+          if (($field_number == "-j" || $field_number == "--jump") &&
+              $(field_number + 1) == "CT") {
+            for (option_number = field_number + 2; option_number <= NF; option_number += 1) {
+              if ($option_number == "--notrack") {
+                count += 1
+              }
+            }
+          }
+        }
+      }
+      END { print count + 0 }
+    ') || die "Raw-table state could not be evaluated."
+  [ "$notrack_count" -eq 0 ] ||
+    die "Raw-table NOTRACK rules require separate review before original-tuple enforcement can be trusted."
+}
+
+process_is_absent() {
+  local process_name=$1 status
+  if pgrep -x "$process_name" >/dev/null 2>&1; then
+    return 1
+  else
+    status=$?
+  fi
+  [ "$status" -eq 1 ] || die "$process_name process state could not be inspected."
+}
+
+docker_processes_are_absent() {
+  process_is_absent dockerd && process_is_absent docker-proxy
+}
+
+count_target_dnat_rules() {
+  local address_family=$1 target_host=
+  [ "$address_family" = ipv6 ] || target_host="$HOST_IPV4/32"
+  KAUL_TARGET_DNAT_HOST="$target_host" \
+  KAUL_TARGET_DNAT_PORT="$PUBLISHED_TCP_PORT" \
+  perl -MSocket=AF_INET,inet_pton -e '
+    use strict;
+    use warnings;
+
+    my $target_host = delete $ENV{KAUL_TARGET_DNAT_HOST} // q{};
+    my $target_port = 0 + (delete $ENV{KAUL_TARGET_DNAT_PORT} // 0);
+
+    sub destination_can_include {
+      my ($destination, $target) = @_;
+      return 1 unless length $target;
+      my ($target_address) = split /\//, $target, 2;
+      my ($network_address, $prefix) = $destination =~ /\A([^\/]+)(?:\/(\d{1,2}))?\z/;
+      return 1 unless defined $network_address;
+      $network_address = q{0.0.0.0} if $network_address eq q{0};
+      $prefix = 32 unless defined $prefix;
+      return 1 if $prefix < 0 || $prefix > 32;
+      my $network_packed = inet_pton(AF_INET, $network_address);
+      my $target_packed = inet_pton(AF_INET, $target_address);
+      return 1 unless defined $network_packed && defined $target_packed;
+      my $mask = $prefix == 0 ? 0 : (0xffffffff << (32 - $prefix)) & 0xffffffff;
+      return (unpack(q{N}, $network_packed) & $mask) ==
+        (unpack(q{N}, $target_packed) & $mask);
+    }
+
+    sub port_spec_includes {
+      my ($spec, $port) = @_;
+      for my $part (split /,/, $spec) {
+        return 1 if $part =~ /\A\d+\z/ && 0 + $part == $port;
+        if ($part =~ /\A(\d*):(\d*)\z/) {
+          my $start = length($1) ? 0 + $1 : 0;
+          my $end = length($2) ? 0 + $2 : 65535;
+          return 1 if $start <= $port && $port <= $end;
+        }
+        if ($part =~ /\A(\d+)-(\d+)\z/) {
+          return 1 if 0 + $1 <= $port && $port <= 0 + $2;
+        }
+      }
+      return 0;
+    }
+
+    my $count = 0;
+    while (my $line = <STDIN>) {
+      next unless $line =~ /^-A /;
+      chomp $line;
+      my @fields = split /\s+/, $line;
+      my $is_dnat = 0;
+      my $destination_matches = 1;
+      my $has_destination_port_match = 0;
+      my $destination_port_matches = 0;
+      for (my $field = 0; $field < @fields; $field += 1) {
+        my $token = $fields[$field];
+        my $next = $fields[$field + 1] // q{};
+        if (($token eq q{-j} || $token eq q{--jump}) && $next eq q{DNAT}) {
+          $is_dnat = 1;
+        }
+        if (($token eq q{-d} || $token eq q{--destination}) && length $target_host) {
+          my $negated = $field > 0 && $fields[$field - 1] eq q{!};
+          $destination_matches = 0
+            if !$negated && !destination_can_include($next, $target_host);
+        }
+        if ($token eq q{--dport} || $token eq q{--destination-port} ||
+            $token eq q{--dports} || $token eq q{--destination-ports}) {
+          $has_destination_port_match = 1;
+          my $negated = $field > 0 && $fields[$field - 1] eq q{!};
+          $destination_port_matches = 1
+            if $negated || port_spec_includes($next, $target_port);
+        }
+        if ($token eq q{--ports}) {
+          $has_destination_port_match = 1;
+          $destination_port_matches = 1;
+        }
+      }
+      next unless $is_dnat && $destination_matches;
+      $count += 1 if !$has_destination_port_match || $destination_port_matches;
+    }
+    print "$count\n";
+  '
+}
+
+target_dnat_is_absent() {
+  local dnat_count ipv4_count ipv4_nat ipv6_count ipv6_nat
+  ipv4_nat=$(iptables-save -t nat 2>/dev/null) ||
+    die "IPv4 DNAT state could not be inspected."
+  ipv6_nat=$(ip6tables-save -t nat 2>/dev/null) ||
+    die "IPv6 DNAT state could not be inspected."
+  ipv4_count=$(printf '%s\n' "$ipv4_nat" | count_target_dnat_rules ipv4) ||
+    die "IPv4 DNAT state could not be evaluated."
+  ipv6_count=$(printf '%s\n' "$ipv6_nat" | count_target_dnat_rules ipv6) ||
+    die "IPv6 DNAT state could not be evaluated."
+  dnat_count=$((ipv4_count + ipv6_count))
+  [ "$dnat_count" -eq 0 ]
+}
+
+require_docker_fully_stopped() {
+  docker_processes_are_absent ||
+    die "dockerd, docker-proxy, or the Docker API is still active."
+  port_is_listening &&
+    die "TCP $PUBLISHED_TCP_PORT is still listening."
+  target_dnat_is_absent ||
+    die "A Docker DNAT rule for $HOST_IPV4:$PUBLISHED_TCP_PORT remains."
+}
+
+validate_host_network() {
+  local address_count route
+  address_count=$(ip -4 -o address show dev "$INGRESS_INTERFACE" |
+    awk -v expected="$HOST_IPV4_CIDR" '$4 == expected { count += 1 } END { print count + 0 }')
+  [ "$address_count" -eq 1 ] ||
+    die "$HOST_IPV4_CIDR must occur exactly once on $INGRESS_INTERFACE."
+
+  route=$(ip -4 route get "$TRUSTED_NPM_IPV4" 2>/dev/null) ||
+    die "The host has no IPv4 route to the configured NPM peer."
+  case " $route " in
+    *" dev $INGRESS_INTERFACE "*) ;;
+    *) die "The NPM route does not use $INGRESS_INTERFACE." ;;
+  esac
+  case " $route " in
+    *" src $HOST_IPV4 "*) ;;
+    *) die "The NPM route does not select $HOST_IPV4 as its source." ;;
+  esac
+
+  if [ -n "$(ip -6 -o address show scope global)" ]; then
+    die "A global-scope IPv6 address requires a separate firewall review."
+  fi
+  if [ -n "$(ip -6 route show default)" ]; then
+    die "An IPv6 default route requires a separate firewall review."
+  fi
+}
+
+validate_ufw_policy() {
+  local added_rules expected_rule ufw_state ufw_status
+  require_command ufw
+  ufw_state=$(systemctl is-active ufw.service 2>/dev/null || true)
+  [ "$ufw_state" = active ] ||
+    die "ufw.service must be active before Docker can use the Pilot firewall policy."
+
+  ufw_status=$(LC_ALL=C ufw status verbose 2>/dev/null) ||
+    die "UFW runtime state could not be inspected."
+  [ "$(printf '%s\n' "$ufw_status" | grep -Fxc 'Status: active' || true)" -eq 1 ] ||
+    die "UFW must be enabled and report active before Docker can start."
+  printf '%s\n' "$ufw_status" |
+    grep -Eq '^Default: deny \(incoming\), allow \(outgoing\), (deny|disabled) \(routed\)$' ||
+    die "UFW defaults must deny incoming and allow outgoing traffic."
+
+  added_rules=$(LC_ALL=C ufw show added 2>/dev/null | grep '^ufw ' || true)
+  expected_rule="ufw allow in on $INGRESS_INTERFACE from $MANAGEMENT_IPV4_CIDR to any port 22 proto tcp"
+  [ "$added_rules" = "$expected_rule" ] ||
+    die "UFW user rules must contain only the reviewed management-LAN SSH allow."
+}
+
+port_is_listening() {
+  local listener_count tcp_listeners udp_listeners
+  tcp_listeners=$(ss -H -ltn) || die "TCP listener state could not be inspected."
+  udp_listeners=$(ss -H -lun) || die "UDP listener state could not be inspected."
+  listener_count=$(printf '%s\n%s\n' "$tcp_listeners" "$udp_listeners" |
+    awk -v port="$PUBLISHED_TCP_PORT" '
+      $4 ~ (":" port "$") { count += 1 }
+      END { print count + 0 }
+    ') || die "Listener state could not be evaluated."
+  [ "$listener_count" -gt 0 ]
+}
+
+assert_port_unpublished() {
+  if port_is_listening; then
+    die "TCP $PUBLISHED_TCP_PORT is listening; refusing to alter firewall ordering while the private listener may be reachable."
+  fi
+}
+
+validate_listener_binding() {
+  local invalid_count tcp_listeners udp_listeners udp_count
+  tcp_listeners=$(ss -H -ltn) || die "TCP listener state could not be inspected."
+  udp_listeners=$(ss -H -lun) || die "UDP listener state could not be inspected."
+  invalid_count=$(printf '%s\n' "$tcp_listeners" | awk -v port="$PUBLISHED_TCP_PORT" -v expected="$HOST_IPV4:$PUBLISHED_TCP_PORT" '
+    $4 ~ (":" port "$") && $4 != expected { invalid += 1 }
+    END { print invalid + 0 }
+  ')
+  [ "$invalid_count" -eq 0 ] ||
+    die "TCP $PUBLISHED_TCP_PORT has a wildcard, IPv6, or unexpected host binding."
+  udp_count=$(printf '%s\n' "$udp_listeners" | awk -v port="$PUBLISHED_TCP_PORT" '
+    $4 ~ (":" port "$") { count += 1 }
+    END { print count + 0 }
+  ')
+  [ "$udp_count" -eq 0 ] || die "UDP $PUBLISHED_TCP_PORT must not be published."
+}
+
+iptables_filter_save() {
+  iptables-save -t filter
+}
+
+chain_exists() {
+  iptables -w 10 -t filter -S "$1" >/dev/null 2>&1
+}
+
+expected_owned_chain() {
+  printf '%s\n' \
+    "-N $OWNED_CHAIN" \
+    "-A $OWNED_CHAIN -s $TRUSTED_NPM_IPV4/32 -i $INGRESS_INTERFACE -m conntrack --ctdir ORIGINAL -j RETURN" \
+    "-A $OWNED_CHAIN -d $TRUSTED_NPM_IPV4/32 -o $INGRESS_INTERFACE -m conntrack --ctdir REPLY -j RETURN" \
+    "-A $OWNED_CHAIN -p tcp -m tcp -j REJECT --reject-with tcp-reset"
+}
+
+owned_chain_is_exact() {
+  local actual expected
+  chain_exists "$OWNED_CHAIN" || return 1
+  actual=$(iptables -w 10 -t filter -S "$OWNED_CHAIN") || return 1
+  expected=$(expected_owned_chain)
+  [ "$actual" = "$expected" ]
+}
+
+owned_reference_count() {
+  iptables_filter_save |
+    awk -v target="$OWNED_CHAIN" '
+      /^-A / {
+        for (field_number = 1; field_number <= NF; field_number += 1) {
+          if (($field_number == "-j" || $field_number == "--jump" ||
+               $field_number == "-g" || $field_number == "--goto") &&
+              $(field_number + 1) == target) {
+            count += 1
+          }
+        }
+      }
+      END { print count + 0 }
+    '
+}
+
+docker_user_jump_rule() {
+  printf '%s\n' "-A DOCKER-USER -p tcp -m conntrack --ctorigdst $HOST_IPV4 --ctorigdstport $PUBLISHED_TCP_PORT -m comment --comment $OWNED_COMMENT -j $OWNED_CHAIN"
+}
+
+owned_jump_is_exact_and_first() {
+  local first_rule expected count
+  chain_exists DOCKER-USER || return 1
+  expected=$(docker_user_jump_rule)
+  first_rule=$(iptables -w 10 -t filter -S DOCKER-USER | sed -n '2p')
+  count=$(iptables -w 10 -t filter -S DOCKER-USER | grep -Fxc -- "$expected" || true)
+  [ "$count" -eq 1 ] && [ "$first_rule" = "$expected" ] && [ "$(owned_reference_count)" -eq 1 ]
+}
+
+forward_jump_is_exact_and_first() {
+  local first_rule forward_rules count
+  forward_rules=$(iptables -w 10 -t filter -S FORWARD) || return 1
+  first_rule=$(printf '%s\n' "$forward_rules" | sed -n '2p')
+  count=$(printf '%s\n' "$forward_rules" |
+    awk '
+      /^-A FORWARD / {
+        for (field_number = 1; field_number <= NF; field_number += 1) {
+          if (($field_number == "-j" || $field_number == "--jump" ||
+               $field_number == "-g" || $field_number == "--goto") &&
+              $(field_number + 1) == "DOCKER-USER") {
+            count += 1
+          }
+        }
+      }
+      END { print count + 0 }
+    ') || return 1
+  [ "$count" -eq 1 ] && [ "$first_rule" = '-A FORWARD -j DOCKER-USER' ]
+}
+
+forward_reference_count() {
+  iptables -w 10 -t filter -S FORWARD |
+    awk '
+      /^-A FORWARD / {
+        for (field_number = 1; field_number <= NF; field_number += 1) {
+          if (($field_number == "-j" || $field_number == "--jump" ||
+               $field_number == "-g" || $field_number == "--goto") &&
+              $(field_number + 1) == "DOCKER-USER") {
+            count += 1
+          }
+        }
+      }
+      END { print count + 0 }
+    '
+}
+
+validate_existing_forward_integration() {
+  local count
+  count=$(forward_reference_count) || die "FORWARD integration could not be evaluated."
+  [ "$count" -le 1 ] || die "FORWARD contains duplicate or foreign DOCKER-USER transfers."
+  [ "$count" -eq 0 ] || forward_jump_is_exact_and_first ||
+    die "The existing FORWARD to DOCKER-USER integration is not exact and first."
+}
+
+remove_forward_integration() {
+  validate_existing_forward_integration
+  if forward_jump_is_exact_and_first; then
+    iptables -w 10 -t filter -D FORWARD -j DOCKER-USER
+  fi
+  [ "$(forward_reference_count)" -eq 0 ] ||
+    die "The managed FORWARD to DOCKER-USER integration remains after removal."
+}
+
+owned_state_is_exact() {
+  owned_chain_is_exact && owned_jump_is_exact_and_first
+}
+
+firewall_state_is_exact() {
+  owned_state_is_exact && forward_jump_is_exact_and_first
+}
+
+validate_optional_owned_state() {
+  local reference_count
+  reference_count=$(owned_reference_count)
+  if chain_exists "$OWNED_CHAIN"; then
+    owned_chain_is_exact || die "$OWNED_CHAIN exists with unexpected rules."
+    [ "$reference_count" -le 1 ] || die "$OWNED_CHAIN has duplicate or foreign references."
+    if [ "$reference_count" -eq 1 ]; then
+      iptables -w 10 -t filter -C DOCKER-USER \
+        -p tcp -m conntrack \
+        --ctorigdst "$HOST_IPV4" --ctorigdstport "$PUBLISHED_TCP_PORT" \
+        -m comment --comment "$OWNED_COMMENT" -j "$OWNED_CHAIN" >/dev/null 2>&1 ||
+        die "$OWNED_CHAIN has a foreign or malformed reference."
+    fi
+  elif [ "$reference_count" -ne 0 ]; then
+    die "$OWNED_CHAIN is referenced but does not exist."
+  fi
+}
+
+apply_firewall() {
+  validate_existing_forward_integration
+  if firewall_state_is_exact; then
+    note "Kaul firewall and forwarding state is already exact; no rules changed."
+    return
+  fi
+
+  require_docker_fully_stopped
+  assert_port_unpublished
+  validate_optional_owned_state
+
+  if ! chain_exists DOCKER-USER; then
+    iptables -w 10 -t filter -N DOCKER-USER
+  fi
+
+  if ! chain_exists "$OWNED_CHAIN"; then
+    iptables -w 10 -t filter -N "$OWNED_CHAIN"
+    iptables -w 10 -t filter -A "$OWNED_CHAIN" \
+      -s "$TRUSTED_NPM_IPV4/32" -i "$INGRESS_INTERFACE" \
+      -m conntrack --ctdir ORIGINAL -j RETURN
+    iptables -w 10 -t filter -A "$OWNED_CHAIN" \
+      -d "$TRUSTED_NPM_IPV4/32" -o "$INGRESS_INTERFACE" \
+      -m conntrack --ctdir REPLY -j RETURN
+    iptables -w 10 -t filter -A "$OWNED_CHAIN" \
+      -p tcp -m tcp -j REJECT --reject-with tcp-reset
+  fi
+
+  local reference_count
+  reference_count=$(owned_reference_count)
+  if [ "$reference_count" -eq 1 ]; then
+    iptables -w 10 -t filter -D DOCKER-USER \
+      -p tcp -m conntrack \
+      --ctorigdst "$HOST_IPV4" --ctorigdstport "$PUBLISHED_TCP_PORT" \
+      -m comment --comment "$OWNED_COMMENT" -j "$OWNED_CHAIN"
+  elif [ "$reference_count" -ne 0 ]; then
+    die "$OWNED_CHAIN has duplicate or foreign references."
+  fi
+  iptables -w 10 -t filter -I DOCKER-USER 1 \
+    -p tcp -m conntrack \
+    --ctorigdst "$HOST_IPV4" --ctorigdstport "$PUBLISHED_TCP_PORT" \
+    -m comment --comment "$OWNED_COMMENT" -j "$OWNED_CHAIN"
+
+  if ! forward_jump_is_exact_and_first; then
+    iptables -w 10 -t filter -I FORWARD 1 -j DOCKER-USER
+  fi
+
+  firewall_state_is_exact ||
+    die "Firewall application did not produce the exact pre-Docker forwarding state."
+  note "Kaul-owned firewall state and Docker's canonical forwarding transfer applied and verified before Docker startup."
+}
+
+validate_running_docker() {
+  local docker_version firewall_backend live_restore
+  docker_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null) ||
+    die "Docker Engine is not ready."
+  [ "$docker_version" = "$EXPECTED_DOCKER_VERSION" ] ||
+    die "Docker Engine $EXPECTED_DOCKER_VERSION is required; found: $docker_version"
+
+  firewall_backend=$(docker info --format '{{.FirewallBackend.Driver}}' 2>/dev/null) ||
+    die "Docker did not report its firewall backend."
+  [ "$firewall_backend" = iptables ] ||
+    die "Docker firewall backend must be iptables; found: $firewall_backend"
+
+  live_restore=$(docker info --format '{{.LiveRestoreEnabled}}' 2>/dev/null) ||
+    die "Docker did not report live-restore state."
+  [ "$live_restore" = false ] ||
+    die "Docker live-restore must remain disabled."
+}
+
+validate_project_publications() {
+  local container_output
+  local -a container_ids
+  container_output=$(docker ps --quiet) || die "Running Docker containers could not be enumerated."
+  [ -n "$container_output" ] || return 0
+  mapfile -t container_ids <<< "$container_output"
+
+  docker inspect "${container_ids[@]}" |
+    KAUL_EXPECTED_PROJECT="$COMPOSE_PROJECT_NAME" \
+    KAUL_EXPECTED_HOST="$HOST_IPV4" \
+    KAUL_EXPECTED_PORT="$PUBLISHED_TCP_PORT" \
+    perl -MJSON::PP -e '
+      use strict;
+      use warnings;
+
+      local $/;
+      my $containers = decode_json(<STDIN> // q{});
+      my $project = delete $ENV{KAUL_EXPECTED_PROJECT};
+      my $host = delete $ENV{KAUL_EXPECTED_HOST};
+      my $port = delete $ENV{KAUL_EXPECTED_PORT};
+      my $caddy_count = 0;
+      my $caddy_binding_count = 0;
+      for my $container (@$containers) {
+        my $labels = $container->{Config}{Labels} // {};
+        next unless ($labels->{q{com.docker.compose.project}} // q{}) eq $project;
+        my $service = $labels->{q{com.docker.compose.service}} // q{};
+        my $network_mode = $container->{HostConfig}{NetworkMode} // q{};
+        $network_mode ne q{host}
+          or die "ERROR: Pilot containers must not use host networking.\n";
+        !$container->{HostConfig}{PublishAllPorts}
+          or die "ERROR: Pilot containers must not enable automatic port publication.\n";
+        $caddy_count += 1 if $service eq q{caddy};
+        my $ports = $container->{NetworkSettings}{Ports} // {};
+        for my $container_port (keys %$ports) {
+          my $bindings = $ports->{$container_port};
+          next unless ref($bindings) eq q{ARRAY};
+          if ($service eq q{kaul} || $service eq q{postgres}) {
+            die "ERROR: $service must not publish a host port.\n" if @$bindings;
+          } elsif ($service eq q{caddy}) {
+            $container_port eq q{8080/tcp}
+              or die "ERROR: NPM-mode Caddy published an unexpected container port.\n";
+            @$bindings == 1
+              or die "ERROR: NPM-mode Caddy must have exactly one host binding.\n";
+            $bindings->[0]{HostIp} eq $host && $bindings->[0]{HostPort} eq $port
+              or die "ERROR: NPM-mode Caddy host binding is unexpected.\n";
+            $caddy_binding_count += 1;
+          }
+        }
+      }
+      $caddy_count <= 1
+        or die "ERROR: More than one running Pilot Caddy container exists.\n";
+      !$caddy_count || $caddy_binding_count == 1
+        or die "ERROR: Running NPM-mode Caddy must publish exactly one reviewed binding.\n";
+    ' || exit 1
+}
+
+validate_project_networks() {
+  local network_output
+  local -a network_ids
+  network_output=$(docker network ls \
+    --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --quiet) ||
+    die "Pilot Docker networks could not be enumerated."
+  [ -n "$network_output" ] || return 0
+  mapfile -t network_ids <<< "$network_output"
+
+  docker network inspect "${network_ids[@]}" |
+    perl -MJSON::PP -e '
+      use strict;
+      use warnings;
+
+      local $/;
+      my $networks = decode_json(<STDIN> // q{});
+      for my $network (@$networks) {
+        ($network->{Driver} // q{}) eq q{bridge}
+          or die "ERROR: Pilot networks must use the reviewed Docker bridge driver.\n";
+        !$network->{EnableIPv6}
+          or die "ERROR: Pilot Docker networks must not enable IPv6 without separate review.\n";
+        my $options = $network->{Options} // {};
+        ref($options) eq q{HASH}
+          or die "ERROR: Pilot Docker network options are malformed.\n";
+        !length($options->{q{com.docker.network.bridge.trusted_host_interfaces}} // q{})
+          or die "ERROR: Trusted host interfaces for direct container routing are unsupported.\n";
+        for my $family (qw(ipv4 ipv6)) {
+          my $mode = $options->{qq{com.docker.network.bridge.gateway_mode_$family}};
+          !defined($mode) || $mode eq q{nat}
+            or die "ERROR: Routed or unprotected Docker gateway modes are unsupported.\n";
+        }
+      }
+    ' || exit 1
+}
+
+validate_target_dnat_state() {
+  local caddy_output caddy_count caddy_ips expected_count ipv4_nat ipv6_nat
+  local _canonical_total ipv4_summary ipv4_total ipv4_exact ipv6_total
+  local -a caddy_ids
+  caddy_output=$(docker ps \
+    --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" \
+    --filter 'label=com.docker.compose.service=caddy' --quiet) ||
+    die "Running Pilot Caddy containers could not be enumerated."
+  if [ -n "$caddy_output" ]; then
+    mapfile -t caddy_ids <<< "$caddy_output"
+  else
+    caddy_ids=()
+  fi
+  caddy_count=${#caddy_ids[@]}
+  [ "$caddy_count" -le 1 ] || die "More than one running Pilot Caddy container exists."
+
+  expected_count=0
+  caddy_ips=
+  if [ "$caddy_count" -eq 1 ]; then
+    caddy_ips=$(docker inspect --format \
+      '{{range .NetworkSettings.Networks}}{{if .IPAddress}}{{.IPAddress}}{{println}}{{end}}{{end}}' \
+      "${caddy_ids[0]}" | awk 'NF { if (seen[$0]++ == 0) values = values (values ? "," : "") $0 } END { print values }') ||
+      die "Pilot Caddy network addresses could not be inspected."
+    [ -n "$caddy_ips" ] || die "Running Pilot Caddy has no inspected IPv4 network address."
+    expected_count=1
+  fi
+
+  ipv4_nat=$(iptables-save -t nat 2>/dev/null) ||
+    die "IPv4 DNAT state could not be inspected during running verification."
+  ipv6_nat=$(ip6tables-save -t nat 2>/dev/null) ||
+    die "IPv6 DNAT state could not be inspected during running verification."
+  ipv4_total=$(printf '%s\n' "$ipv4_nat" | count_target_dnat_rules ipv4) ||
+    die "IPv4 target DNAT state could not be evaluated."
+  ipv6_total=$(printf '%s\n' "$ipv6_nat" | count_target_dnat_rules ipv6) ||
+    die "IPv6 target DNAT state could not be evaluated."
+  ipv4_summary=$(printf '%s\n' "$ipv4_nat" |
+    awk -v port="$PUBLISHED_TCP_PORT" -v host="$HOST_IPV4/32" -v targets="$caddy_ips" '
+      BEGIN {
+        target_count = split(targets, target_values, ",")
+        for (target_index = 1; target_index <= target_count; target_index += 1) {
+          if (length(target_values[target_index])) expected_targets[target_values[target_index]] = 1
+        }
+      }
+      /^-A / {
+        has_dport = has_dnat = has_host = has_target = 0
+        for (field_number = 1; field_number <= NF; field_number += 1) {
+          if (($field_number == "--dport" || $field_number == "--destination-port") &&
+              $(field_number + 1) == port) has_dport = 1
+          if (($field_number == "-j" || $field_number == "--jump") &&
+              $(field_number + 1) == "DNAT") has_dnat = 1
+          if (($field_number == "-d" || $field_number == "--destination") &&
+              $(field_number + 1) == host) has_host = 1
+          if ($field_number == "--to-destination") {
+            split($(field_number + 1), destination, ":")
+            if (expected_targets[destination[1]] && destination[2] == port) has_target = 1
+          }
+        }
+        if (has_dport && has_dnat) {
+          total += 1
+          if (has_host && has_target) exact += 1
+        }
+      }
+      END { print total + 0, exact + 0 }
+    ') || die "IPv4 target DNAT state could not be evaluated."
+  read -r _canonical_total ipv4_exact <<< "$ipv4_summary"
+
+  [ "$ipv6_total" -eq 0 ] || die "IPv6 contains an unexpected DNAT for the private Caddy port."
+  [ "$ipv4_total" -eq "$expected_count" ] && [ "$ipv4_exact" -eq "$expected_count" ] ||
+    die "IPv4 target DNAT state does not exactly match the running Pilot Caddy publication."
+}
+
+verify_firewall() {
+  validate_running_docker
+  firewall_state_is_exact || die "The exact Kaul Pilot firewall state is not installed."
+  validate_listener_binding
+  validate_project_publications
+  validate_project_networks
+  validate_target_dnat_state
+  note "Kaul Pilot firewall, Docker backend, and project publication verification passed."
+}
+
+remove_firewall() {
+  require_unit_stopped docker.socket
+  require_unit_stopped docker.service
+  require_docker_fully_stopped
+  assert_port_unpublished
+  validate_optional_owned_state
+  remove_forward_integration
+
+  local reference_count
+  reference_count=$(owned_reference_count)
+  if [ "$reference_count" -eq 1 ]; then
+    iptables -w 10 -t filter -D DOCKER-USER \
+      -p tcp -m conntrack \
+      --ctorigdst "$HOST_IPV4" --ctorigdstport "$PUBLISHED_TCP_PORT" \
+      -m comment --comment "$OWNED_COMMENT" -j "$OWNED_CHAIN"
+  elif [ "$reference_count" -ne 0 ]; then
+    die "$OWNED_CHAIN has duplicate or foreign references."
+  fi
+
+  if chain_exists "$OWNED_CHAIN"; then
+    iptables -w 10 -t filter -F "$OWNED_CHAIN"
+    iptables -w 10 -t filter -X "$OWNED_CHAIN"
+  fi
+  [ "$(owned_reference_count)" -eq 0 ] || die "An owned firewall reference remains after removal."
+  chain_exists "$OWNED_CHAIN" && die "The owned firewall chain remains after removal."
+  note "Gate C firewall and forwarding state removed. Docker remains stopped."
+}
+
+rollback_firewall() {
+  require_unit_stopped docker.socket
+  require_unit_stopped docker.service
+  require_docker_fully_stopped
+  remove_firewall
+  note "Timed rollback completed. Gate C firewall and forwarding state are removed and Docker remains stopped; UFW was not changed."
+}
+
+fail_closed_check() {
+  local attempt
+  for attempt in $(seq 1 10); do
+    if docker_processes_are_absent && ! port_is_listening && target_dnat_is_absent &&
+      firewall_state_is_exact; then
+      if [ "$SOCKET_STOP_OUTCOME" = stopped ]; then
+        note "Docker processes and socket are stopped, exact Kaul protection remains installed, and no target publication is reachable."
+      else
+        note "Docker processes, proxies, listener, and target DNAT are absent and exact Kaul protection remains installed; docker.socket final state remains with the accepted systemd stop job."
+      fi
+      return
+    fi
+    sleep 1
+  done
+  die "Docker service failure did not reach the required fail-closed state; Kaul protection was retained."
+}
+
+COMMAND=${1:-}
+[ -n "$COMMAND" ] || { usage; exit 2; }
+shift
+parse_options "$@"
+
+case "$COMMAND" in
+  preflight|apply|verify|fail-closed|remove|rollback) ;;
+  -h|--help|help) usage; exit 0 ;;
+  *) usage; die "Unknown command: $COMMAND" ;;
+esac
+
+require_root
+require_command systemctl
+case "$COMMAND" in
+  fail-closed|remove|rollback) stop_recovery_units "$COMMAND" ;;
+esac
+
+for command_name in awk grep ip6tables ip6tables-save iptables iptables-save perl pgrep sed seq sleep ss systemctl; do
+  require_command "$command_name"
+done
+validate_secure_operator_file
+load_configuration
+
+if [ "$COMMAND" = fail-closed ]; then
+  validate_recovery_iptables_frontend
+  fail_closed_check
+  exit 0
+fi
+acquire_lock
+
+if [ "$COMMAND" = remove ]; then
+  validate_recovery_iptables_frontend
+  remove_firewall
+  exit 0
+fi
+if [ "$COMMAND" = rollback ]; then
+  validate_recovery_iptables_frontend
+  rollback_firewall
+  exit 0
+fi
+
+for command_name in docker ip; do
+  require_command "$command_name"
+done
+validate_iptables_frontend
+validate_no_raw_notrack
+validate_docker_daemon_file
+
+case "$COMMAND" in
+  preflight)
+    validate_docker_unit_command
+    validate_host_network
+    validate_ufw_policy
+    assert_port_unpublished
+    require_docker_fully_stopped
+    validate_existing_forward_integration
+    validate_optional_owned_state
+    note "Kaul Pilot pre-Docker firewall preflight passed without changing state."
+    ;;
+  apply)
+    validate_docker_unit_command
+    validate_host_network
+    apply_firewall
+    ;;
+  verify)
+    validate_docker_unit_command
+    validate_host_network
+    validate_ufw_policy
+    verify_firewall
+    ;;
+esac
