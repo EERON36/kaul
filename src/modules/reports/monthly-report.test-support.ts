@@ -26,9 +26,10 @@ function assertTestEnvironment(): void {
 export function listMonthlyReportsForTest(
   input: ClientMonthlyReportsQueryInput,
   actor: ApplicationUser,
+  dependencies: MonthlyReportTestDependencies = {},
 ) {
   assertTestEnvironment();
-  return listMonthlyReportsInternal(input, actor);
+  return listMonthlyReportsInternal(input, actor, dependencies);
 }
 
 export function getMonthlyReportForTest(

@@ -84,6 +84,7 @@ class DefinitiveMonthlyReportMutationError extends Error {
 }
 
 export type MonthlyReportTestDependencies = Readonly<{
+  beforeReportQuery?: () => void | Promise<void>;
   afterDraftMutation?: () => void | Promise<void>;
   beforeSigningTransaction?: () => void | Promise<void>;
   afterSigningMutation?: () => void | Promise<void>;
@@ -256,32 +257,62 @@ async function finishAmbiguous(intent: AuditIntentHandle): Promise<never> {
   throw new MonthlyReportError("OPERATION_AMBIGUOUS");
 }
 
+function getMonthlyReportReadWhere(
+  actor: ApplicationUser,
+): Prisma.MonthlyReportWhereInput {
+  return {
+    organisationId: actor.organisationId,
+    OR: [
+      {
+        status: MonthlyReportStatus.DRAFT,
+        client: { is: getOrdinaryClientAccessWhere(actor) },
+      },
+      {
+        status: MonthlyReportStatus.SIGNED,
+        client: { is: getClientDetailAccessWhere(actor) },
+      },
+    ],
+  };
+}
+
 export async function listMonthlyReportsInternal(
   input: ClientMonthlyReportsQueryInput,
   actor: ApplicationUser,
+  testDependencies?: MonthlyReportTestDependencies,
 ): Promise<readonly MonthlyReportRecord[]> {
   const parsed = clientMonthlyReportsQueryInputSchema.parse(input);
-  const client = await prisma.client.findFirst({
-    where: { id: parsed.clientId, ...getClientDetailAccessWhere(actor) },
-    select: { id: true, status: true },
-  });
-  if (!client) throw new MonthlyReportError("TARGET_UNAVAILABLE");
+  const dependencies = getTestDependencies(testDependencies);
+  try {
+    return await prisma.$transaction(async (transaction) => {
+      const currentActor = await requireCurrentActor(transaction, actor);
+      const client = await transaction.client.findFirst({
+        where: {
+          id: parsed.clientId,
+          ...getClientDetailAccessWhere(currentActor),
+        },
+        select: { id: true },
+      });
+      if (!client) {
+        throw new DefinitiveMonthlyReportMutationError("TARGET_UNAVAILABLE");
+      }
+      await dependencies.beforeReportQuery?.();
 
-  return prisma.monthlyReport.findMany({
-    where: {
-      organisationId: actor.organisationId,
-      clientId: parsed.clientId,
-      ...(client.status === "ARCHIVED"
-        ? { status: MonthlyReportStatus.SIGNED }
-        : {}),
-    },
-    orderBy: [
-      { calendarYear: "desc" },
-      { calendarMonth: "desc" },
-      { revision: "desc" },
-    ],
-    select: monthlyReportSelection,
-  });
+      return transaction.monthlyReport.findMany({
+        where: {
+          clientId: parsed.clientId,
+          ...getMonthlyReportReadWhere(currentActor),
+        },
+        orderBy: [
+          { calendarYear: "desc" },
+          { calendarMonth: "desc" },
+          { revision: "desc" },
+        ],
+        select: monthlyReportSelection,
+      });
+    });
+  } catch (error) {
+    return throwPublicMonthlyReportError(error);
+  }
 }
 
 export async function getMonthlyReportInternal(
@@ -289,24 +320,24 @@ export async function getMonthlyReportInternal(
   actor: ApplicationUser,
 ): Promise<MonthlyReportRecord> {
   const parsed = monthlyReportQueryInputSchema.parse(input);
-  const report = await prisma.monthlyReport.findFirst({
-    where: {
-      id: parsed.monthlyReportId,
-      organisationId: actor.organisationId,
-      client: { is: getClientDetailAccessWhere(actor) },
-    },
-    select: monthlyReportSelection,
-  });
-  if (!report) throw new MonthlyReportError("TARGET_UNAVAILABLE");
-
-  if (report.status === MonthlyReportStatus.DRAFT) {
-    const writableClient = await prisma.client.findFirst({
-      where: { id: report.clientId, ...getOrdinaryClientAccessWhere(actor) },
-      select: { id: true },
+  try {
+    return await prisma.$transaction(async (transaction) => {
+      const currentActor = await requireCurrentActor(transaction, actor);
+      const report = await transaction.monthlyReport.findFirst({
+        where: {
+          id: parsed.monthlyReportId,
+          ...getMonthlyReportReadWhere(currentActor),
+        },
+        select: monthlyReportSelection,
+      });
+      if (!report) {
+        throw new DefinitiveMonthlyReportMutationError("TARGET_UNAVAILABLE");
+      }
+      return report;
     });
-    if (!writableClient) throw new MonthlyReportError("TARGET_UNAVAILABLE");
+  } catch (error) {
+    return throwPublicMonthlyReportError(error);
   }
-  return report;
 }
 
 export async function createMonthlyReportDraftInternal(
@@ -481,11 +512,13 @@ export async function beginMonthlyReportReplacementInternal(
         id: parsed.monthlyReportId,
         organisationId: currentActor.organisationId,
         status: MonthlyReportStatus.SIGNED,
-        replacement: null,
       },
       select: monthlyReportSelection,
     });
-    if (!original) {
+    if (
+      !original ||
+      original.replacement?.status === MonthlyReportStatus.SIGNED
+    ) {
       throw new DefinitiveMonthlyReportMutationError("TARGET_UNAVAILABLE");
     }
     const existingDraft = await transaction.monthlyReport.findFirst({
@@ -494,6 +527,7 @@ export async function beginMonthlyReportReplacementInternal(
         clientId: original.clientId,
         calendarYear: original.calendarYear,
         calendarMonth: original.calendarMonth,
+        replacesReportId: original.id,
         status: MonthlyReportStatus.DRAFT,
       },
       select: monthlyReportSelection,

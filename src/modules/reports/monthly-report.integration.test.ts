@@ -6,13 +6,20 @@ import {
   AssignmentResponsibility,
   ClientStatus,
   UserRole,
+  type Prisma,
 } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
 import { generateAuditOperationId } from "../audit/audit";
 import type { ApplicationUser } from "../authentication/guards";
+import type { AdministratorUser } from "../users/authorization";
+import {
+  archiveClientForTest,
+  endAssignmentForTest,
+} from "../clients/clients.test-support";
 import {
   beginMonthlyReportReplacementForTest,
   createMonthlyReportDraftForTest,
+  getMonthlyReportForTest,
   listMonthlyReportsForTest,
   saveMonthlyReportDraftForTest,
   signMonthlyReportDraftForTest,
@@ -112,7 +119,10 @@ async function createFixture() {
   });
   return {
     client,
-    administrator: actor(administratorUser, organisationName),
+    administrator: actor(
+      administratorUser,
+      organisationName,
+    ) as AdministratorUser,
     firstStaff: actor(firstStaffUser, organisationName),
     secondStaff: actor(secondStaffUser, organisationName),
     unassigned: actor(unassignedUser, organisationName),
@@ -166,6 +176,67 @@ const populatedSections = {
   dailyLivingIndependenceContent: "",
   otherContent: "",
 } as const;
+
+async function createSignedReport(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  calendarMonth = 8,
+) {
+  const { draft } = await createMonthlyReportDraftForTest(
+    { clientId: fixture.client.id, calendarYear: 2026, calendarMonth },
+    fixture.firstStaff,
+  );
+  const saved = await saveMonthlyReportDraftForTest(
+    {
+      monthlyReportId: draft.id,
+      expectedVersion: draft.version,
+      ...populatedSections,
+    },
+    fixture.firstStaff,
+  );
+  return signMonthlyReportDraftForTest(
+    {
+      monthlyReportId: saved.id,
+      expectedVersion: saved.version,
+      operationId: generateAuditOperationId(),
+    },
+    fixture.firstStaff,
+  );
+}
+
+async function archiveFixtureClient(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+) {
+  const assignments = await prisma.assignment.findMany({
+    where: { clientId: fixture.client.id, endedAt: null },
+    select: { id: true },
+  });
+  for (const assignment of assignments) {
+    await endAssignmentForTest(
+      { operationId: generateAuditOperationId(), assignmentId: assignment.id },
+      fixture.administrator,
+      {},
+    );
+  }
+  await archiveClientForTest(
+    { operationId: generateAuditOperationId(), clientId: fixture.client.id },
+    fixture.administrator,
+    {},
+  );
+}
+
+async function expectReportSqlRejected(
+  mutation: (transaction: Prisma.TransactionClient) => Promise<unknown>,
+  message: string,
+) {
+  await expect(
+    prisma.$transaction(async (transaction) => {
+      await mutation(transaction);
+      await transaction.$executeRaw`SET CONSTRAINTS ALL IMMEDIATE`;
+      // Roll back even if a guard regresses, including a successful TRUNCATE.
+      throw new Error("A forbidden report mutation unexpectedly succeeded.");
+    }),
+  ).rejects.toThrow(message);
+}
 
 describe("Monthly Reports with PostgreSQL", () => {
   it("shares one optimistic draft, signs atomically, and preserves linked replacements", async () => {
@@ -302,5 +373,271 @@ describe("Monthly Reports with PostgreSQL", () => {
         secondFixture.administrator,
       ),
     ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+    for (const deniedActor of [
+      fixture.unassigned,
+      secondFixture.administrator,
+    ]) {
+      await expect(
+        listMonthlyReportsForTest({ clientId: fixture.client.id }, deniedActor),
+      ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+      await expect(
+        getMonthlyReportForTest(
+          { monthlyReportId: report.draft.id },
+          deniedActor,
+        ),
+      ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+    }
+  });
+
+  it("does not disclose reports when the assignment ends after list preflight", async () => {
+    const fixture = await createFixture();
+    await createSignedReport(fixture);
+    await createMonthlyReportDraftForTest(
+      { clientId: fixture.client.id, calendarYear: 2026, calendarMonth: 9 },
+      fixture.firstStaff,
+    );
+    const assignment = await prisma.assignment.findFirstOrThrow({
+      where: {
+        clientId: fixture.client.id,
+        staffUserId: fixture.secondStaff.userId,
+        endedAt: null,
+      },
+      select: { id: true },
+    });
+    const reports = await listMonthlyReportsForTest(
+      { clientId: fixture.client.id },
+      fixture.secondStaff,
+      {
+        beforeReportQuery: async () => {
+          await endAssignmentForTest(
+            {
+              operationId: generateAuditOperationId(),
+              assignmentId: assignment.id,
+            },
+            fixture.administrator,
+            {},
+          );
+        },
+      },
+    );
+    expect(reports.map(({ id }) => id)).toEqual([]);
+  });
+
+  it("excludes drafts when the Client is archived after list preflight", async () => {
+    const fixture = await createFixture();
+    const signed = await createSignedReport(fixture);
+    const { draft } = await createMonthlyReportDraftForTest(
+      { clientId: fixture.client.id, calendarYear: 2026, calendarMonth: 9 },
+      fixture.firstStaff,
+    );
+    const reports = await listMonthlyReportsForTest(
+      { clientId: fixture.client.id },
+      fixture.administrator,
+      { beforeReportQuery: () => archiveFixtureClient(fixture) },
+    );
+    expect(reports.map(({ id }) => id)).toEqual([signed.id]);
+    await expect(
+      getMonthlyReportForTest(
+        { monthlyReportId: signed.id },
+        fixture.administrator,
+      ),
+    ).resolves.toMatchObject({ id: signed.id, status: "SIGNED" });
+    await expect(
+      getMonthlyReportForTest(
+        { monthlyReportId: draft.id },
+        fixture.administrator,
+      ),
+    ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+    await expect(
+      listMonthlyReportsForTest(
+        { clientId: fixture.client.id },
+        fixture.firstStaff,
+      ),
+    ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+    await expect(
+      getMonthlyReportForTest(
+        { monthlyReportId: signed.id },
+        fixture.firstStaff,
+      ),
+    ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+  });
+
+  it.each([
+    { banned: true },
+    { mustChangePassword: true },
+    { role: UserRole.STAFF_MEMBER },
+  ])(
+    "revalidates the actor before list and detail reads: %j",
+    async (actorChange) => {
+      const fixture = await createFixture();
+      const signed = await createSignedReport(fixture);
+      await prisma.user.update({
+        where: { id: fixture.administrator.userId },
+        data: actorChange,
+      });
+      await expect(
+        listMonthlyReportsForTest(
+          { clientId: fixture.client.id },
+          fixture.administrator,
+        ),
+      ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+      await expect(
+        getMonthlyReportForTest(
+          { monthlyReportId: signed.id },
+          fixture.administrator,
+        ),
+      ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+    },
+  );
+
+  it("reopens only the requested signed report's direct replacement draft", async () => {
+    const fixture = await createFixture();
+    const signed = await createSignedReport(fixture);
+    const first = await beginMonthlyReportReplacementForTest(
+      { monthlyReportId: signed.id },
+      fixture.firstStaff,
+    );
+    const reopened = await beginMonthlyReportReplacementForTest(
+      { monthlyReportId: signed.id },
+      fixture.secondStaff,
+    );
+    expect(reopened.created).toBe(false);
+    expect(reopened.draft.id).toBe(first.draft.id);
+    const replacement = await signMonthlyReportDraftForTest(
+      {
+        monthlyReportId: first.draft.id,
+        expectedVersion: first.draft.version,
+        operationId: generateAuditOperationId(),
+      },
+      fixture.secondStaff,
+    );
+    const next = await beginMonthlyReportReplacementForTest(
+      { monthlyReportId: replacement.id },
+      fixture.firstStaff,
+    );
+    expect(next.draft.replacesReportId).toBe(replacement.id);
+    await expect(
+      beginMonthlyReportReplacementForTest(
+        { monthlyReportId: signed.id },
+        fixture.firstStaff,
+      ),
+    ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+    expect(
+      await prisma.monthlyReport.count({
+        where: { clientId: fixture.client.id },
+      }),
+    ).toBe(3);
+  });
+
+  it("shares one replacement draft when two authorised users request it concurrently", async () => {
+    const fixture = await createFixture();
+    const signed = await createSignedReport(fixture);
+    const results = await Promise.all([
+      beginMonthlyReportReplacementForTest(
+        { monthlyReportId: signed.id },
+        fixture.firstStaff,
+      ),
+      beginMonthlyReportReplacementForTest(
+        { monthlyReportId: signed.id },
+        fixture.secondStaff,
+      ),
+    ]);
+    expect(results.map(({ created }) => created).sort()).toEqual([false, true]);
+    expect(new Set(results.map(({ draft }) => draft.id)).size).toBe(1);
+    expect(
+      await prisma.monthlyReport.count({
+        where: { replacesReportId: signed.id },
+      }),
+    ).toBe(1);
+  });
+
+  it("rejects signed deletion and report truncation through direct SQL", async () => {
+    const fixture = await createFixture();
+    const signed = await createSignedReport(fixture);
+    await expectReportSqlRejected(
+      (transaction) =>
+        transaction.$executeRaw`DELETE FROM "monthlyReport" WHERE "id" = ${signed.id}::uuid`,
+      "Signed monthly reports are immutable.",
+    );
+    await expectReportSqlRejected(
+      (transaction) => transaction.$executeRaw`TRUNCATE TABLE "monthlyReport"`,
+      "Monthly reports cannot be truncated.",
+    );
+    await expect(
+      prisma.monthlyReport.findUniqueOrThrow({ where: { id: signed.id } }),
+    ).resolves.toMatchObject({
+      status: "SIGNED",
+      healthContent: populatedSections.healthContent,
+    });
+  });
+
+  it("rejects direct signing without successful audit evidence and preserves the draft", async () => {
+    const fixture = await createFixture();
+    const { draft } = await createMonthlyReportDraftForTest(
+      { clientId: fixture.client.id, calendarYear: 2026, calendarMonth: 8 },
+      fixture.firstStaff,
+    );
+    const saved = await saveMonthlyReportDraftForTest(
+      {
+        monthlyReportId: draft.id,
+        expectedVersion: draft.version,
+        ...populatedSections,
+      },
+      fixture.firstStaff,
+    );
+    await expectReportSqlRejected(
+      (transaction) => transaction.$executeRaw`
+        UPDATE "monthlyReport"
+        SET "status" = 'SIGNED', "version" = "version" + 1,
+            "signedAt" = ${new Date()},
+            "signerUserId" = ${fixture.firstStaff.userId},
+            "signerName" = ${fixture.firstStaff.name},
+            "signerProfessionalTitle" = ${fixture.firstStaff.professionalTitle},
+            "signerRole" = 'STAFF_MEMBER'
+        WHERE "id" = ${saved.id}::uuid
+      `,
+      "Signed monthly reports require successful audit evidence.",
+    );
+    await expect(
+      prisma.monthlyReport.findUniqueOrThrow({ where: { id: saved.id } }),
+    ).resolves.toMatchObject({
+      status: "DRAFT",
+      version: saved.version,
+      signedAt: null,
+    });
+  });
+
+  it("rejects skipped, unsigned, and cross-month predecessors through direct SQL", async () => {
+    const fixture = await createFixture();
+    const signed = await createSignedReport(fixture);
+    const { draft } = await createMonthlyReportDraftForTest(
+      { clientId: fixture.client.id, calendarYear: 2026, calendarMonth: 9 },
+      fixture.firstStaff,
+    );
+    for (const invalid of [
+      { predecessor: signed.id, month: 8, revision: 3 },
+      { predecessor: draft.id, month: 9, revision: 2 },
+      { predecessor: signed.id, month: 10, revision: 2 },
+    ]) {
+      await expectReportSqlRejected(
+        (transaction) => transaction.$executeRaw`
+          INSERT INTO "monthlyReport" (
+            "id", "reference", "organisationId", "clientId", "calendarYear", "calendarMonth",
+            "revision", "replacesReportId", "createdByUserId", "updatedByUserId", "updatedAt"
+          ) VALUES (
+            ${randomUUID()}::uuid, ${`MRP-${randomUUID().toUpperCase()}`},
+            ${fixture.administrator.organisationId}, ${fixture.client.id}::uuid, 2026, ${invalid.month},
+            ${invalid.revision}, ${invalid.predecessor}::uuid,
+            ${fixture.firstStaff.userId}, ${fixture.firstStaff.userId}, ${new Date()}
+          )
+        `,
+        "A monthly report replacement must extend the signed lineage.",
+      );
+    }
+    expect(
+      await prisma.monthlyReport.count({
+        where: { clientId: fixture.client.id },
+      }),
+    ).toBe(2);
   });
 });
