@@ -8,6 +8,7 @@ COMPOSE_FILE="$REPOSITORY_ROOT/compose.pilot.yaml"
 WORK_DIRECTORY=$(mktemp -d)
 PROJECT_NAME="kaul-pilot-backup-ci-${GITHUB_RUN_ID:-$$}"
 ENV_FILE="$WORK_DIRECTORY/pilot.env"
+DOCUMENT_STORAGE_DIRECTORY="$WORK_DIRECTORY/documents"
 PASSWORD_FILE="$WORK_DIRECTORY/restic-password"
 REST_SERVER_LOG="$WORK_DIRECTORY/rest-server.log"
 REST_SERVER_PID=
@@ -64,6 +65,7 @@ for command_name in curl docker find grep restic rest-server sed seq tr wc; do
 done
 
 umask 077
+mkdir -m 700 "$DOCUMENT_STORAGE_DIRECTORY"
 printf '%s\n' 'fictional-ci-restic-encryption-password-2026' > "$PASSWORD_FILE"
 chmod 600 "$PASSWORD_FILE"
 PERSONNUMMER_KEYRING_FILE="$WORK_DIRECTORY/personnummer-keyring.json"
@@ -82,6 +84,7 @@ DEPLOYMENT_ENV=pilot
 BETTER_AUTH_URL=https://pilot-ci.invalid
 BETTER_AUTH_SECRET=fictional-ci-auth-secret-2026-000000000000
 KAUL_PERSONNUMMER_KEYRING_HOST_FILE=$PERSONNUMMER_KEYRING_FILE
+DOCUMENT_STORAGE_HOST_PATH=$DOCUMENT_STORAGE_DIRECTORY
 POSTGRES_ADMIN_USER=kaul_pilot_admin
 POSTGRES_ADMIN_PASSWORD=fictional-ci-admin-secret-2026-000000000
 KAUL_DB_USER=kaul_pilot_app
