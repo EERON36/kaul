@@ -130,6 +130,13 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
+Documents browser tests exclusively create `kaul-documents-e2e-<KAUL_TEST_ID>`
+under the operating system's temporary directory. The test server uses that
+same directory; `DOCUMENT_STORAGE_ROOT` does not select browser-test storage.
+An existing directory is preserved and blocks the Documents tests: select a
+new test ID and its matching disposable database configuration. Cleanup removes
+only the directory created by the current test after verifying its ownership.
+
 Drop only the current derived test database with `npm run test:db:drop` when
 cleanup is explicitly authorised. The command refuses the normal `kaul`
 database.

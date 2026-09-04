@@ -1,7 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -13,12 +10,14 @@ import {
   UserRole,
 } from "../src/generated/prisma/client";
 import { createAuthentication } from "../src/modules/authentication/auth";
+import {
+  createDocumentTestStorage,
+  type OwnedDocumentTestStorage,
+} from "../src/test/document-test-storage";
 import { getTestEnvironment } from "../src/test/test-environment";
 
 const testEnvironment = getTestEnvironment();
-const documentStorageRoot =
-  process.env.DOCUMENT_STORAGE_ROOT ??
-  resolve(tmpdir(), `kaul-documents-e2e-${testEnvironment.testId}`);
+let documentStorage: OwnedDocumentTestStorage | undefined;
 const prisma = new PrismaClient({
   adapter: new PrismaPg({
     connectionString: testEnvironment.integrationDatabaseUrl,
@@ -84,7 +83,6 @@ async function cleanup() {
       where: { id: { in: organisationIds } },
     });
   }
-  await rm(documentStorageRoot, { recursive: true, force: true });
 }
 
 async function logIn(page: Page, userEmail = email, userPassword = password) {
@@ -99,6 +97,7 @@ async function logIn(page: Page, userEmail = email, userPassword = password) {
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
+  documentStorage = await createDocumentTestStorage(testEnvironment.testId);
   await cleanup();
   const organisationId = randomUUID();
   await prisma.organisation.create({
@@ -175,8 +174,15 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  await cleanup();
-  await prisma.$disconnect();
+  try {
+    // A failed ownership preflight must not trigger either cleanup path.
+    if (documentStorage) {
+      await cleanup();
+      await documentStorage.dispose();
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
 });
 
 test("upload, history, download, keyboard navigation, reflow, and archived read-only state", async ({

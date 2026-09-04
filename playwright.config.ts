@@ -1,9 +1,8 @@
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { defineConfig, devices } from "@playwright/test";
 
+import { getDocumentTestStorageRoot } from "./src/test/document-test-storage";
 import { getTestEnvironment } from "./src/test/test-environment";
 
 const testEnvironment = getTestEnvironment();
@@ -15,9 +14,7 @@ const personalIdentityNumberKeyringFile =
   fileURLToPath(
     new URL("./test-fixtures/personnummer-keyring.json", import.meta.url),
   );
-const documentStorageRoot =
-  process.env.DOCUMENT_STORAGE_ROOT ??
-  resolve(tmpdir(), `kaul-documents-e2e-${testEnvironment.testId}`);
+const documentStorageRoot = getDocumentTestStorageRoot(testEnvironment.testId);
 
 export default defineConfig({
   testDir: "./e2e",
