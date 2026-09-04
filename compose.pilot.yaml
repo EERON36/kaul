@@ -38,6 +38,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      document-scanner:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:?Set DEPLOYMENT_ENV in the Pilot environment file}
@@ -45,11 +47,21 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in the Pilot environment file}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the Pilot environment file}
       KAUL_PERSONNUMMER_KEYRING_FILE: /run/secrets/kaul-personnummer-keyring.json
+      DOCUMENT_STORAGE_ROOT: /var/lib/kaul/documents
+      DOCUMENT_SCANNER_HOST: document-scanner
+      DOCUMENT_SCANNER_PORT: "3310"
+      DOCUMENT_SCANNER_TIMEOUT_MS: "15000"
+      DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS: "24"
     volumes:
       - type: bind
         source: ${KAUL_PERSONNUMMER_KEYRING_HOST_FILE:?Set KAUL_PERSONNUMMER_KEYRING_HOST_FILE in the Pilot environment file}
         target: /run/secrets/kaul-personnummer-keyring.json
         read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOCUMENT_STORAGE_HOST_PATH:?Set DOCUMENT_STORAGE_HOST_PATH in the Pilot environment file}
+        target: /var/lib/kaul/documents
         bind:
           create_host_path: false
     expose:
@@ -78,6 +90,11 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in the Pilot environment file}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the Pilot environment file}
       KAUL_PERSONNUMMER_KEYRING_FILE: /run/secrets/kaul-personnummer-keyring.json
+      DOCUMENT_STORAGE_ROOT: /var/lib/kaul/documents
+      DOCUMENT_SCANNER_HOST: document-scanner
+      DOCUMENT_SCANNER_PORT: "3310"
+      DOCUMENT_SCANNER_TIMEOUT_MS: "15000"
+      DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS: "24"
     volumes:
       - type: bind
         source: ${KAUL_PERSONNUMMER_KEYRING_HOST_FILE:?Set KAUL_PERSONNUMMER_KEYRING_HOST_FILE in the Pilot environment file}
@@ -85,8 +102,37 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      - type: bind
+        source: ${DOCUMENT_STORAGE_HOST_PATH:?Set DOCUMENT_STORAGE_HOST_PATH in the Pilot environment file}
+        target: /var/lib/kaul/documents
+        read_only: true
+        bind:
+          create_host_path: false
     expose:
       - "3000"
+    networks:
+      - private
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *pilot-logging
+
+  document-scanner:
+    image: clamav/clamav:1.4.6@sha256:b25d9199257ae7ef45e0cc4c7eaa60ce7e5447796f0090d5ff311d1a30980cc3
+    entrypoint: ["/init-unprivileged"]
+    user: clamav
+    restart: unless-stopped
+    expose:
+      - "3310"
+    volumes:
+      - pilot-clamav-signatures:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 120s
     networks:
       - private
     security_opt:
@@ -133,3 +179,4 @@ volumes:
   pilot-postgres-data:
   pilot-caddy-data:
   pilot-caddy-config:
+  pilot-clamav-signatures:

@@ -45,6 +45,7 @@ KAUL_DB_USER
 KAUL_DB_PASSWORD
 KAUL_DB_NAME
 DATABASE_URL
+DOCUMENT_STORAGE_HOST_PATH
 '
 
 if [ "${1:-}" = "--pilot-operation-lock-held" ]; then
@@ -520,6 +521,19 @@ host_preflight() {
   [ "$memory_kibibytes" -ge 4194304 ] || die "The Pilot VM must provide at least 4 GiB RAM."
 
   check_free_kibibytes "$REPOSITORY_ROOT" "Kaul checkout storage"
+
+  document_storage_root=$(environment_value DOCUMENT_STORAGE_HOST_PATH)
+  case "$document_storage_root" in
+    /*) ;;
+    *) die "DOCUMENT_STORAGE_HOST_PATH must be an absolute host path." ;;
+  esac
+  [ -d "$document_storage_root" ] ||
+    die "DOCUMENT_STORAGE_HOST_PATH must be created by the owner before deployment."
+  [ ! -L "$document_storage_root" ] ||
+    die "DOCUMENT_STORAGE_HOST_PATH must not be a symlink."
+  [ -r "$document_storage_root" ] && [ -w "$document_storage_root" ] && [ -x "$document_storage_root" ] ||
+    die "DOCUMENT_STORAGE_HOST_PATH must be accessible to the Pilot operator."
+  check_free_kibibytes "$document_storage_root" "Documents storage"
 
   systemctl is-active --quiet docker || die "Docker Engine must be running."
   systemctl is-enabled --quiet docker || die "Docker Engine must start at boot."

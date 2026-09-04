@@ -148,6 +148,36 @@ export const AUDIT_ACTION_POLICY = {
     targetType: "MONTHLY_REPORT",
     targetId: "REQUIRED",
   },
+  DOCUMENT_UPLOADED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "DOCUMENT",
+    targetId: "REQUIRED",
+  },
+  DOCUMENT_VERSION_CREATED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "DOCUMENT",
+    targetId: "REQUIRED",
+  },
+  DOCUMENT_ARCHIVED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "DOCUMENT",
+    targetId: "REQUIRED",
+  },
+  DOCUMENT_SCAN_REJECTED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "DOCUMENT",
+    targetId: "REQUIRED",
+  },
+  DOCUMENT_DOWNLOAD_AUTHORISED: {
+    actorKinds: ["USER"],
+    organisation: "REQUIRED",
+    targetType: "DOCUMENT_VERSION",
+    targetId: "REQUIRED",
+  },
 } as const;
 
 export const AUDIT_ACTIONS = [
@@ -175,6 +205,11 @@ export const AUDIT_ACTIONS = [
   "FOLLOW_UP_COMPLETED",
   "FOLLOW_UP_CANCELLED",
   "MONTHLY_REPORT_SIGNED",
+  "DOCUMENT_UPLOADED",
+  "DOCUMENT_VERSION_CREATED",
+  "DOCUMENT_ARCHIVED",
+  "DOCUMENT_SCAN_REJECTED",
+  "DOCUMENT_DOWNLOAD_AUTHORISED",
 ] as const satisfies readonly (keyof typeof AUDIT_ACTION_POLICY)[];
 
 export const AUDIT_TARGET_TYPES = [
@@ -187,6 +222,8 @@ export const AUDIT_TARGET_TYPES = [
   "GOAL",
   "FOLLOW_UP",
   "MONTHLY_REPORT",
+  "DOCUMENT",
+  "DOCUMENT_VERSION",
 ] as const;
 
 export const auditActionSchema = z.enum(AUDIT_ACTIONS);

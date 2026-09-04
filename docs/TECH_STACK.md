@@ -401,6 +401,12 @@ Version 1 will use a storage abstraction supporting:
 - S3-compatible object storage in future hosting
 - Other storage providers if needed later
 
+The approved Pilot adapter uses `DOCUMENT_STORAGE_ROOT/objects` and
+`DOCUMENT_STORAGE_ROOT/quarantine`. Application routes stream raw request
+bodies without a multipart dependency. ClamAV 1.4.6 is pinned by image digest
+for the private malware boundary; signature data is persistent, but quarantine
+is transient and excluded from backups.
+
 ### Storage Rules
 
 - Application code must not assume a host-specific absolute path.

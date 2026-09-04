@@ -1,5 +1,8 @@
-import { defineConfig, devices } from "@playwright/test";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { defineConfig, devices } from "@playwright/test";
 
 import { getTestEnvironment } from "./src/test/test-environment";
 
@@ -12,6 +15,9 @@ const personalIdentityNumberKeyringFile =
   fileURLToPath(
     new URL("./test-fixtures/personnummer-keyring.json", import.meta.url),
   );
+const documentStorageRoot =
+  process.env.DOCUMENT_STORAGE_ROOT ??
+  resolve(tmpdir(), `kaul-documents-e2e-${testEnvironment.testId}`);
 
 export default defineConfig({
   testDir: "./e2e",
@@ -47,6 +53,13 @@ export default defineConfig({
       BETTER_AUTH_SECRET: betterAuthSecret,
       BETTER_AUTH_URL: testEnvironment.origin,
       KAUL_PERSONNUMMER_KEYRING_FILE: personalIdentityNumberKeyringFile,
+      DOCUMENT_STORAGE_ROOT: documentStorageRoot,
+      DOCUMENT_SCANNER_HOST: process.env.DOCUMENT_SCANNER_HOST ?? "127.0.0.1",
+      DOCUMENT_SCANNER_PORT: process.env.DOCUMENT_SCANNER_PORT ?? "3310",
+      DOCUMENT_SCANNER_TIMEOUT_MS:
+        process.env.DOCUMENT_SCANNER_TIMEOUT_MS ?? "15000",
+      DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS:
+        process.env.DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS ?? "24",
     },
   },
 });

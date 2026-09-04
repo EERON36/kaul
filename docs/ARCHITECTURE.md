@@ -241,19 +241,25 @@ events, recurrence, subtasks, or workflow automation.
 
 Responsible for:
 
-- Uploaded files
-- Generated documents
-- Templates
+- Client-scoped Document and immutable DocumentVersion application workflows
+- Bounded streaming upload, format validation, SHA-256, and fail-closed scan
+- Private quarantine and immutable-object promotion through `DocumentStorage`
+- Integrity-checked, server-mediated attachment downloads
 
-Examples:
+The Documents application layer reuses Authentication and Client Management
+for current access and Audit for durable traceability. The storage adapter is
+deliberately narrower: it knows opaque keys and streams only, not users,
+Organisations, Clients, assignments, or audit policy.
 
-- Monthly Reports
-- Socialtjänsten
-- Skatteverket
+The accepted upload sequence is audit intent, quarantine stream, validation,
+scan, promotion, Client lock, access revalidation, metadata plus successful
+audit outcome transaction, then safe response. File storage cannot participate
+in a PostgreSQL transaction, so definitive rollback uses compensation while an
+ambiguous commit preserves the object for reconciliation.
 
-The document system should not know how authentication or client assignment works.
-
-It simply stores and retrieves documents.
+Generated documents, templates, OCR, conversion, indexing, preview, generic
+attachments, and cloud-provider frameworks are outside this slice. ADR 0004
+records the storage, scanner, and backup-set boundary.
 
 ---
 

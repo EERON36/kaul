@@ -728,6 +728,10 @@ This milestone includes:
 - Stable report reference
 - Relevant audit events
 
+The approved Documents slice uses immutable versions, private persistent Pilot
+storage, mandatory SHA-256, fail-closed ClamAV scanning, logical archive, and a
+manifest-bound database/object backup set as specified in ADR 0004.
+
 ## Monthly Report Rules
 
 - One canonical report lineage exists per Organisation, Client, and calendar
@@ -748,6 +752,8 @@ This milestone includes:
 - Original file names are metadata only.
 - Replacing a document does not silently destroy the previous record.
 - File contents are not stored in Git or the application image.
+- Accepted versions are immutable and every download is integrity checked.
+- Scanner failure or stale signatures fail closed.
 
 ## Explicitly Excluded
 
@@ -1233,20 +1239,23 @@ and form tests, audit policy, lint, typecheck, build, and successful pull-reques
 CI. The foundation was squash-merged in #38 and the visible workflows in #39.
 Milestone 4 is complete.
 
-### Current focus — Pilot Readiness and approved product track
+### Current focus — Pilot Readiness, product, and Client Documents
 
 Pilot Readiness remains an open release track. In parallel, the approved
 product track expands Client information, converts new Journal drafts to six
 structured sections without rewriting legacy records, and implements the
-Client-scoped Monthly Report lifecycle. This product work does not authorise a
-deployment or the use of real sensitive information.
+Client-scoped Monthly Report lifecycle. The approved Client Documents track
+adds Client-scoped immutable versions, private storage, fail-closed malware
+scanning, and database/object backup-set verification. This combined work does
+not authorise a deployment or the use of real sensitive information.
 
 Personnummer in this product track uses the separately approved Stage A
 envelope-encryption design in ADR 0003. The schema migration preserves old
 plaintext only as an explicit conversion source; attended Stage B conversion,
 restore proof with retained keys, and separately approved Stage C removal are
-required before that transition is complete. Client Documents remain deferred
-and must later stay Client-scoped.
+required before that transition is complete. Client Documents remain
+Client-scoped and reuse the central Organisation, Client, Assignment, and
+archived-Client authorisation boundary.
 
 Pilot Readiness should establish:
 
@@ -1259,11 +1268,15 @@ Pilot Readiness should establish:
 - A later deliberate migration path to organisation-approved infrastructure
 
 Pilot Readiness is not complete and does not make Kaul ready for real sensitive
-information. Documents, uploads, notifications, global search, exports, and
-other deferred features do not become pilot requirements without a validated
-blocking need. The approved Monthly Report product track does not remove any
-credential-delivery, account-recovery, legal, operational, backup, security,
-or production-readiness gate.
+information. The owner approved the bounded Client Documents slice on
+2026-09-03, but Documents are not live. Activation still requires validation of
+this combined migration and deployment lineage, disposable PostgreSQL and
+browser evidence, the private scanner and least-privilege persistent mount, and
+a successful exact-snapshot backup/restore rehearsal. Notifications, global
+search, export, and other deferred features remain outside the approved scope.
+The approved Monthly Report and Documents tracks do not remove any
+credential-delivery, account-recovery, legal, operational, backup, security, or
+production-readiness gate.
 
 ---
 

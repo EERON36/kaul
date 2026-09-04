@@ -18,6 +18,7 @@ Internet
   -> Caddy (trusted NPM peer only)
   -> internal-only Compose network
        -> Kaul :3000
+       -> ClamAV :3310
        -> PostgreSQL :5432
 ```
 
@@ -26,8 +27,24 @@ private-LAN TCP binding. Host and Docker-aware firewall controls must limit that
 binding to the later-verified, Caddy-observed NPM source address. Kaul uses a
 dedicated non-superuser database role. PostgreSQL, Kaul, Docker, SSH, and
 Proxmox must not be exposed publicly.
-PostgreSQL data and Caddy certificate state use named persistent volumes. There
-is no file/upload volume because Client Documents are not implemented.
+PostgreSQL data, ClamAV signatures, and Caddy certificate state use named
+persistent volumes. Documents use an owner-prepared host directory mounted
+read/write only into Kaul and read-only into the profile-gated restore checker.
+Caddy and ClamAV receive no Documents mount, and ClamAV publishes no host port.
+
+## Documents host storage gate
+
+Before any owner-attended deployment, create `DOCUMENT_STORAGE_HOST_PATH` as a
+dedicated absolute directory on a filesystem mounted `nodev,nosuid,noexec`
+where supported. Verify the final image's `node` UID/GID and make that identity
+the only container writer. The directory and its `objects/` and `quarantine/`
+children must be non-symlink directories with owner-only access. The Pilot
+preflight refuses a missing, symlinked, inaccessible, or under-20-GiB path.
+
+Quarantine is excluded from backup. V1 deliberately has no unattended residue
+deleter: an operator must alert on capacity and reconcile aged quarantine files
+only while Document mutations are quiesced. Never delete a file whose database
+commit state is uncertain; preserve it and investigate instead.
 
 The future provider mode removes NPM without changing Kaul application code:
 
@@ -508,7 +525,8 @@ recovery decision. Never restore over the active database.
 - Use an external HTTPS uptime check against `/api/health`; it intentionally
   discloses only `ok` or `unavailable`.
 - Alert on container health, failed scheduled backups, certificate renewal,
-  and host disk space. Review `docker system df` and filesystem capacity.
+  Documents storage capacity, and host disk space. Review quarantine growth,
+  `docker system df`, and filesystem capacity.
 - Compose limits each service to five 10 MB JSON log files. Logs are operational
   evidence, not records: never log Client names, Journal content, credentials,
   cookies, request bodies, or database URLs.
@@ -547,7 +565,7 @@ Before any real Pilot deployment, record and review:
 
 This repository slice does not configure a VM, DNS, Cloudflare, firewall,
 router, SSH, monitoring provider, real off-host backup provider, or automatic
-deployment. It does not add uploads/file backups, structured application-log
+deployment. It does not add a quarantine scheduler, structured application-log
 refactoring, zero-downtime migration, or multiple replicas.
 
 Pilot launch still requires live HTTPS/network proof, scheduled encrypted

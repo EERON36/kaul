@@ -31,6 +31,7 @@
     "test:db:drop": "jiti scripts/test-database.ts drop",
     "cleanup:merged-slice": "node scripts/cleanup-merged-slice.mjs",
     "review:snapshot": "node scripts/reviewed-slice-snapshot.mjs",
+    "documents:backup:verify": "node scripts/document-backup-set.mjs verify",
     "audit:ci": "node scripts/check-security-audit.mjs",
     "bootstrap:admin": "node --conditions=react-server --import tsx scripts/bootstrap-admin.ts",
     "bootstrap:admin:recover": "node --conditions=react-server --import tsx scripts/bootstrap-admin-recover.ts",
