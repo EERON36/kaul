@@ -96,7 +96,6 @@ jobs:
       BETTER_AUTH_SECRET: fictional-ci-better-auth-secret-at-least-32-characters
       BETTER_AUTH_URL: http://127.0.0.1:3101
       KAUL_PERSONNUMMER_KEYRING_FILE: ${{ github.workspace }}/test-fixtures/personnummer-keyring.json
-      DOCUMENT_STORAGE_ROOT: ${{ runner.temp }}/kaul-documents-ci
       DOCUMENT_SCANNER_HOST: 127.0.0.1
       DOCUMENT_SCANNER_PORT: 3310
       DOCUMENT_SCANNER_TIMEOUT_MS: 15000
@@ -130,6 +129,11 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+
+      - name: Configure ephemeral Documents storage
+        run: |
+          install -d -m 0700 "$RUNNER_TEMP/kaul-documents-ci"
+          printf 'DOCUMENT_STORAGE_ROOT=%s\n' "$RUNNER_TEMP/kaul-documents-ci" >> "$GITHUB_ENV"
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
