@@ -59,6 +59,12 @@ describe("audit vocabulary", () => {
       targetType: "JOURNAL_ENTRY",
       targetId: "REQUIRED",
     });
+    expect(AUDIT_ACTION_POLICY.MONTHLY_REPORT_SIGNED).toEqual({
+      actorKinds: ["USER"],
+      organisation: "REQUIRED",
+      targetType: "MONTHLY_REPORT",
+      targetId: "REQUIRED",
+    });
   });
   it("contains only the accepted UPPER_SNAKE_CASE actions", () => {
     expect(AUDIT_ACTIONS).toEqual([
@@ -85,6 +91,12 @@ describe("audit vocabulary", () => {
       "FOLLOW_UP_REASSIGNED",
       "FOLLOW_UP_COMPLETED",
       "FOLLOW_UP_CANCELLED",
+      "MONTHLY_REPORT_SIGNED",
+      "DOCUMENT_UPLOADED",
+      "DOCUMENT_VERSION_CREATED",
+      "DOCUMENT_ARCHIVED",
+      "DOCUMENT_SCAN_REJECTED",
+      "DOCUMENT_DOWNLOAD_AUTHORISED",
     ]);
     expect(
       AUDIT_ACTIONS.every((action) => /^[A-Z][A-Z0-9_]*$/.test(action)),
@@ -101,12 +113,29 @@ describe("audit vocabulary", () => {
       "JOURNAL_ENTRY",
       "GOAL",
       "FOLLOW_UP",
+      "MONTHLY_REPORT",
+      "DOCUMENT",
+      "DOCUMENT_VERSION",
     ]);
     expect(
       auditIntentContextSchema.safeParse(
         userContext({ targetType: "ARBITRARY_RECORD" }),
       ).success,
     ).toBe(false);
+  });
+
+  it("defines the reviewed Documents policies without free-text metadata", () => {
+    expect(AUDIT_ACTION_POLICY.DOCUMENT_UPLOADED.targetType).toBe("DOCUMENT");
+    expect(AUDIT_ACTION_POLICY.DOCUMENT_VERSION_CREATED.targetType).toBe(
+      "DOCUMENT",
+    );
+    expect(AUDIT_ACTION_POLICY.DOCUMENT_ARCHIVED.targetType).toBe("DOCUMENT");
+    expect(AUDIT_ACTION_POLICY.DOCUMENT_SCAN_REJECTED.targetType).toBe(
+      "DOCUMENT",
+    );
+    expect(AUDIT_ACTION_POLICY.DOCUMENT_DOWNLOAD_AUTHORISED.targetType).toBe(
+      "DOCUMENT_VERSION",
+    );
   });
 
   it("requires user actors to have both user and organisation identifiers", () => {

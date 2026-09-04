@@ -1,0 +1,182 @@
+name: ${COMPOSE_PROJECT_NAME:-kaul-pilot}
+
+services:
+  caddy:
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    restart: unless-stopped
+    depends_on:
+      kaul:
+        condition: service_healthy
+    environment:
+      PILOT_HOSTNAME: ${PILOT_HOSTNAME:?Set PILOT_HOSTNAME in the Pilot environment file}
+      PILOT_INGRESS_MODE: ${PILOT_INGRESS_MODE:?Set PILOT_INGRESS_MODE in the Pilot environment file}
+    volumes:
+      - ./deploy/pilot/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/pilot/Caddyfile.npm:/etc/caddy/Caddyfile.npm:ro
+      - ./deploy/pilot/Caddyfile.public:/etc/caddy/Caddyfile.public:ro
+      - pilot-caddy-data:/data
+      - pilot-caddy-config:/config
+    networks:
+      - edge
+      - private
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    logging: &pilot-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  kaul:
+    image: ${KAUL_IMAGE:?Set KAUL_IMAGE to an immutable ghcr.io image digest}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      document-scanner:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:?Set DEPLOYMENT_ENV in the Pilot environment file}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?Set BETTER_AUTH_URL in the Pilot environment file}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in the Pilot environment file}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the Pilot environment file}
+      KAUL_PERSONNUMMER_KEYRING_FILE: /run/secrets/kaul-personnummer-keyring.json
+      DOCUMENT_STORAGE_ROOT: /var/lib/kaul/documents
+      DOCUMENT_SCANNER_HOST: document-scanner
+      DOCUMENT_SCANNER_PORT: "3310"
+      DOCUMENT_SCANNER_TIMEOUT_MS: "15000"
+      DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS: "24"
+    volumes:
+      - type: bind
+        source: ${KAUL_PERSONNUMMER_KEYRING_HOST_FILE:?Set KAUL_PERSONNUMMER_KEYRING_HOST_FILE in the Pilot environment file}
+        target: /run/secrets/kaul-personnummer-keyring.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOCUMENT_STORAGE_HOST_PATH:?Set DOCUMENT_STORAGE_HOST_PATH in the Pilot environment file}
+        target: /var/lib/kaul/documents
+        bind:
+          create_host_path: false
+    expose:
+      - "3000"
+    networks:
+      - private
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *pilot-logging
+
+  kaul-restore-check:
+    profiles:
+      - restore-check
+    image: ${KAUL_IMAGE:?Set KAUL_IMAGE to an immutable ghcr.io image digest}
+    restart: "no"
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:?Set DEPLOYMENT_ENV in the Pilot environment file}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?Set BETTER_AUTH_URL in the Pilot environment file}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in the Pilot environment file}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the Pilot environment file}
+      KAUL_PERSONNUMMER_KEYRING_FILE: /run/secrets/kaul-personnummer-keyring.json
+      DOCUMENT_STORAGE_ROOT: /var/lib/kaul/documents
+      DOCUMENT_SCANNER_HOST: document-scanner
+      DOCUMENT_SCANNER_PORT: "3310"
+      DOCUMENT_SCANNER_TIMEOUT_MS: "15000"
+      DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS: "24"
+    volumes:
+      - type: bind
+        source: ${KAUL_PERSONNUMMER_KEYRING_HOST_FILE:?Set KAUL_PERSONNUMMER_KEYRING_HOST_FILE in the Pilot environment file}
+        target: /run/secrets/kaul-personnummer-keyring.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOCUMENT_STORAGE_HOST_PATH:?Set DOCUMENT_STORAGE_HOST_PATH in the Pilot environment file}
+        target: /var/lib/kaul/documents
+        read_only: true
+        bind:
+          create_host_path: false
+    expose:
+      - "3000"
+    networks:
+      - private
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *pilot-logging
+
+  document-scanner:
+    image: clamav/clamav:1.4.6@sha256:b25d9199257ae7ef45e0cc4c7eaa60ce7e5447796f0090d5ff311d1a30980cc3
+    entrypoint: ["/init-unprivileged"]
+    user: clamav
+    restart: unless-stopped
+    expose:
+      - "3310"
+    volumes:
+      - pilot-clamav-signatures:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 120s
+    networks:
+      - private
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *pilot-logging
+
+  postgres:
+    image: postgres:18.4-bookworm@sha256:1961f96e6029a02c3812d7cb329a3b03a3ac2bb067058dec17b0f5596aca9296
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:?Set POSTGRES_ADMIN_USER in the Pilot environment file}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD in the Pilot environment file}
+      POSTGRES_DB: postgres
+      KAUL_DB_USER: ${KAUL_DB_USER:?Set KAUL_DB_USER in the Pilot environment file}
+      KAUL_DB_PASSWORD: ${KAUL_DB_PASSWORD:?Set KAUL_DB_PASSWORD in the Pilot environment file}
+      KAUL_DB_NAME: ${KAUL_DB_NAME:?Set KAUL_DB_NAME in the Pilot environment file}
+    volumes:
+      - pilot-postgres-data:/var/lib/postgresql
+      - ./deploy/pilot/postgres-init.sh:/docker-entrypoint-initdb.d/10-kaul-app-user.sh:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'pg_isready -U "$${POSTGRES_USER}" -d postgres && pg_isready -U "$${KAUL_DB_USER}" -d "$${KAUL_DB_NAME}"',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - private
+    security_opt:
+      - no-new-privileges:true
+    logging: *pilot-logging
+
+networks:
+  edge:
+  private:
+    internal: true
+
+volumes:
+  pilot-postgres-data:
+  pilot-caddy-data:
+  pilot-caddy-config:
+  pilot-clamav-signatures:

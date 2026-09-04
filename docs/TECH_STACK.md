@@ -387,7 +387,6 @@ The application is intended for Swedish users.
 - The operational timezone for the initial organisation is `Europe/Stockholm`.
 - Stored timestamps should use an unambiguous database representation.
 - The interface should distinguish event time, creation time, and signing time.
-- Calendar weeks follow Swedish ISO week conventions.
 - User-facing timestamps must not rely on the browser's locale defaults without explicit formatting.
 
 ---
@@ -401,6 +400,12 @@ Version 1 will use a storage abstraction supporting:
 - Local persistent storage during development and the pilot
 - S3-compatible object storage in future hosting
 - Other storage providers if needed later
+
+The approved Pilot adapter uses `DOCUMENT_STORAGE_ROOT/objects` and
+`DOCUMENT_STORAGE_ROOT/quarantine`. Application routes stream raw request
+bodies without a multipart dependency. ClamAV 1.4.6 is pinned by image digest
+for the private malware boundary; signature data is persistent, but quarantine
+is transient and excluded from backups.
 
 ### Storage Rules
 
@@ -423,7 +428,7 @@ Printable reports and generated documents should be produced from server-side da
 
 Initial generated documents include:
 
-- Weekly reports
+- Monthly reports
 - Journal summaries
 - Organisation exports
 - Selected document templates

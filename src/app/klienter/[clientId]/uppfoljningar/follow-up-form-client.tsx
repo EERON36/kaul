@@ -12,12 +12,12 @@ import { saveFollowUpAction, type FollowUpFormActionState } from "./actions";
 
 export function FollowUpForm({
   clientId,
-  eligibleUsers,
+  eligibleUsers = [],
   goals,
   initialState,
 }: Readonly<{
   clientId: string;
-  eligibleUsers: readonly EligibleResponsibleUser[];
+  eligibleUsers?: readonly EligibleResponsibleUser[];
   goals: readonly GoalRecord[];
   initialState: FollowUpFormActionState;
 }>) {
@@ -118,8 +118,8 @@ export function FollowUpForm({
             </div>
           </dl>
           <p className="form-help">
-            Ansvarig ändras separat nedan för att förändringen ska bevaras i
-            historiken.
+            Ansvarig ändras separat från uppföljningens sida. Spara eller avbryt
+            ändringarna här innan du byter ansvarig.
           </p>
         </div>
       ) : (

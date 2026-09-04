@@ -21,15 +21,37 @@ describe("application shell context", () => {
     expect(
       getApplicationNavigation({ ...baseUser, role: "ADMINISTRATOR" }),
     ).toEqual([
-      { href: "/", label: "Hem" },
-      { href: "/klienter", label: "Klienter" },
-      { href: "/personal", label: "Personal" },
+      { type: "link", href: "/", label: "Hem" },
+      {
+        type: "group",
+        label: "Klienter",
+        children: [
+          { category: "ADULT", href: "/klienter", label: "Vuxna" },
+          {
+            category: "YOUTH",
+            href: "/klienter?kategori=ungdomar",
+            label: "Ungdomar",
+          },
+        ],
+      },
+      { type: "link", href: "/personal", label: "Personal" },
     ]);
     expect(
       getApplicationNavigation({ ...baseUser, role: "STAFF_MEMBER" }),
     ).toEqual([
-      { href: "/", label: "Hem" },
-      { href: "/klienter", label: "Klienter" },
+      { type: "link", href: "/", label: "Hem" },
+      {
+        type: "group",
+        label: "Klienter",
+        children: [
+          { category: "ADULT", href: "/klienter", label: "Vuxna" },
+          {
+            category: "YOUTH",
+            href: "/klienter?kategori=ungdomar",
+            label: "Ungdomar",
+          },
+        ],
+      },
     ]);
   });
 

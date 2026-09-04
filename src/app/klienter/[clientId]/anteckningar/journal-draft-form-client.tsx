@@ -10,6 +10,7 @@ import {
 import type { AvailableJournalGoal } from "@/modules/journal/journal";
 
 import { goalStatusLabels } from "@/app/planning-presentation";
+import { useNavigationGuard } from "@/components/navigation-guard";
 
 import {
   discardJournalDraftAction,
@@ -17,6 +18,42 @@ import {
   type JournalDraftActionState,
   type JournalMutationActionState,
 } from "./actions";
+import {
+  areJournalFormValuesEqual,
+  type JournalFormValues,
+} from "./journal-form-values";
+import {
+  JOURNAL_SECTION_FIELDS,
+  type JournalSectionValues,
+} from "./journal-sections";
+
+function readCurrentJournalFormValues(
+  form: HTMLFormElement,
+): JournalFormValues {
+  const formData = new FormData(form);
+  const sections = Object.fromEntries(
+    JOURNAL_SECTION_FIELDS.map(({ key }) => [
+      key,
+      String(formData.get(key) ?? ""),
+    ]),
+  ) as JournalSectionValues;
+  return {
+    entryType: String(formData.get("entryType") ?? ""),
+    eventDate: String(formData.get("eventDate") ?? ""),
+    eventTime: String(formData.get("eventTime") ?? ""),
+    content: String(formData.get("content") ?? ""),
+    goalIds: formData.getAll("goalIds").map(String),
+    ...sections,
+  };
+}
+
+function getSectionValue(
+  values: JournalFormValues,
+  key: (typeof JOURNAL_SECTION_FIELDS)[number]["key"],
+): string {
+  if (values[key] !== undefined) return values[key];
+  return key === "otherContent" ? values.content : "";
+}
 
 export function JournalDraftForm({
   clientId,
@@ -36,11 +73,16 @@ export function JournalDraftForm({
     discardJournalDraftAction,
     discardInitialState,
   );
+  const setNavigationBlocked = useNavigationGuard();
+  const savedValuesRef = useRef(initialState.values);
   const dirtyRef = useRef(false);
 
   useEffect(() => {
-    if (state.status === "SUCCESS") dirtyRef.current = false;
-  }, [state.status]);
+    if (state.status !== "SUCCESS") return;
+    savedValuesRef.current = state.values;
+    dirtyRef.current = false;
+    setNavigationBlocked(false);
+  }, [setNavigationBlocked, state]);
 
   useEffect(() => {
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -59,16 +101,54 @@ export function JournalDraftForm({
 
   const fieldErrors = state.fieldErrors ?? {};
   const disabled = saving || discarding;
+  const statusIsInformational = saving || state.status === "SUCCESS";
 
   return (
     <div className="journal-editor">
       <form
         action={saveAction}
-        onChange={() => {
-          dirtyRef.current = true;
+        aria-busy={saving}
+        onChange={(event) => {
+          const dirty = !areJournalFormValuesEqual(
+            savedValuesRef.current,
+            readCurrentJournalFormValues(event.currentTarget),
+          );
+          dirtyRef.current = dirty;
+          setNavigationBlocked(dirty);
         }}
       >
         <input name="clientId" type="hidden" value={clientId} />
+
+        <fieldset
+          aria-describedby={
+            fieldErrors.content ? "journal-content-error" : undefined
+          }
+          className="journal-section-fields"
+        >
+          <legend>Anteckning</legend>
+          <p className="form-help">
+            Fyll i de delar som är relevanta. Du behöver inte fylla i alla
+            delar.
+          </p>
+          {JOURNAL_SECTION_FIELDS.map(({ key, label, id }) => (
+            <div className="form-field" key={key}>
+              <label htmlFor={id}>{label}</label>
+              <textarea
+                defaultValue={getSectionValue(state.values, key)}
+                disabled={disabled}
+                id={id}
+                maxLength={JOURNAL_CONTENT_MAX_LENGTH}
+                name={key}
+                rows={8}
+              />
+            </div>
+          ))}
+          {fieldErrors.content ? (
+            <p className="field-error" id="journal-content-error">
+              {fieldErrors.content}
+            </p>
+          ) : null}
+        </fieldset>
         <input
           name="journalEntryId"
           type="hidden"
@@ -88,6 +168,7 @@ export function JournalDraftForm({
             }
             aria-invalid={fieldErrors.entryType ? true : undefined}
             defaultValue={state.values.entryType}
+            disabled={disabled}
             id="journal-entry-type"
             name="entryType"
             required
@@ -120,6 +201,7 @@ export function JournalDraftForm({
               }
               aria-invalid={fieldErrors.eventDate ? true : undefined}
               defaultValue={state.values.eventDate}
+              disabled={disabled}
               id="journal-event-date"
               name="eventDate"
               required
@@ -141,6 +223,7 @@ export function JournalDraftForm({
               }
               aria-invalid={fieldErrors.eventTime ? true : undefined}
               defaultValue={state.values.eventTime}
+              disabled={disabled}
               id="journal-event-time"
               name="eventTime"
               required
@@ -153,27 +236,6 @@ export function JournalDraftForm({
             ) : null}
           </div>
         </fieldset>
-
-        <div className="form-field">
-          <label htmlFor="journal-content">Anteckning</label>
-          <textarea
-            aria-describedby={
-              fieldErrors.content ? "journal-content-error" : undefined
-            }
-            aria-invalid={fieldErrors.content ? true : undefined}
-            defaultValue={state.values.content}
-            id="journal-content"
-            maxLength={JOURNAL_CONTENT_MAX_LENGTH}
-            name="content"
-            required
-            rows={14}
-          />
-          {fieldErrors.content ? (
-            <p className="field-error" id="journal-content-error">
-              {fieldErrors.content}
-            </p>
-          ) : null}
-        </div>
 
         <fieldset className="journal-goal-fields">
           <legend>Mål (valfritt)</legend>
@@ -194,6 +256,7 @@ export function JournalDraftForm({
                         : "journal-goals-help"
                     }
                     defaultChecked={state.values.goalIds.includes(goal.id)}
+                    disabled={disabled}
                     key={`${goal.id}-${state.version ?? "new"}-${state.status}`}
                     name="goalIds"
                     type="checkbox"
@@ -237,11 +300,14 @@ export function JournalDraftForm({
 
         <div
           aria-live="polite"
-          className={state.status === "SUCCESS" ? "form-status" : "form-error"}
-          role={state.status === "SUCCESS" ? "status" : "alert"}
+          className={statusIsInformational ? "form-status" : "form-error"}
+          role={statusIsInformational ? "status" : "alert"}
         >
-          {state.message}
-          {state.status === "STALE" || state.status === "PARTIAL" ? (
+          {saving
+            ? "Utkastet sparas. Vänta tills det är klart innan du fortsätter redigera."
+            : state.message}
+          {!saving &&
+          (state.status === "STALE" || state.status === "PARTIAL") ? (
             <span className="status-action">
               <a href={`/klienter/${clientId}/anteckningar/utkast`}>
                 Ladda om utkastet

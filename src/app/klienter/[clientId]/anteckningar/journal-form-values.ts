@@ -3,12 +3,25 @@ import {
   JOURNAL_ENTRY_TYPE_VALUES,
 } from "@/modules/journal/journal-entry-type";
 
+import {
+  emptyJournalSectionValues,
+  JOURNAL_SECTION_FIELDS,
+  type JournalSectionFieldKey,
+  type JournalSectionValues,
+} from "./journal-sections";
+
 export type JournalFormValues = Readonly<{
   entryType: string;
   eventDate: string;
   eventTime: string;
   content: string;
   goalIds: readonly string[];
+  healthContent?: string;
+  educationOccupationContent?: string;
+  emotionsBehaviorContent?: string;
+  socialRelationsContent?: string;
+  dailyLivingIndependenceContent?: string;
+  otherContent?: string;
 }>;
 
 export type JournalFormFieldErrors = Partial<
@@ -16,6 +29,47 @@ export type JournalFormFieldErrors = Partial<
 >;
 
 export type JournalEntryTypeValue = (typeof JOURNAL_ENTRY_TYPE_VALUES)[number];
+
+export function areJournalFormValuesEqual(
+  first: JournalFormValues,
+  second: JournalFormValues,
+) {
+  return (
+    first.entryType === second.entryType &&
+    first.eventDate === second.eventDate &&
+    first.eventTime === second.eventTime &&
+    getSectionValue(first, "healthContent") ===
+      getSectionValue(second, "healthContent") &&
+    getSectionValue(first, "educationOccupationContent") ===
+      getSectionValue(second, "educationOccupationContent") &&
+    getSectionValue(first, "emotionsBehaviorContent") ===
+      getSectionValue(second, "emotionsBehaviorContent") &&
+    getSectionValue(first, "socialRelationsContent") ===
+      getSectionValue(second, "socialRelationsContent") &&
+    getSectionValue(first, "dailyLivingIndependenceContent") ===
+      getSectionValue(second, "dailyLivingIndependenceContent") &&
+    getSectionValue(first, "otherContent") ===
+      getSectionValue(second, "otherContent") &&
+    [...first.goalIds].sort().join("\u0000") ===
+      [...second.goalIds].sort().join("\u0000")
+  );
+}
+
+function getSectionValue(
+  values: JournalFormValues,
+  key: JournalSectionFieldKey,
+): string {
+  if (values[key] !== undefined) return values[key];
+  return key === "otherContent" ? values.content : "";
+}
+
+function readJournalSections(formData: FormData): JournalSectionValues {
+  const values = { ...emptyJournalSectionValues() };
+  for (const { key } of JOURNAL_SECTION_FIELDS) {
+    values[key] = String(formData.get(key) ?? "");
+  }
+  return values;
+}
 
 const stockholmDateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Stockholm",
@@ -131,12 +185,18 @@ export function readJournalFormValues(formData: FormData): Readonly<{
   eventOccurredAt: Date | null;
   entryType: JournalEntryTypeValue | null;
 }> {
+  const sections = readJournalSections(formData);
+  const submittedContent = String(formData.get("content") ?? "");
+  const hasStructuredFields = JOURNAL_SECTION_FIELDS.some(({ key }) =>
+    formData.has(key),
+  );
   const values: JournalFormValues = {
     entryType: String(formData.get("entryType") ?? ""),
     eventDate: String(formData.get("eventDate") ?? ""),
     eventTime: String(formData.get("eventTime") ?? ""),
-    content: String(formData.get("content") ?? ""),
+    content: submittedContent,
     goalIds: formData.getAll("goalIds").map(String),
+    ...sections,
   };
   const fieldErrors: JournalFormFieldErrors = {};
 
@@ -162,9 +222,20 @@ export function readJournalFormValues(formData: FormData): Readonly<{
     fieldErrors.eventTime =
       "Tiden kan inte tolkas entydigt i svensk lokal tid. Kontrollera eller välj en annan tid.";
   }
-  if (values.content.trim().length === 0) {
+  const structuredLength = Object.values(sections).reduce(
+    (total, value) => total + value.length,
+    0,
+  );
+  const hasMeaningfulContent = hasStructuredFields
+    ? Object.values(sections).some((value) => value.trim().length > 0)
+    : values.content.trim().length > 0;
+  if (!hasMeaningfulContent) {
     fieldErrors.content = "Skriv en anteckning.";
-  } else if (values.content.length > JOURNAL_CONTENT_MAX_LENGTH) {
+  } else if (
+    hasStructuredFields
+      ? structuredLength > JOURNAL_CONTENT_MAX_LENGTH
+      : values.content.length > JOURNAL_CONTENT_MAX_LENGTH
+  ) {
     fieldErrors.content = `Anteckningen får innehålla högst ${JOURNAL_CONTENT_MAX_LENGTH.toLocaleString("sv-SE")} tecken.`;
   }
   if (

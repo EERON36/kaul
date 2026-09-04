@@ -17,6 +17,7 @@ import {
   formatJournalDateTime,
   getJournalSignerRoleLabel,
 } from "../journal-presentation";
+import { JournalSectionsPresentation } from "../journal-sections-presentation";
 
 export const dynamic = "force-dynamic";
 
@@ -98,7 +99,7 @@ export default async function SignedJournalEntryPage({
             className="journal-content-section"
           >
             <h3 id="signed-content-heading">Anteckning</h3>
-            <div className="journal-content">{entry.content}</div>
+            <JournalSectionsPresentation {...entry} />
           </section>
 
           {entry.goalReferences.length > 0 ? (

@@ -48,9 +48,11 @@ on the basis of compilation or generated types alone.
 
 ## Threads and ownership
 
-Kaul uses one Codex project. Create one task thread for each coherent slice or
-epic; start a new thread after that slice has merged rather than extending one
-conversation indefinitely.
+Kaul uses one Codex project. Keep one lead task for the active release or epic
+and create a separate worker task for each coherent implementation slice. Move
+durable decisions and current state into repository documentation before
+archiving completed worker tasks; task history is supporting evidence, not the
+project source of truth.
 
 Read-only planners may work from `main`. Agents that edit files use isolated
 worktrees. For parallel work, keep lanes to roughly three or four active tasks,
@@ -90,9 +92,11 @@ local branch, verify all of the following:
 3. The worktree has no unpreserved changes.
 4. A retained safety stash is no longer needed.
 
-GitHub automatically deletes merged remote branches. Local cleanup must still
-be deliberate. Use the repository-local `cleanup-merged-slice` Skill with an
-explicit PR number, worktree path, and expected feature branch.
+GitHub deletes a merged remote branch only when that repository setting or the
+merge action requests it. Prove the actual remote state rather than assuming
+deletion. Local cleanup must still be deliberate. Use the repository-local
+`cleanup-merged-slice` Skill with an explicit PR number, worktree path, and
+expected feature branch.
 
 First run its `preflight` command while the finished worktree still exists. It
 checks the worktree is clean, including ignored content that might be valuable.

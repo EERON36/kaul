@@ -130,6 +130,17 @@ Examples:
 
 Highly sensitive information requires the strongest access, logging, storage, export, and backup controls.
 
+Personnummer uses the separate authenticated-encryption boundary defined by
+[ADR 0003](decisions/0003-personnummer-envelope-encryption.md). It must remain
+absent from ordinary Client projections, search, URLs, logs, and audit metadata.
+Only the authorised Administrator edit path may decrypt it. Database backups
+contain ciphertext; the separately controlled historical keyring is also
+required for recovery.
+Application health remains unavailable while legacy Personnummer plaintext
+awaits conversion or a representative stored envelope cannot authenticate with
+its configured key. Health responses remain generic and the compatibility
+result is cached for the process lifetime.
+
 ---
 
 ## Authentication
@@ -181,6 +192,44 @@ sole-Administrator recovery procedure remain unresolved.
 
 Multi-factor authentication is not required for the first pilot milestone, but may be required before sensitive production use following a security review.
 
+### Homelab proxy and client-identity boundary
+
+The Homelab Pilot uses two reviewed proxy hops: the existing Nginx Proxy
+Manager terminates public TLS, then Caddy receives private-LAN HTTP and remains
+the only proxy connected to Kaul. The router does not forward public 80/443 to
+the Kaul VM.
+
+Caddy must accept the private listener only from the actual NPM network peer
+observed during authorised runtime inspection. That address is a required
+deployment input and must be used as an exact `/32` for both Caddy trust and
+NPM-only ingress enforcement. Access control is based on the direct network
+peer, never a forwarded header. Caddy must not trust all private networks. NPM
+appends the public peer to `X-Forwarded-For`; Caddy parses that chain strictly
+from right to left only for the trusted NPM peer. Caddy then overwrites the
+Host, public HTTPS scheme, `X-Forwarded-For`, and `X-Real-IP` sent to Kaul and
+strips alternative identity headers. Kaul trusts only the Caddy-provided
+`X-Real-IP` for Better Auth login rate limiting.
+
+This boundary requires runtime negative tests. A client-prepended forwarding
+value must not become the rate-limit identity, and a non-NPM LAN peer must not
+reach the Caddy listener. The installed NPM version and generated configuration
+must also prove that Host and forwarding headers were not replaced by an
+advanced/custom location. Secure cookies remain derived from Kaul's exact
+HTTPS `BETTER_AUTH_URL`; the internal HTTP hop does not permit an HTTP public
+origin.
+
+Plain HTTP on the NPM-to-Caddy hop is accepted only under the Homelab Pilot
+threat model: public TLS terminates at NPM, the hop stays on the trusted private
+homelab network, the Caddy listener is not directly Internet-reachable and is
+restricted to the verified NPM peer, strict trusted-proxy processing supplies
+the original HTTPS/client metadata, and Kaul plus PostgreSQL remain
+unpublished. Internal PKI or mTLS is not a Pilot prerequisite unless inspection
+shows a concrete untrusted-network risk.
+
+Future direct-public Caddy mode trusts no forwarding proxy and overwrites the
+same identity headers from its direct connection. Adding another proxy, CDN,
+or broad trusted CIDR requires a separate security review.
+
 ---
 
 ## Authorisation
@@ -231,7 +280,7 @@ The server must enforce access for:
 - Follow-ups
 - Documents
 - File downloads
-- Weekly reports
+- Monthly reports
 - Exports
 - Administrative actions
 
@@ -453,7 +502,11 @@ The server must validate:
 - Client access
 - Organisation ownership
 
-Additional content inspection may be added when justified.
+The approved v1 boundary accepts only PDF, JPEG, PNG, and valid UTF-8 plain
+text, one file per request, up to 25 MiB of actual streamed bytes. Extension,
+declared MIME, detected signature, and bounded structural checks must agree.
+Images also have dimension and pixel-count limits. Files are never rendered,
+converted, indexed, executed, or treated as trusted HTML on the server.
 
 ### Storage Rules
 
@@ -475,7 +528,18 @@ Additional content inspection may be added when justified.
 - Appropriate content-disposition and content-type headers must be used.
 - Unauthorised download attempts should be denied without revealing file details.
 
-Malware-scanning requirements must be reviewed before sensitive production deployment.
+Every real upload is quarantined and streamed to private ClamAV before durable
+promotion. Only `CLEAN` with signatures no older than 24 hours is accepted.
+Unavailable, unhealthy, stale, timed-out, crashed, or indeterminate scanning
+fails closed and creates no available DocumentVersion. ClamAV has no Documents
+storage mount or credentials, and its unauthenticated TCP service must never be
+publicly exposed.
+
+Every download rechecks Client access, scopes Organisation, Client, Document,
+and Version together, refuses symlinks/non-regular files, and verifies stored
+size and SHA-256 before any byte is released. All supported types download as
+attachments with a server-controlled MIME, injection-safe filename, `nosniff`,
+private no-store caching, and the verified content length.
 
 ---
 
@@ -654,6 +718,14 @@ User-facing errors must be calm, useful, and written in Swedish.
 - Authentication failures should use generic responses.
 - Unexpected errors should use a safe correlation identifier where useful.
 - Sensitive input must not be included in error-reporting metadata.
+- Personnummer is fetched only through a narrow current-Client-authorised
+  sensitive-detail query. It is excluded from ordinary Client projections,
+  search, URLs, logs, and audit metadata. Kaul uses the approved
+  application-level AES-256-GCM envelope-encryption facility defined in ADR
+  0003. The facility uses maintained platform cryptographic primitives and a
+  reviewed envelope; inventing custom cryptographic algorithms remains
+  prohibited. Production activation still requires the owner-attended
+  conversion, key-custody, restore, and readiness gates from that decision.
 - Errors must not be silently ignored.
 - Multi-step operations should use transactions where partial completion would create inconsistent records.
 
@@ -709,6 +781,16 @@ Backups contain the same sensitive information as the live system.
 - Backups must be encrypted.
 - At least one copy must be stored separately from the application host.
 - Backup credentials should be separated from ordinary application credentials.
+- The live Pilot backup writer may create and read backups but must not delete,
+  overwrite, forget, or prune repository history.
+- Retention and destructive repository maintenance require a separate secured
+  off-host identity; those credentials must not be present on the Pilot VM.
+- Backup encryption passwords, provider recovery material, and recovery
+  instructions must have an offline copy outside the Pilot VM.
+- Database dumps must stream directly into the encrypted repository; do not
+  complete a plaintext dump file on the application host.
+- Automated restore and validation must select an exact immutable backup ID,
+  never an ambiguous newest/latest selector.
 - Backup access must be restricted.
 - Backup retention must be documented.
 - Restore procedures must be tested.
@@ -748,11 +830,13 @@ Kaul uses separate development, pilot, and production environments.
 ### Development
 
 - Uses fictional data
-- May be reset freely
+- The normal `kaul` database is protected from destructive and test setup
+- Explicit disposable `kaul_test_*` databases may be reset or dropped only
+  through the guarded test lifecycle
 - Uses development-only credentials
 - Must not receive production backups
 
-### Pilot
+### Homelab Pilot
 
 - Runs initially on the Proxmox homelab
 - Uses separate credentials and database
@@ -760,7 +844,7 @@ Kaul uses separate development, pilot, and production environments.
 - Must not intentionally contain sensitive personal information
 - Should still use production-style security controls where practical
 
-### Production
+### Production / Cloud
 
 - Runs on approved professional hosting
 - Uses production-only credentials
@@ -769,7 +853,7 @@ Kaul uses separate development, pilot, and production environments.
 
 ---
 
-## Pilot Security
+## Homelab Pilot Security Gate
 
 The pilot must visibly display:
 
@@ -779,6 +863,15 @@ This warning must remain visible in the interface.
 
 The pilot must still provide:
 
+- A dedicated or clearly isolated Ubuntu VM separated from unrelated homelab
+  services
+- Existing-VM inspection against the supported OS, resource, patch, startup,
+  and Docker preflight contract
+- A Docker-aware firewall or upstream equivalent that permits the private
+  Caddy listener only from the exact Caddy-observed NPM source and denies
+  unrelated homelab management access
+- Verified NPM Host, HTTPS-scheme, and strict client-IP forwarding behavior,
+  including spoofed-header and non-NPM negative tests
 - HTTPS
 - Individual accounts
 - Strong passwords
@@ -794,15 +887,45 @@ The pilot must still provide:
 
 The system should be built under the assumption that a user may accidentally enter sensitive information despite the warning.
 
+The reviewed host pattern uses UFW only for host `INPUT` services and a
+repository-owned, original-destination conntrack rule in `DOCKER-USER` for the
+Docker-published Caddy listener. The Kaul chain returns the exact NPM
+source/interface to Docker's normal policy and rejects every other source for
+the original private host/port tuple. It contains no broad established-flow
+exception. Before Docker starts, the operator also ensures Docker's canonical
+unconditional `FORWARD -> DOCKER-USER` transfer is exact and first, closing the
+restart-policy restoration interval without flushing or reordering unrelated
+firewall state. Gate C manages that transfer for its active lifecycle and
+removes it during rollback so unrelated `DOCKER-USER` rules are not left newly
+active. The guard must remain installed until Docker, its proxy processes,
+listener, and target DNAT are proven absent.
+Caddy's exact direct-peer check remains independent defense in depth. See
+`deploy/pilot/firewall/README.md` for the rule and failure model.
+Docker startup requires `ufw.service`, and the operator independently requires
+UFW to report active with the reviewed defaults and sole management-LAN SSH
+allow; service activity alone is not accepted as proof. Manual Gate C
+installation must also reject conditional SSH weakening and unattributed native
+nftables hooks or rules before the safety timer is cancelled and again after
+Docker restart and host reboot.
+
+Invited stakeholders may test real workflows, but Client and case content must
+remain fictional, sanitised, or otherwise non-sensitive under the current
+Milestone 7 governance. The unchanged dependency-audit policy and every open
+Milestone 7 security decision remain Homelab Pilot gates. Production-only
+provider, contract, data-residency, and formal operational-ownership approvals
+do not become Pilot gates unless another authoritative requirement assigns them
+there.
+
 ---
 
-## Production Readiness Gate
+## Production / Cloud Security Gate
 
 Kaul must not be described as ready for sensitive production use until the production-readiness milestone is explicitly approved.
 
 Before production use, the project requires review of:
 
 - Hosting location and provider
+- Production database hosting and administration model
 - Data-processing agreements
 - Legal roles and responsibilities
 - Applicable Swedish regulatory requirements
@@ -814,6 +937,10 @@ Before production use, the project requires review of:
 - Monitoring
 - Incident response
 - Backup retention
+- Off-host immutable or append-only backup enforcement with separate writer
+  and maintenance credentials
+- Offline recovery material and a completed production restore rehearsal
+- Release provenance and production hardening
 - Disaster recovery
 - Security testing
 - Accessibility

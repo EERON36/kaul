@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 
 import { ApplicationShell } from "@/components/application-shell";
 import { generateAuditOperationId } from "@/modules/audit/audit";
@@ -8,10 +7,17 @@ import { getApplicationErrorRedirect } from "@/modules/authentication/page-acces
 import { listClients } from "@/modules/clients/clients";
 
 import { ClientList } from "./client-list-client";
+import { parseClientCategoryView } from "./client-category-view";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClientsPage() {
+export default async function ClientsPage({
+  searchParams,
+}: Readonly<{
+  searchParams: Promise<{ kategori?: string | string[] }>;
+}>) {
+  const query = await searchParams;
+  const categoryView = parseClientCategoryView(query.kategori);
   let result;
   try {
     result = await listClients();
@@ -24,21 +30,22 @@ export default async function ClientsPage() {
   }
 
   return (
-    <ApplicationShell currentPath="/klienter" user={result.user}>
+    <ApplicationShell
+      activeClientCategory={categoryView}
+      currentPath="/klienter"
+      user={result.user}
+    >
       <div className="page-content">
         <p className="eyebrow">{result.user.organisationName}</p>
         <h1>Klienter</h1>
         <p className="introductory-text">
           Öppna en klient för att se grunduppgifter och ansvarig personal.
         </p>
-        {result.user.role === "ADMINISTRATOR" ? (
-          <p>
-            <Link href="/klienter/arkiverade">Visa arkiverade klienter</Link>
-          </p>
-        ) : null}
         <ClientList
+          activeCategoryView={categoryView}
           canCreate={result.user.role === "ADMINISTRATOR"}
           clients={result.clients}
+          key={categoryView}
           operationId={generateAuditOperationId()}
           showPrimaryStaff={result.user.role === "ADMINISTRATOR"}
         />

@@ -11,6 +11,14 @@ import {
 } from "./client-input";
 
 const operationId = "123e4567-e89b-42d3-a456-426614174000";
+const emptyOptionalClientInformation = {
+  personalIdentityNumber: null,
+  placingUnit: null,
+  legalBasis: null,
+  responsibleSocialWorkerName: null,
+  responsibleSocialWorkerPhone: null,
+  responsibleSocialWorkerEmail: null,
+} as const;
 
 describe("Client input", () => {
   it("canonicalises an opaque person reference deterministically", () => {
@@ -44,6 +52,7 @@ describe("Client input", () => {
       firstName: "Fiktiv",
       lastName: "Klient",
       personIdentifier: "TEST-42",
+      ...emptyOptionalClientInformation,
       category: "ADULT",
     });
 
@@ -99,6 +108,7 @@ describe("Client input", () => {
       firstName: "Uppdaterad",
       lastName: "Klient",
       personIdentifier: "ÄNDRAD-É-01",
+      ...emptyOptionalClientInformation,
       category: "YOUTH",
     });
 
@@ -116,6 +126,59 @@ describe("Client input", () => {
         }),
       ).toThrow();
     }
+  });
+
+  it("normalises nullable Client information without conflating social-worker contact details", () => {
+    const parsed = createClientInputSchema.parse({
+      operationId,
+      firstName: "Fiktiv",
+      lastName: "Klient",
+      personIdentifier: "FIKTIV-01",
+      personalIdentityNumber: " 20000101-1234 ",
+      placingUnit: " Fiktiv enhet ",
+      legalBasis: " SoL ",
+      responsibleSocialWorkerName: " Handläggare Exempel ",
+      responsibleSocialWorkerPhone: " 070-000 00 00 ",
+      responsibleSocialWorkerEmail: " handlaggare@example.test ",
+      category: "ADULT",
+    });
+
+    expect(parsed).toMatchObject({
+      personalIdentityNumber: "20000101-1234",
+      placingUnit: "Fiktiv enhet",
+      legalBasis: "SoL",
+      responsibleSocialWorkerName: "Handläggare Exempel",
+      responsibleSocialWorkerPhone: "070-000 00 00",
+      responsibleSocialWorkerEmail: "handlaggare@example.test",
+    });
+    expect("phone" in parsed).toBe(false);
+    expect("email" in parsed).toBe(false);
+  });
+
+  it("accepts normal Personnummer formats but rejects unsupported characters", () => {
+    const base = {
+      operationId,
+      firstName: "Fiktiv",
+      lastName: "Klient",
+      personIdentifier: "FIKTIV-01",
+      category: "ADULT",
+    };
+    for (const personalIdentityNumber of [
+      "20000101-1234",
+      "000101+1234",
+      "2000 01 01 1234",
+    ]) {
+      expect(
+        createClientInputSchema.parse({ ...base, personalIdentityNumber })
+          .personalIdentityNumber,
+      ).toBe(personalIdentityNumber);
+    }
+    expect(() =>
+      createClientInputSchema.parse({
+        ...base,
+        personalIdentityNumber: "personnummer-i-logg",
+      }),
+    ).toThrow();
   });
 
   it("accepts only the target and operation identifiers for Client archiving", () => {
