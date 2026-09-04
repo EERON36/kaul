@@ -11,7 +11,11 @@ import {
   saveMonthlyReportDraft,
   signMonthlyReportDraft,
 } from "@/modules/reports/monthly-reports";
-import type { StructuredSectionValues } from "@/lib/structured-sections";
+import {
+  getStructuredContentLength,
+  STRUCTURED_CONTENT_MAX_LENGTH,
+  type StructuredSectionValues,
+} from "@/lib/structured-sections";
 
 const GENERIC_ERROR = "Åtgärden kunde inte genomföras. Försök igen.";
 const CONFLICT_ERROR =
@@ -128,6 +132,17 @@ export async function saveMonthlyReportDraftAction(
   formData: FormData,
 ): Promise<MonthlyReportActionState> {
   const values = readSections(formData);
+  if (getStructuredContentLength(values) > STRUCTURED_CONTENT_MAX_LENGTH) {
+    return {
+      ...previousState,
+      status: "ERROR",
+      message: "Kontrollera uppgifterna i formuläret.",
+      fieldErrors: {
+        otherContent: `Månadsrapportens delar får sammanlagt innehålla högst ${STRUCTURED_CONTENT_MAX_LENGTH.toLocaleString("sv-SE")} tecken.`,
+      },
+      values,
+    };
+  }
   let report;
   try {
     report = await saveMonthlyReportDraft({
@@ -136,7 +151,11 @@ export async function saveMonthlyReportDraftAction(
       ...values,
     });
   } catch (error) {
-    return reportErrorState(previousState, values, error);
+    return reportErrorState(
+      { ...previousState, fieldErrors: undefined },
+      values,
+      error,
+    );
   }
   revalidatePath(`/klienter/${report.clientId}/manadsrapporter`);
   revalidatePath(

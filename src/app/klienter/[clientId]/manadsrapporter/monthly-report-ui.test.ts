@@ -26,6 +26,11 @@ vi.mock("@/modules/audit/audit", async (importOriginal) => ({
 }));
 
 import { MonthlyReportError } from "@/modules/reports/monthly-reports";
+import { saveMonthlyReportDraftInputSchema } from "@/modules/reports/monthly-report-input";
+import {
+  STRUCTURED_CONTENT_MAX_LENGTH,
+  STRUCTURED_SECTION_DEFINITIONS,
+} from "@/lib/structured-sections";
 
 import {
   saveMonthlyReportDraftAction,
@@ -72,7 +77,7 @@ function reportForm() {
 }
 
 describe("Monthly report UI and action boundary", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => vi.resetAllMocks());
 
   it("renders all six editable sections with no individual required field", () => {
     const html = renderToStaticMarkup(
@@ -113,6 +118,90 @@ describe("Monthly report UI and action boundary", () => {
     });
   });
 
+  it("explains the combined section limit and preserves the submitted draft", async () => {
+    mocks.saveMonthlyReportDraft.mockImplementationOnce(async (input) => {
+      saveMonthlyReportDraftInputSchema.parse(input);
+      throw new Error("An oversized report must fail validation.");
+    });
+    const form = reportForm();
+    form.set("healthContent", "H".repeat(60_000));
+    form.set("otherContent", "O".repeat(60_000));
+    form.set("educationOccupationContent", "Fiktiv utbildning.");
+    form.set("emotionsBehaviorContent", "Fiktiva känslor.");
+    form.set("socialRelationsContent", "Fiktiva relationer.");
+    form.set("dailyLivingIndependenceContent", "Fiktiv självständighet.");
+    const result = await saveMonthlyReportDraftAction(initialState, form);
+    const contentError =
+      "Månadsrapportens delar får sammanlagt innehålla högst 100 000 tecken.";
+
+    expect(result.status).toBe("ERROR");
+    expect(result.message).toBe("Kontrollera uppgifterna i formuläret.");
+    expect(result.fieldErrors).toEqual({ otherContent: contentError });
+    expect(result.monthlyReportId).toBe(reportId);
+    expect(result.version).toBe(1);
+    for (const { key } of STRUCTURED_SECTION_DEFINITIONS) {
+      expect(result.values[key]).toBe(form.get(key));
+    }
+
+    const html = renderToStaticMarkup(
+      createElement(
+        TestNavigationGuardProvider,
+        { confirmationMessage: "Fiktiv varning." },
+        createElement(MonthlyReportDraftForm, {
+          clientId: "123e4567-e89b-42d3-a456-426614174002",
+          initialState: result,
+        }),
+      ),
+    );
+    expect(html).toContain(
+      '<fieldset aria-describedby="monthly-report-content-error"',
+    );
+    expect(html).toContain(
+      `id="monthly-report-content-error">${contentError}</p>`,
+    );
+    for (const { key } of STRUCTURED_SECTION_DEFINITIONS) {
+      expect(html).toContain(result.values[key]);
+    }
+  });
+
+  it("accepts the exact combined limit and clears an earlier length error", async () => {
+    const form = reportForm();
+    form.set("healthContent", "H".repeat(STRUCTURED_CONTENT_MAX_LENGTH / 2));
+    form.set("otherContent", "O".repeat(STRUCTURED_CONTENT_MAX_LENGTH / 2));
+    mocks.saveMonthlyReportDraft.mockImplementationOnce(async (input) => {
+      saveMonthlyReportDraftInputSchema.parse(input);
+      return { id: reportId, clientId: "fictional-client", version: 2 };
+    });
+    const result = await saveMonthlyReportDraftAction(
+      {
+        ...initialState,
+        status: "ERROR",
+        fieldErrors: { otherContent: "Tidigare längdfel." },
+      },
+      form,
+    );
+    expect(result.status).toBe("SUCCESS");
+    expect(result.version).toBe(2);
+    expect(result.fieldErrors).toBeUndefined();
+    expect(mocks.saveMonthlyReportDraft).toHaveBeenCalledOnce();
+  });
+
+  it("clears an earlier length error when corrected input encounters a conflict", async () => {
+    mocks.saveMonthlyReportDraft.mockRejectedValueOnce(
+      new MonthlyReportError("STALE_VERSION"),
+    );
+    const result = await saveMonthlyReportDraftAction(
+      {
+        ...initialState,
+        status: "ERROR",
+        fieldErrors: { otherContent: "Tidigare längdfel." },
+      },
+      reportForm(),
+    );
+    expect(result.status).toBe("CONFLICT");
+    expect(result.fieldErrors).toBeUndefined();
+    expect(result.values.healthContent).toBe("Fiktiv hälsouppgift.");
+  });
   it("does not allow an empty report to sign", async () => {
     mocks.signMonthlyReportDraft.mockRejectedValueOnce(
       new MonthlyReportError("CONTENT_REQUIRED"),
