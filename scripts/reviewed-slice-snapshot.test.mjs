@@ -8,6 +8,7 @@ import {
   assertReviewSnapshotMatches,
   captureReviewSnapshot,
   compareReviewSnapshot,
+  isInside,
 } from "./reviewed-slice-snapshot.mjs";
 
 const temporaryRoots = [];
@@ -60,6 +61,31 @@ function createDetachedFixture() {
 }
 
 describe("reviewed slice snapshot", () => {
+  describe("snapshot destination containment", () => {
+    it.each([
+      ["/projects/kaul", "/projects/kaul", true],
+      ["/projects/kaul", "/projects/kaul/review.json", true],
+      ["/projects/kaul", "/projects/kaul/../review.json", false],
+      ["/projects/kaul", "/projects/kaul-other/review.json", false],
+      ["/projects/kaul", "/projects", false],
+    ])("classifies POSIX destination %s -> %s", (root, destination, inside) => {
+      expect(isInside(root, destination, path.posix)).toBe(inside);
+    });
+    it.each([
+      ["C:\\Projects\\kaul", "C:\\Projects\\kaul", true],
+      ["C:\\Projects\\kaul", "c:\\projects\\kaul\\review.json", true],
+      ["C:\\Projects\\kaul", "C:\\Projects\\review.json", false],
+      ["C:\\Projects\\kaul", "C:\\Projects\\kaul-other\\review.json", false],
+      ["C:\\Projects\\kaul", "D:\\review.json", false],
+      ["C:\\Projects\\kaul", "\\\\review-host\\snapshots\\review.json", false],
+      ["\\\\host\\share\\kaul", "\\\\host\\other-share\\review.json", false],
+    ])(
+      "classifies Windows destination %s -> %s",
+      (root, destination, inside) => {
+        expect(isInside(root, destination, path.win32)).toBe(inside);
+      },
+    );
+  });
   it("invalidates detached-HEAD review when only untracked content changes", () => {
     const repository = createDetachedFixture();
     expect(String(git(repository, ["branch", "--show-current"])).trim()).toBe(

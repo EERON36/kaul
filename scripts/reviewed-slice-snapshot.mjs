@@ -174,11 +174,13 @@ export function assertReviewSnapshotMatches(
   return comparison.current;
 }
 
-function isInside(repositoryRoot, candidate) {
-  const relative = path.relative(repositoryRoot, candidate);
+export function isInside(repositoryRoot, candidate, pathApi = path) {
+  const relative = pathApi.relative(repositoryRoot, candidate);
   return (
     relative === "" ||
-    (!relative.startsWith(`..${path.sep}`) && relative !== "..")
+    (!pathApi.isAbsolute(relative) &&
+      !relative.startsWith(`..${pathApi.sep}`) &&
+      relative !== "..")
   );
 }
 
