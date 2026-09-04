@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { chmod, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { Readable } from "node:stream";
 
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   AssignmentResponsibility,
@@ -14,6 +15,10 @@ import {
 import { prisma } from "../../lib/prisma";
 import { generateAuditOperationId } from "../audit/audit";
 import type { ApplicationUser } from "../authentication/guards";
+import {
+  archiveClientForTest,
+  endAssignmentForTest,
+} from "../clients/clients.test-support";
 import type {
   DocumentMalwareScanner,
   MalwareScanResult,
@@ -22,6 +27,7 @@ import { FileSystemDocumentStorage } from "./document-storage";
 import {
   archiveDocumentInternal,
   authoriseDocumentDownloadInternal,
+  getDocumentDetailInternal,
   listClientDocumentsInternal,
   uploadDocumentInternal,
 } from "./documents-internal";
@@ -246,6 +252,7 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   const ids = [...organisationIds];
   organisationIds.clear();
   await cleanup(ids);
@@ -256,6 +263,304 @@ afterEach(async () => {
   );
 });
 
+async function endFixtureAssignment(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+) {
+  await endAssignmentForTest(
+    {
+      operationId: generateAuditOperationId(),
+      assignmentId: fixture.assignment.id,
+    },
+    { ...fixture.administrator, role: UserRole.ADMINISTRATOR },
+    {},
+  );
+}
+
+async function downloadOutcomeCount(
+  organisationId: string,
+  result: "SUCCEEDED" | "FAILED",
+) {
+  return prisma.auditEvent.count({
+    where: {
+      result,
+      type: "OUTCOME",
+      operation: { organisationId, action: "DOCUMENT_DOWNLOAD_AUTHORISED" },
+    },
+  });
+}
+
+async function waitForClientMutationLockWaiter(clientId: string) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const [lock] = await prisma.$queryRaw<Array<{ waiting: bigint }>>`
+      SELECT count(*) AS "waiting"
+      FROM pg_locks
+      WHERE locktype = 'advisory'
+        AND classid::bigint = 1129607912
+        AND objid::bigint = (hashtext(${clientId})::bigint & 4294967295)
+        AND NOT granted
+    `;
+    if (lock && Number(lock.waiting) > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(
+    "Timed out waiting for the Documents authorization lock waiter.",
+  );
+}
+describe("Document read revocation", () => {
+  it.each(["list", "detail", "download"] as const)(
+    "denies %s payload after assignment ends between Client check and payload query",
+    async (read) => {
+      const fixture = await createFixture();
+      const uploaded = await uploadDocumentInternal(
+        uploadInput(fixture.client.id),
+        fixture.administrator,
+        { storage: fixture.storage, scanner: cleanScanner },
+      );
+      const clientLookup = prisma.client.findFirst.bind(prisma.client);
+      // Execute the real PostgreSQL lookup, then commit a real Assignment end
+      // before the Documents payload query. No database result is fabricated.
+      vi.spyOn(prisma.client, "findFirst").mockImplementationOnce(
+        (args) =>
+          clientLookup(args).then(async (client) => {
+            expect(client).not.toBeNull();
+            await endFixtureAssignment(fixture);
+            return client;
+          }) as ReturnType<typeof prisma.client.findFirst>,
+      );
+      const storageOpen = vi.spyOn(fixture.storage, "open");
+      if (read === "list") {
+        await expect(
+          listClientDocumentsInternal(fixture.client.id, fixture.staff),
+        ).resolves.toEqual([]);
+      } else if (read === "detail") {
+        await expect(
+          getDocumentDetailInternal(
+            fixture.client.id,
+            uploaded.documentId,
+            fixture.staff,
+          ),
+        ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+      } else {
+        let released:
+          | Awaited<ReturnType<typeof authoriseDocumentDownloadInternal>>
+          | undefined;
+        try {
+          await expect(
+            authoriseDocumentDownloadInternal(
+              {
+                clientId: fixture.client.id,
+                documentId: uploaded.documentId,
+                versionId: uploaded.versionId,
+              },
+              fixture.staff,
+              fixture.storage,
+            ).then((download) => {
+              released = download;
+              return download;
+            }),
+          ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+          expect(storageOpen).not.toHaveBeenCalled();
+          expect(
+            await downloadOutcomeCount(fixture.organisationId, "SUCCEEDED"),
+          ).toBe(0);
+        } finally {
+          await released?.handle.close();
+        }
+      }
+    },
+  );
+
+  it.each(["assignment", "banned user", "password change"] as const)(
+    "denies download and closes its handle when %s is revoked during integrity reading",
+    async (revocation) => {
+      const fixture = await createFixture();
+      const uploaded = await uploadDocumentInternal(
+        uploadInput(fixture.client.id),
+        fixture.administrator,
+        { storage: fixture.storage, scanner: cleanScanner },
+      );
+      const open = fixture.storage.open.bind(fixture.storage);
+      let closed = false;
+      let revoked = false;
+      vi.spyOn(fixture.storage, "open").mockImplementationOnce(async (key) => {
+        const handle = await open(key);
+        return {
+          size: handle.size,
+          close: async () => {
+            closed = true;
+            await handle.close();
+          },
+          createReadStream: () =>
+            Readable.from(
+              (async function* () {
+                for await (const chunk of handle.createReadStream()) {
+                  if (!revoked) {
+                    revoked = true;
+                    if (revocation === "assignment")
+                      await endFixtureAssignment(fixture);
+                    else
+                      await prisma.user.update({
+                        where: { id: fixture.staff.userId },
+                        data:
+                          revocation === "banned user"
+                            ? { banned: true }
+                            : { mustChangePassword: true },
+                      });
+                  }
+                  yield chunk;
+                }
+              })(),
+            ),
+        };
+      });
+      let released:
+        | Awaited<ReturnType<typeof authoriseDocumentDownloadInternal>>
+        | undefined;
+      try {
+        await expect(
+          authoriseDocumentDownloadInternal(
+            {
+              clientId: fixture.client.id,
+              documentId: uploaded.documentId,
+              versionId: uploaded.versionId,
+            },
+            fixture.staff,
+            fixture.storage,
+          ).then((download) => {
+            released = download;
+            return download;
+          }),
+        ).rejects.toMatchObject({ code: "TARGET_UNAVAILABLE" });
+        expect(revoked).toBe(true);
+        expect(closed).toBe(true);
+        expect(
+          await downloadOutcomeCount(fixture.organisationId, "SUCCEEDED"),
+        ).toBe(0);
+        expect(
+          await downloadOutcomeCount(fixture.organisationId, "FAILED"),
+        ).toBe(1);
+      } finally {
+        await released?.handle.close();
+      }
+    },
+  );
+
+  it("waits for a pending Assignment revocation before authorizing download", async () => {
+    const fixture = await createFixture();
+    const uploaded = await uploadDocumentInternal(
+      uploadInput(fixture.client.id),
+      fixture.administrator,
+      { storage: fixture.storage, scanner: cleanScanner },
+    );
+    const open = fixture.storage.open.bind(fixture.storage);
+    let closed = false;
+    vi.spyOn(fixture.storage, "open").mockImplementationOnce(async (key) => {
+      const handle = await open(key);
+      return {
+        ...handle,
+        close: async () => {
+          closed = true;
+          await handle.close();
+        },
+      };
+    });
+    const mutationReady = Promise.withResolvers<void>();
+    const allowCommit = Promise.withResolvers<void>();
+    const revocation = endAssignmentForTest(
+      {
+        operationId: generateAuditOperationId(),
+        assignmentId: fixture.assignment.id,
+      },
+      { ...fixture.administrator, role: UserRole.ADMINISTRATOR },
+      {
+        afterBusinessMutation: async () => {
+          mutationReady.resolve();
+          await allowCommit.promise;
+        },
+      },
+    );
+    void revocation.catch((error: unknown) => mutationReady.reject(error));
+    let issued:
+      Awaited<ReturnType<typeof authoriseDocumentDownloadInternal>> | undefined;
+    let download: Promise<unknown> | undefined;
+    try {
+      // The real Assignment transaction now holds the shared Client lock.
+      // Its changes remain uncommitted, so preliminary reads still see access.
+      await mutationReady.promise;
+      download = authoriseDocumentDownloadInternal(
+        {
+          clientId: fixture.client.id,
+          documentId: uploaded.documentId,
+          versionId: uploaded.versionId,
+        },
+        fixture.staff,
+        fixture.storage,
+      ).then(
+        (value) => {
+          issued = value;
+          return value;
+        },
+        (error: unknown) => error,
+      );
+      await waitForClientMutationLockWaiter(fixture.client.id);
+      expect(closed).toBe(false);
+      expect(
+        await downloadOutcomeCount(fixture.organisationId, "SUCCEEDED"),
+      ).toBe(0);
+      allowCommit.resolve();
+      await revocation;
+      expect(await download).toMatchObject({ code: "TARGET_UNAVAILABLE" });
+      expect(closed).toBe(true);
+      expect(
+        await downloadOutcomeCount(fixture.organisationId, "SUCCEEDED"),
+      ).toBe(0);
+      expect(await downloadOutcomeCount(fixture.organisationId, "FAILED")).toBe(
+        1,
+      );
+    } finally {
+      allowCommit.resolve();
+      await revocation.catch(() => undefined);
+      await download;
+      await issued?.handle.close();
+    }
+  });
+  it("preserves Administrator downloads of archived Clients", async () => {
+    const fixture = await createFixture();
+    const uploaded = await uploadDocumentInternal(
+      uploadInput(fixture.client.id),
+      fixture.administrator,
+      { storage: fixture.storage, scanner: cleanScanner },
+    );
+    await endFixtureAssignment(fixture);
+    await archiveClientForTest(
+      { operationId: generateAuditOperationId(), clientId: fixture.client.id },
+      { ...fixture.administrator, role: UserRole.ADMINISTRATOR },
+      {},
+    );
+    const download = await authoriseDocumentDownloadInternal(
+      {
+        clientId: fixture.client.id,
+        documentId: uploaded.documentId,
+        versionId: uploaded.versionId,
+      },
+      fixture.administrator,
+      fixture.storage,
+    );
+    try {
+      const chunks: Buffer[] = [];
+      for await (const chunk of download.handle.createReadStream())
+        chunks.push(Buffer.from(chunk));
+      expect(Buffer.concat(chunks).toString("utf8")).toBe(
+        "Fiktivt dokument åäö\n",
+      );
+      expect(
+        await downloadOutcomeCount(fixture.organisationId, "SUCCEEDED"),
+      ).toBe(1);
+    } finally {
+      await download.handle.close();
+    }
+  });
+});
 describe("Client Documents", () => {
   it("creates immutable monotonic versions and minimal audit evidence", async () => {
     const fixture = await createFixture();

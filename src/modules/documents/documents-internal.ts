@@ -240,7 +240,11 @@ export async function listClientDocumentsInternal(
   try {
     const currentActor = await requireClient(prisma, actor, clientId, "READ");
     const rows = await prisma.document.findMany({
-      where: { organisationId: currentActor.organisationId, clientId },
+      where: {
+        organisationId: currentActor.organisationId,
+        clientId,
+        client: { is: getClientDetailAccessWhere(currentActor) },
+      },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       select: {
         id: true,
@@ -289,6 +293,7 @@ export async function getDocumentDetailInternal(
         id: documentId,
         organisationId: currentActor.organisationId,
         clientId,
+        client: { is: getClientDetailAccessWhere(currentActor) },
       },
       select: {
         id: true,
@@ -808,6 +813,7 @@ export async function authoriseDocumentDownloadInternal(
         organisationId: currentActor.organisationId,
         clientId: input.clientId,
         documentId: input.documentId,
+        client: { is: getClientDetailAccessWhere(currentActor) },
         document: {
           is: {
             id: input.documentId,
@@ -838,7 +844,27 @@ export async function authoriseDocumentDownloadInternal(
       action: "DOCUMENT_DOWNLOAD_AUTHORISED",
       target: { targetId: version.id },
     });
-    await recordSucceededAuditOutcome(intent, version.id);
+    try {
+      await prisma.$transaction(async (transaction) => {
+        // Integrity I/O is complete before taking the same short Client lock
+        // used by Assignment and lifecycle changes. No stream holds this lock.
+        await lockClientForMutation(transaction, input.clientId);
+        await requireClient(transaction, actor, input.clientId, "READ");
+        await appendAuditOutcomeInTransaction(
+          transaction,
+          intent,
+          "SUCCEEDED",
+          version.id,
+        );
+      });
+    } catch (error) {
+      // Only an observed access denial proves failure. An unknown transaction
+      // result must not be relabelled as a definitive failed authorization.
+      if (error instanceof DefinitiveDocumentError) {
+        await recordFailedAuditOutcome(intent, version.id);
+      }
+      throw error;
+    }
     return {
       handle,
       displayFilename: version.displayFilename,
