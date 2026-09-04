@@ -10,7 +10,7 @@ reliable historical records.
 
 ## Current status
 
-Implemented now:
+The completed Milestones 0–4 baseline on `main` provides:
 
 - Individual email-and-password authentication, Administrator and Staff Member
   management, and a maximum 12-hour session lifetime.
@@ -30,15 +30,21 @@ Implemented now:
   lifecycle and responsibility history, the current user's authorised **Att
   göra**, and immutable signing-time Goal context in Journal records.
 
-The next project focus is **Homelab Pilot Readiness**: a repeatable, isolated
-Pilot using fictional or sanitised data, with HTTPS, environment separation,
-operational monitoring, and verified backup and restore procedures. It is
-separate from the later **Production / Cloud Launch Readiness** decision for
-live organisational information. Documents, reports, global search, exports,
-and other deferred features are not pulled into the Pilot merely by this
-change; initial user feedback should determine which are blocking needs. The
-Milestone 7 dependency/security gates and the stricter production credential,
-recovery, legal, provider, and operational gates remain unresolved. Kaul is not
+The separate, unmerged product integration candidate adds the approved tracks:
+
+- Expanded Client information and Stage A Personnummer encryption.
+- Six-section Journal drafts that preserve legacy signed records, and
+  Client-scoped, manually authored **Månadsrapporter** with immutable signing.
+- Client **Dokument** with immutable versions, private storage, malware scanning,
+  and combined database/object backup verification.
+
+These implementations do not mark Milestone 5 complete or approve activation.
+**Homelab Pilot Readiness** remains an open release track, alongside product
+validation. The dependency audit, combined migration and browser evidence,
+Personnummer conversion and restore gates, Documents operating requirements,
+and stakeholder acceptance remain unresolved. **Production / Cloud Launch
+Readiness** is a separate later decision. Global search, exports,
+notifications, and other unapproved features remain deferred. Kaul is not
 Pilot-ready or production-ready.
 
 See the [current project state](docs/PROJECT_STATE.md) for the short operational

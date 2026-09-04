@@ -1660,10 +1660,20 @@ focus, semantic labels and navigation, text status, long-content wrapping,
 The Milestone 4 Playwright suite passed 6/6 and the overlapping Client/Journal
 suite passed 12/12 before the UI was squash-merged in #39.
 
-**Pilot Readiness** is the next project focus. The interface should be reviewed
-with initial users during a 1–2 week fictional or sanitised-data trial and
-adjusted from real workflow feedback without abandoning this document's
-principles. Documents, notifications, global task management, charts,
-PWA/offline behaviour, and the other deferred interfaces remain outside M4 and
-are not pulled into the pilot without a validated blocking need. Kaul is not
-approved for sensitive production use.
+The separate product integration candidate adds the approved expanded Client
+forms, six-section **Anteckningar**, manually authored **Månadsrapporter**, and
+Client-scoped **Dokument** with upload, version history, download, and archive
+workflows. Legacy signed Journal presentation remains available. These
+additions follow the existing Swedish, calm, accessible Client-workspace
+principles; they do not select a new visual design. The three mock-only visual
+concepts remain separate explorations.
+
+The earlier M3/M4 browser results above describe their reviewed baseline, not
+acceptance of the combined product/Documents candidate. Its current Client
+access, draft/signing, Documents, keyboard, narrow-screen, and magnification
+workflows still need appropriate combined validation and owner acceptance.
+**Pilot Readiness** remains open, with a later fictional or sanitised-data
+feedback trial subject to its release gates. Notifications, global task
+management, charts, PWA/offline behaviour, and other unapproved interfaces
+remain deferred. See [PROJECT_STATE.md](PROJECT_STATE.md) for the dated
+candidate status. Kaul is not approved for sensitive production use.

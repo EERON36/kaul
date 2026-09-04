@@ -457,11 +457,20 @@ access loss, archived read-only behaviour, terminal states, concurrency,
 keyboard use, narrow screens, and high-text reflow. The foundation and visible
 workflows were squash-merged in #38 and #39.
 
-**Homelab Pilot Readiness** is the next project focus. It should prove a
-repeatable, isolated deployment and operational loop with fictional or
-sanitised data before another major feature milestone is selected. The later
-**Production / Cloud Launch Readiness** gate governs professional hosting and
-live organisational information. Document, report, global search, export, and
-other later modules remain unimplemented and are not Pilot requirements without
-validated need. Homelab Pilot Readiness is not complete, and Kaul is not
-approved for sensitive production use.
+The separate product integration candidate implements the approved expanded
+Client, structured Journal, Monthly Report, and Client Documents tracks.
+Personnummer uses the Stage A envelope-encryption boundary in ADR 0003; the
+attended conversion and retained-key restore gates remain separate. Monthly
+Reports reuse current Client access and audited immutable signing. Documents
+reuse the same authorisation boundary, with immutable versions, private
+storage, fail-closed malware scanning, and a manifest-bound database/object
+backup set as defined in ADR 0004. These additions preserve the modular
+monolith and do not rewrite legacy signed Journal records.
+
+This candidate remains separate from the completed Milestones 0–4 baseline on
+main and from the Pilot release candidate. Implementation is not Milestone 5
+completion or activation approval. **Homelab Pilot Readiness** and the later
+**Production / Cloud Launch Readiness** gates remain open. Global search,
+export, notifications, and other unapproved modules remain deferred. See
+[PROJECT_STATE.md](PROJECT_STATE.md) for the dated integration baseline and
+remaining validation; Kaul is not approved for sensitive production use.
