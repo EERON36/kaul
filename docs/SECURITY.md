@@ -491,7 +491,11 @@ The server must validate:
 - Client access
 - Organisation ownership
 
-Additional content inspection may be added when justified.
+The approved v1 boundary accepts only PDF, JPEG, PNG, and valid UTF-8 plain
+text, one file per request, up to 25 MiB of actual streamed bytes. Extension,
+declared MIME, detected signature, and bounded structural checks must agree.
+Images also have dimension and pixel-count limits. Files are never rendered,
+converted, indexed, executed, or treated as trusted HTML on the server.
 
 ### Storage Rules
 
@@ -513,7 +517,18 @@ Additional content inspection may be added when justified.
 - Appropriate content-disposition and content-type headers must be used.
 - Unauthorised download attempts should be denied without revealing file details.
 
-Malware-scanning requirements must be reviewed before sensitive production deployment.
+Every real upload is quarantined and streamed to private ClamAV before durable
+promotion. Only `CLEAN` with signatures no older than 24 hours is accepted.
+Unavailable, unhealthy, stale, timed-out, crashed, or indeterminate scanning
+fails closed and creates no available DocumentVersion. ClamAV has no Documents
+storage mount or credentials, and its unauthenticated TCP service must never be
+publicly exposed.
+
+Every download rechecks Client access, scopes Organisation, Client, Document,
+and Version together, refuses symlinks/non-regular files, and verifies stored
+size and SHA-256 before any byte is released. All supported types download as
+attachments with a server-controlled MIME, injection-safe filename, `nosniff`,
+private no-store caching, and the verified content length.
 
 ---
 

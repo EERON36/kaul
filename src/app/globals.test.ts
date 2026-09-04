@@ -47,3 +47,18 @@ describe("global keyboard focus treatment", () => {
     expect(contrastRatio("#ffffff", "#23445b")).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe("Documents responsive layout", () => {
+  it("allows long metadata to wrap and stacks primary actions on narrow screens", () => {
+    const stylesheet = readFileSync(
+      new URL("./globals.css", import.meta.url),
+      "utf8",
+    );
+    expect(stylesheet).toContain(".document-metadata dd");
+    expect(stylesheet).toContain("overflow-wrap: anywhere;");
+    expect(stylesheet).toContain(".document-upload-form .primary-button");
+    expect(stylesheet).toContain(".document-actions a");
+    expect(stylesheet).toContain(".document-metadata {");
+    expect(stylesheet).toContain("minmax(0, 1fr)");
+  });
+});

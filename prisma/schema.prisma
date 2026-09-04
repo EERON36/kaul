@@ -69,17 +69,28 @@ enum FollowUpStatus {
   CANCELLED
 }
 
+enum DocumentStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum DocumentScanResult {
+  CLEAN
+}
+
 model Organisation {
-  id             String         @id
-  name           String
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  users          User[]
-  clients        Client[]       @relation("OrganisationClients")
-  assignments    Assignment[]   @relation("OrganisationAssignments")
-  journalEntries JournalEntry[] @relation("OrganisationJournalEntries")
-  goals          Goal[]         @relation("OrganisationGoals")
-  followUps      FollowUp[]     @relation("OrganisationFollowUps")
+  id               String            @id
+  name             String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  users            User[]
+  clients          Client[]          @relation("OrganisationClients")
+  assignments      Assignment[]      @relation("OrganisationAssignments")
+  journalEntries   JournalEntry[]    @relation("OrganisationJournalEntries")
+  goals            Goal[]            @relation("OrganisationGoals")
+  followUps        FollowUp[]        @relation("OrganisationFollowUps")
+  documents        Document[]        @relation("OrganisationDocuments")
+  documentVersions DocumentVersion[] @relation("OrganisationDocumentVersions")
 
   @@map("organisation")
 }
@@ -116,6 +127,9 @@ model User {
   previousResponsibilities     FollowUpResponsibilityHistory[] @relation("PreviousResponsibleUsers")
   newResponsibilities          FollowUpResponsibilityHistory[] @relation("NewResponsibleUsers")
   actedResponsibilityChanges   FollowUpResponsibilityHistory[] @relation("ResponsibilityChangeActors")
+  createdDocuments             Document[]                      @relation("DocumentCreators")
+  archivedDocuments            Document[]                      @relation("DocumentArchiveActors")
+  uploadedDocumentVersions     DocumentVersion[]               @relation("DocumentVersionUploaders")
 
   @@unique([email])
   @@unique([organisationId, id])
@@ -124,21 +138,23 @@ model User {
 }
 
 model Client {
-  id               String         @id @db.Uuid
+  id               String            @id @db.Uuid
   organisationId   String
-  organisation     Organisation   @relation("OrganisationClients", fields: [organisationId], references: [id], onDelete: Restrict)
+  organisation     Organisation      @relation("OrganisationClients", fields: [organisationId], references: [id], onDelete: Restrict)
   firstName        String
   lastName         String
   personIdentifier String
   category         String
-  status           ClientStatus   @default(INACTIVE)
+  status           ClientStatus      @default(INACTIVE)
   archivedAt       DateTime?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  assignments      Assignment[]   @relation("ClientAssignments")
-  journalEntries   JournalEntry[] @relation("ClientJournalEntries")
-  goals            Goal[]         @relation("ClientGoals")
-  followUps        FollowUp[]     @relation("ClientFollowUps")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  assignments      Assignment[]      @relation("ClientAssignments")
+  journalEntries   JournalEntry[]    @relation("ClientJournalEntries")
+  goals            Goal[]            @relation("ClientGoals")
+  followUps        FollowUp[]        @relation("ClientFollowUps")
+  documents        Document[]        @relation("ClientDocuments")
+  documentVersions DocumentVersion[] @relation("ClientDocumentVersions")
 
   @@unique([organisationId, personIdentifier])
   @@unique([organisationId, id])
@@ -392,4 +408,58 @@ model JournalGoalReference {
   @@id([journalEntryId, goalId])
   @@index([organisationId, clientId, goalId], map: "journalGoalReference_scope_goal_idx")
   @@map("journalGoalReference")
+}
+
+model Document {
+  id               String            @id @db.Uuid
+  organisationId   String
+  organisation     Organisation      @relation("OrganisationDocuments", fields: [organisationId], references: [id], onDelete: Restrict, map: "document_organisationId_fkey")
+  clientId         String            @db.Uuid
+  client           Client            @relation("ClientDocuments", fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict, map: "document_scope_client_fkey")
+  title            String            @db.VarChar(200)
+  description      String?
+  status           DocumentStatus    @default(ACTIVE)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  createdByUserId  String
+  createdByUser    User              @relation("DocumentCreators", fields: [organisationId, createdByUserId], references: [organisationId, id], onDelete: Restrict, map: "document_scope_creator_fkey")
+  archivedAt       DateTime?         @db.Timestamptz(3)
+  archivedByUserId String?
+  archivedByUser   User?             @relation("DocumentArchiveActors", fields: [organisationId, archivedByUserId], references: [organisationId, id], onDelete: Restrict, map: "document_scope_archive_actor_fkey")
+  versions         DocumentVersion[]
+
+  @@unique([organisationId, clientId, id], map: "document_organisationId_clientId_id_key")
+  @@index([organisationId, clientId, status, createdAt, id], map: "document_scope_status_created_idx")
+  @@map("document")
+}
+
+model DocumentVersion {
+  id                      String             @id @db.Uuid
+  organisationId          String
+  organisation            Organisation       @relation("OrganisationDocumentVersions", fields: [organisationId], references: [id], onDelete: Restrict, map: "documentVersion_organisationId_fkey")
+  clientId                String             @db.Uuid
+  client                  Client             @relation("ClientDocumentVersions", fields: [organisationId, clientId], references: [organisationId, id], onDelete: Restrict, map: "documentVersion_scope_client_fkey")
+  documentId              String             @db.Uuid
+  document                Document           @relation(fields: [organisationId, clientId, documentId], references: [organisationId, clientId, id], onDelete: Restrict, map: "documentVersion_scope_document_fkey")
+  versionNumber           Int
+  originalFilename        String             @db.VarChar(255)
+  displayFilename         String             @db.VarChar(180)
+  mediaType               String             @db.VarChar(64)
+  approvedExtension       String             @db.VarChar(8)
+  sizeBytes               BigInt
+  storageKey              String             @unique(map: "documentVersion_storageKey_key") @db.VarChar(64)
+  sha256                  String             @db.Char(64)
+  uploadedAt              DateTime           @default(now()) @db.Timestamptz(3)
+  uploadedByUserId        String
+  uploadedByUser          User               @relation("DocumentVersionUploaders", fields: [organisationId, uploadedByUserId], references: [organisationId, id], onDelete: Restrict, map: "documentVersion_scope_uploader_fkey")
+  malwareScanResult       DocumentScanResult @default(CLEAN)
+  malwareScanner          String             @db.VarChar(64)
+  malwareScannerVersion   String             @db.VarChar(64)
+  malwareSignatureVersion String             @db.VarChar(64)
+  malwareSignatureDate    DateTime           @db.Timestamptz(3)
+  malwareScannedAt        DateTime           @db.Timestamptz(3)
+
+  @@unique([documentId, versionNumber], map: "documentVersion_documentId_versionNumber_key")
+  @@unique([organisationId, clientId, id], map: "documentVersion_organisationId_clientId_id_key")
+  @@index([organisationId, clientId, documentId, versionNumber], map: "documentVersion_scope_document_version_idx")
+  @@map("documentVersion")
 }

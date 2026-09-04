@@ -62,6 +62,11 @@ jobs:
       DEPLOYMENT_ENV: test
       BETTER_AUTH_SECRET: fictional-ci-better-auth-secret-at-least-32-characters
       BETTER_AUTH_URL: http://127.0.0.1:3101
+      DOCUMENT_STORAGE_ROOT: ${{ runner.temp }}/kaul-documents-ci
+      DOCUMENT_SCANNER_HOST: 127.0.0.1
+      DOCUMENT_SCANNER_PORT: 3310
+      DOCUMENT_SCANNER_TIMEOUT_MS: 15000
+      DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS: 24
 
     services:
       database:
@@ -77,6 +82,16 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      document-scanner:
+        image: clamav/clamav:1.4.6@sha256:b25d9199257ae7ef45e0cc4c7eaa60ce7e5447796f0090d5ff311d1a30980cc3
+        ports:
+          - 3310:3310
+        options: >-
+          --health-cmd "clamdcheck.sh"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+          --security-opt no-new-privileges
 
     steps:
       - name: Check out repository

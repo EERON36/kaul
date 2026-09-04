@@ -698,11 +698,12 @@ gates remain in force.
 
 ---
 
-# Milestone 5 — Documents and Weekly Reports
+# Milestone 5 — Documents and Reports
 
 ## Goal
 
-Allow authorised users to upload client documents and generate reliable weekly summaries from existing documentation.
+Deliver authorised Client-scoped Documents. Report work is independently owned
+by the PR #43 lineage and is not duplicated by this slice.
 
 ## Scope
 
@@ -718,25 +719,11 @@ This milestone includes:
 - Allowed file-type restrictions
 - Document replacement or version behaviour
 - Document list within the client workspace
-- Weekly report generation
-- Calendar-week selection
-- Included journal entries
-- Incident overview
-- Goal overview
-- Optional manual summary
-- Draft and final report status
-- Printable report
-- Stable report reference
 - Relevant audit events
 
-## Weekly Report Rules
-
-- Reports summarize existing journal entries.
-- Journal entries remain authoritative.
-- Final reports must not silently change.
-- Regenerating a final report creates a new version or record.
-- Version 1 uses a clear chronological summary.
-- Automated interpretation or AI-generated analysis is excluded.
+The approved Documents slice uses immutable versions, private persistent Pilot
+storage, mandatory SHA-256, fail-closed ClamAV scanning, logical archive, and a
+manifest-bound database/object backup set as specified in ADR 0004.
 
 ## Document Security Rules
 
@@ -746,6 +733,8 @@ This milestone includes:
 - Original file names are metadata only.
 - Replacing a document does not silently destroy the previous record.
 - File contents are not stored in Git or the application image.
+- Accepted versions are immutable and every download is integrity checked.
+- Scanner failure or stale signatures fail closed.
 
 ## Explicitly Excluded
 
@@ -769,10 +758,6 @@ Milestone 5 is complete when:
 - Unauthorised downloads are denied.
 - File validation occurs on the server.
 - Documents appear in the correct client workspace.
-- Weekly reports correctly include authorised source records.
-- Final reports remain historically stable.
-- Reports display Swedish dates and ISO calendar weeks correctly.
-- Reports print cleanly with Swedish characters.
 - Document and report actions create appropriate audit events.
 - Storage can later be replaced without changing the domain model.
 
@@ -1230,7 +1215,7 @@ and form tests, audit policy, lint, typecheck, build, and successful pull-reques
 CI. The foundation was squash-merged in #38 and the visible workflows in #39.
 Milestone 4 is complete.
 
-### Current focus — Pilot Readiness
+### Current focus — Pilot Readiness and approved Client Documents
 
 The next project focus is a small, repeatable, and safely isolated pilot before
 another major feature milestone is selected. Pilot Readiness should establish:
@@ -1243,12 +1228,15 @@ another major feature milestone is selected. Pilot Readiness should establish:
 - Fictional or sanitised pilot data and a 1–2 week user-feedback loop
 - A later deliberate migration path to organisation-approved infrastructure
 
-Pilot Readiness is not complete and does not make Kaul ready for real sensitive
-information. Documents, uploads, notifications, reports, global search,
-exports, and other deferred features do not become pilot requirements without
-a validated blocking need. Existing credential-delivery, account-recovery,
-legal, operational, backup, security, and production-readiness gates remain
-open.
+The owner approved the bounded Client Documents slice on 2026-09-03. This does
+not make Documents live or make Kaul ready for real sensitive information.
+Activation still requires reconciliation onto the PR #43 migration/deployment
+lineage, disposable PostgreSQL and browser evidence, the private scanner and
+least-privilege persistent mount, and a successful exact-snapshot backup/
+restore rehearsal. Notifications, global search, export, and other deferred
+features remain outside the approved slice. Existing credential-delivery,
+account-recovery, legal, operational, backup, security, and production gates
+remain open.
 
 ---
 

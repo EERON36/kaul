@@ -721,6 +721,34 @@ material is also kept away from the VM. The approved retention objective is 14
 daily, 8 weekly, and 6 monthly snapshots, with `--keep-within 14d` added to
 protect all recent snapshots from append-only timestamp manipulation.
 
+When Documents are activated, a valid backup is one manifest-bound set created
+while Document mutations are quiesced:
+
+1. Validate the immutable object root against PostgreSQL metadata.
+2. Create and validate one exact PostgreSQL Restic snapshot.
+3. Snapshot `objects/` only; never include `quarantine/`.
+4. Write a strict manifest containing both exact snapshot IDs, application Git
+   SHA, applied migration names, and each object's key, size, and SHA-256.
+5. Validate the manifest and exact object snapshot before resuming mutations.
+
+`npm run documents:backup:verify -- <manifest.json> <absolute-storage-root>`
+provides the repository/CI object-set verification component. The Pilot
+operator workflow must still create and verify the exact Restic snapshots and
+compare the manifest objects with restored PostgreSQL `documentVersion`
+metadata. A complete rehearsal restores into a
+separate disposable database and empty disposable Documents root, selects only
+the manifest's exact IDs, checks migration status, rejects missing, orphaned,
+or corrupt objects, and then proves authorised and denied downloads. This
+tooling does not itself grant access to or modify a live Restic repository.
+
+Document quarantine is never included in backup and is not subject to an
+automatic deletion daemon in v1. Before activation, operations must provide
+capacity monitoring and an owner-attended reconciliation procedure. Reconcile
+only while Document mutations are quiesced; an aged file may be removed only
+when its non-commit state is proven. Any file whose commit state is ambiguous
+must be retained and investigated. The Pilot host preflight separately requires
+at least 20 GiB free on the dedicated Documents filesystem.
+
 For the Homelab Pilot, a real encrypted repository outside the Pilot VM, an
 append-only writer identity, scheduled backups, failure notification, and an
 exact-snapshot restore rehearsal are launch gates. The repository contract and
@@ -776,6 +804,8 @@ After restoration, verify:
 - Journal records are intact
 - Signing information is intact
 - Documents can be downloaded
+- Document object count, byte sizes, and SHA-256 values match the bound manifest
+- Missing, orphaned, corrupt, symlinked, or non-regular objects are rejected
 - Reports are available
 - Permissions still work
 - Audit history is present
