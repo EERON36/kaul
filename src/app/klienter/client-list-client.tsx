@@ -160,6 +160,62 @@ export function ClientList({
         </p>
       </section>
 
+      <section aria-labelledby="client-list-heading" className="client-section">
+        <h2 id="client-list-heading">Klientlista</h2>
+        {displayedClients.length === 0 ? (
+          <p>
+            {activeCategoryView === "ALL"
+              ? searchState.searched
+                ? "Inga klienter matchar din sökning."
+                : "Det finns inga klienter som du kan öppna."
+              : searchState.searched
+                ? `Inga klienter under ${activeCategoryLabel} matchar din sökning.`
+                : `Det finns inga klienter under ${activeCategoryLabel} som du kan öppna.`}
+          </p>
+        ) : (
+          <div className="client-category-groups">
+            {groupClientsByCategory(displayedClients).map((group) => (
+              <section
+                aria-labelledby={`client-category-${group.key}`}
+                className="client-category-group"
+                key={group.key}
+              >
+                <h3 id={`client-category-${group.key}`}>{group.label}</h3>
+                <ul className="client-list">
+                  {group.clients.map((client) => (
+                    <li key={client.id}>
+                      <Link
+                        className="client-list-link"
+                        href={`/klienter/${client.id}`}
+                      >
+                        <span className="client-list-name">
+                          {client.firstName} {client.lastName}
+                        </span>
+                        <span className="client-identifier">
+                          {client.personIdentifier}
+                        </span>
+                        <span>{getClientCategoryLabel(client.category)}</span>
+                        <span>
+                          Status: {getClientStatusLabel(client.status)}
+                        </span>
+                        {showPrimaryStaff ? (
+                          <span>
+                            <strong>Primäransvarig:</strong>{" "}
+                            {client.primaryStaff
+                              ? `${client.primaryStaff.name} – ${client.primaryStaff.professionalTitle}`
+                              : "Ingen aktiv primär ansvarig"}
+                          </span>
+                        ) : null}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        )}
+      </section>
+
       {canCreate ? (
         <section
           aria-labelledby="create-client-heading"
@@ -309,62 +365,6 @@ export function ClientList({
           </form>
         </section>
       ) : null}
-
-      <section aria-labelledby="client-list-heading" className="client-section">
-        <h2 id="client-list-heading">Klientlista</h2>
-        {displayedClients.length === 0 ? (
-          <p>
-            {activeCategoryView === "ALL"
-              ? searchState.searched
-                ? "Inga klienter matchar din sökning."
-                : "Det finns inga klienter som du kan öppna."
-              : searchState.searched
-                ? `Inga klienter under ${activeCategoryLabel} matchar din sökning.`
-                : `Det finns inga klienter under ${activeCategoryLabel} som du kan öppna.`}
-          </p>
-        ) : (
-          <div className="client-category-groups">
-            {groupClientsByCategory(displayedClients).map((group) => (
-              <section
-                aria-labelledby={`client-category-${group.key}`}
-                className="client-category-group"
-                key={group.key}
-              >
-                <h3 id={`client-category-${group.key}`}>{group.label}</h3>
-                <ul className="client-list">
-                  {group.clients.map((client) => (
-                    <li key={client.id}>
-                      <Link
-                        className="client-list-link"
-                        href={`/klienter/${client.id}`}
-                      >
-                        <span className="client-list-name">
-                          {client.firstName} {client.lastName}
-                        </span>
-                        <span className="client-identifier">
-                          {client.personIdentifier}
-                        </span>
-                        <span>{getClientCategoryLabel(client.category)}</span>
-                        <span>
-                          Status: {getClientStatusLabel(client.status)}
-                        </span>
-                        {showPrimaryStaff ? (
-                          <span>
-                            <strong>Primäransvarig:</strong>{" "}
-                            {client.primaryStaff
-                              ? `${client.primaryStaff.name} – ${client.primaryStaff.professionalTitle}`
-                              : "Ingen aktiv primär ansvarig"}
-                          </span>
-                        ) : null}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </div>
-        )}
-      </section>
     </>
   );
 }

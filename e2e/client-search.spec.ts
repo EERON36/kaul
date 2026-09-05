@@ -342,3 +342,124 @@ test("Client search remains keyboard-usable without mobile overflow", async ({
     `${testEnvironment.origin}/klienter?kategori=ungdomar`,
   );
 });
+
+test("Administrator search results stay near controls across mobile text sizes and desktop", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(90_000);
+  await logIn(page, administratorEmail, "192.0.2.214");
+
+  const cases = [
+    { width: 1280, height: 900, textPercent: 100 },
+    { width: 360, height: 800, textPercent: 100 },
+    { width: 390, height: 844, textPercent: 100 },
+    { width: 430, height: 932, textPercent: 100 },
+    { width: 360, height: 800, textPercent: 200 },
+    { width: 390, height: 844, textPercent: 200 },
+    { width: 430, height: 932, textPercent: 200 },
+  ];
+
+  for (const { width, height, textPercent } of cases) {
+    await test.step(`${width} x ${height}, ${textPercent}% text`, async () => {
+      await page.setViewportSize({ width, height });
+      await page.goto("/klienter?kategori=ungdomar");
+      await page.waitForLoadState("networkidle");
+      await page.evaluate((percent) => {
+        document.documentElement.style.fontSize = `${percent}%`;
+      }, textPercent);
+      await page.evaluate(() => document.fonts.ready);
+
+      const searchInput = page.getByRole("textbox", { name: "Sök klienter" });
+      const searchButton = page.getByRole("button", {
+        name: "Sök",
+        exact: true,
+      });
+      const resetButton = page.getByRole("button", { name: "Rensa sökning" });
+      const creationName = page.getByLabel("Förnamn");
+      const results = page.getByRole("region", {
+        name: "Klientlista",
+        exact: true,
+      });
+      const resultLink = results.getByRole("link", {
+        name: /SÖK-UNGDOM-MOBIL-LÅNG/,
+      });
+
+      // Searching must preserve a partly completed creation form.
+      await creationName.fill("Fiktiv Mobilklient");
+      await searchInput.fill(
+        "SÖK-UNGDOM-MOBIL-LÅNG-PERSONREFERENS-012345678901234567890123",
+      );
+      await searchInput.press("Enter");
+      await expect(resetButton).toBeVisible();
+      await expect(searchButton).toBeEnabled();
+      await expect(results.getByRole("link")).toHaveCount(1);
+      await expect(resultLink).toBeVisible();
+      await expect(creationName).toHaveValue("Fiktiv Mobilklient");
+
+      const layout = await page.evaluate(() => {
+        const search = document.querySelector(
+          '[aria-labelledby="client-search-heading"]',
+        );
+        const list = document.querySelector(
+          '[aria-labelledby="client-list-heading"]',
+        );
+        const creation = document.querySelector(
+          '[aria-labelledby="create-client-heading"]',
+        );
+        if (!search || !list || !creation) {
+          throw new Error(
+            "Client search, results and creation sections must exist",
+          );
+        }
+        return {
+          resultGap:
+            list.getBoundingClientRect().top -
+            search.getBoundingClientRect().bottom,
+          creationGap:
+            creation.getBoundingClientRect().top -
+            list.getBoundingClientRect().bottom,
+          rootFontSize: Number.parseFloat(
+            getComputedStyle(document.documentElement).fontSize,
+          ),
+          pageFits: document.documentElement.scrollWidth <= window.innerWidth,
+        };
+      });
+      expect(layout.resultGap).toBeGreaterThanOrEqual(0);
+      expect(layout.resultGap).toBeLessThanOrEqual(layout.rootFontSize * 2.5);
+      expect(layout.creationGap).toBeGreaterThanOrEqual(0);
+      expect(layout.pageFits).toBe(true);
+
+      await searchInput.focus();
+      await page.keyboard.press("Tab");
+      await expect(searchButton).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(resetButton).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(resultLink).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(creationName).toBeFocused();
+
+      await resetButton.scrollIntoViewIfNeeded();
+      const screenshotPath = testInfo.outputPath(
+        `client-search-${width}-text-${textPercent}.png`,
+      );
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      await testInfo.attach(`client-search-${width}-text-${textPercent}`, {
+        path: screenshotPath,
+        contentType: "image/png",
+      });
+    });
+  }
+
+  // Creation still submits successfully after the results on an enlarged phone.
+  await page.getByLabel("Efternamn").fill("Efter responsiv sökning");
+  await page.getByLabel("Personreferens").fill("MOBIL-SOK-SKAPA-01");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("YOUTH");
+  await page.getByRole("button", { name: "Skapa klient" }).click();
+  await expect(page.getByText("Klienten har skapats.")).toBeVisible();
+  await expect(
+    page.getByRole("link", {
+      name: "Öppna klienten och lägg till tilldelning",
+    }),
+  ).toBeVisible();
+});
