@@ -117,6 +117,8 @@ jobs:
           --health-retries 10
       document-scanner:
         image: clamav/clamav:1.4.6@sha256:b25d9199257ae7ef45e0cc4c7eaa60ce7e5447796f0090d5ff311d1a30980cc3
+        env:
+          CLAMAV_NO_FRESHCLAMD: "true"
         ports:
           - 3310:3310
         options: >-
@@ -135,6 +137,28 @@ jobs:
           install -d -m 0700 "$RUNNER_TEMP/kaul-documents-ci"
           printf 'DOCUMENT_STORAGE_ROOT=%s\n' "$RUNNER_TEMP/kaul-documents-ci" >> "$GITHUB_ENV"
 
+      - name: Refresh document scanner signatures
+        timeout-minutes: 4
+        env:
+          DOCUMENT_SCANNER_CONTAINER_ID: ${{ job.services['document-scanner'].id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$DOCUMENT_SCANNER_CONTAINER_ID" =~ ^[0-9a-f]{64}$ ]]; then
+            printf 'DOCUMENT_SCANNER_REFRESH_FAILED exit=2\n' >&2
+            exit 2
+          fi
+          if timeout --signal=TERM --kill-after=5s 180s \
+            docker exec "$DOCUMENT_SCANNER_CONTAINER_ID" \
+              freshclam --foreground --stdout --user=clamav \
+              >/dev/null 2>&1; then
+            printf 'DOCUMENT_SCANNER_REFRESHED\n'
+          else
+            refresh_status=$?
+            printf 'DOCUMENT_SCANNER_REFRESH_FAILED exit=%d\n' \
+              "$refresh_status" >&2
+            exit "$refresh_status"
+          fi
+
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
@@ -143,6 +167,21 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Verify document scanner readiness
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          if timeout --signal=TERM --kill-after=5s 210s \
+            node --conditions=react-server --import tsx \
+              scripts/document-scanner-ci-readiness.ts; then
+            :
+          else
+            readiness_status=$?
+            printf 'DOCUMENT_SCANNER_READINESS_FAILED exit=%d\n' \
+              "$readiness_status" >&2
+            exit "$readiness_status"
+          fi
 
       - name: Generate Prisma Client
         run: npm run prisma:generate
