@@ -97,3 +97,25 @@ Verdict: ACCEPT the combined development candidate at dc29c03; no new blocking s
 Both completed CI runs failed only at the unchanged mandatory dependency audit, including deepmerge-ts/mysql2 advisories and Prisma/config aggregate package entries. This remains a merge/release gate; no bypass or release readiness is claimed. The review covers authorization, signed-record integrity, Personnummer privacy/encryption, Documents authorization/audit/storage/scanning, ambiguous failures, migration retention, Client save/cancel behavior and evidence claims.
 
 Limits remain: manual assistive-technology acceptance, live operations, retained-key/production restore proof, local Docker availability and broader Windows operator-harness reliability. The new download ambiguity branch lacks a direct fault-injection regression; source fail-closed review is not claimed as that runtime proof. Owned test storage does not defend against a hostile same-user filesystem race. No reviewer or lead approval here authorizes merge, deployment, release, sensitive-data use or cleanup. Final handoff edits after dc29c03 are documentation only.
+
+## KAUL-216 focused P2 delta acceptance
+
+A fresh independent Astra context accepted the bounded download transaction
+failure test delta against ec5c5ea9146c35853ef976c482a52228a79788cd with no
+actionable findings. Exact documents.integration.test.ts Git blob:
+ca7af578f3831f83f259ff80a5d13733f9e0dfa0 (+386/-1). No production source changed.
+
+The reviewer independently ran all 24 Documents PostgreSQL cases using the
+validated kaul216_0905 / 3126 task and verified the final hash and diff checks.
+It assessed the real write/commit seams, actual filesystem handles, exact audit
+operation/outcome assertions, zero attempted contradictory FAILED, pending
+acknowledgement and retained success/revocation/Client-lock behavior. Main Astra
+accepted this verdict after its own 88 PostgreSQL and 80 surrounding unit passes.
+
+This resolves the direct fault-injection coverage limit recorded above. It does
+not repeat or replace KAUL-205 upload proof, dependency audit, or the earlier
+combined-candidate acceptance. Faults are injected around real PostgreSQL and
+filesystem work, not physical connection losses; no-payload evidence is at the
+domain return boundary. Route protections were inspected; their unit execution
+is Main-owned. Broader runtime evidence is separately identified in
+[KAUL-216](KAUL-216.md). No live, release or protected-merge approval is granted.

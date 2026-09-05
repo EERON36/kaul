@@ -30,6 +30,8 @@ This is a repository integration candidate, not Pilot or production approval. Ma
 - KAUL-214 BACKLOG — owner-attended activation/operations; outside this repository execution phase.
 - KAUL-215 BLOCKED (local environment) — Docker Desktop API became unavailable during local E2E. Preserve the failed run and task resources; no restart or shared-service mutation. Independent GitHub runtime evidence passes.
 
+- KAUL-216 ACCEPTED — [download transaction failure coverage](KAUL-216.md); seven real-PostgreSQL/filesystem fault cases, Main 88 PostgreSQL and 80 surrounding unit passes, independent Astra acceptance and 24 Documents passes. Tests only; owner explicitly authorized development-candidate integration and push for CI.
+
 ## Exact-candidate validation
 
 Run 33952908177 at dc29c03 passed:

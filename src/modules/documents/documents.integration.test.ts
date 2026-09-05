@@ -10,10 +10,11 @@ import {
   AssignmentResponsibility,
   ClientStatus,
   DocumentStatus,
+  type Prisma,
   UserRole,
 } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
-import { generateAuditOperationId } from "../audit/audit";
+import * as audit from "../audit/audit";
 import type { ApplicationUser } from "../authentication/guards";
 import {
   archiveClientForTest,
@@ -32,6 +33,7 @@ import {
   uploadDocumentInternal,
 } from "./documents-internal";
 
+const { generateAuditOperationId } = audit;
 const FIXTURE_PREFIX = "Fiktiv Dokument-organisation ";
 const organisationIds = new Set<string>();
 const storageRoots: string[] = [];
@@ -288,6 +290,389 @@ async function downloadOutcomeCount(
     },
   });
 }
+
+type InteractiveTransaction = <T>(
+  callback: (transaction: Prisma.TransactionClient) => Promise<T>,
+) => Promise<T>;
+
+type TransactionInterception = Readonly<{
+  callNumber: number;
+  beforeTransaction?: () => Promise<void>;
+  failingAuditWrite?: "INTENT" | "OUTCOME";
+  afterCommit?: () => Promise<void>;
+  failAfterCommit?: boolean;
+}>;
+
+function interceptInteractiveTransaction({
+  callNumber: interceptedCall,
+  beforeTransaction,
+  failingAuditWrite,
+  afterCommit,
+  failAfterCommit,
+}: TransactionInterception) {
+  const client = prisma as unknown as {
+    $transaction: InteractiveTransaction;
+  };
+  const runTransaction = client.$transaction.bind(client);
+  let callNumber = 0;
+  let auditWriteCall: readonly unknown[] | undefined;
+  const replacement: InteractiveTransaction = async (callback) => {
+    callNumber += 1;
+    if (callNumber !== interceptedCall) return runTransaction(callback);
+
+    await beforeTransaction?.();
+    if (failingAuditWrite) {
+      return runTransaction(async (transaction) => {
+        const delegate =
+          failingAuditWrite === "INTENT"
+            ? transaction.auditOperation
+            : transaction.auditEvent;
+        const auditWrite = vi
+          .spyOn(delegate, "create")
+          .mockRejectedValueOnce(
+            new Error("Fictional injected audit persistence failure"),
+          );
+        try {
+          return await callback(transaction);
+        } finally {
+          auditWriteCall = auditWrite.mock.calls[0];
+          auditWrite.mockRestore();
+        }
+      });
+    }
+
+    const result = await runTransaction(callback);
+    await afterCommit?.();
+    if (failAfterCommit) {
+      throw new Error("Fictional acknowledgement loss after commit");
+    }
+    return result;
+  };
+  vi.spyOn(client, "$transaction").mockImplementation(replacement);
+  return { getAuditWriteCall: () => auditWriteCall };
+}
+
+function trackNextDownloadHandle(storage: FileSystemDocumentStorage) {
+  const open = storage.open.bind(storage);
+  let closeCount = 0;
+  vi.spyOn(storage, "open").mockImplementationOnce(async (key) => {
+    const handle = await open(key);
+    return {
+      size: handle.size,
+      createReadStream: () => handle.createReadStream(),
+      close: async () => {
+        closeCount += 1;
+        await handle.close();
+      },
+    };
+  });
+  return () => closeCount;
+}
+
+async function createDownloadFixture() {
+  const fixture = await createFixture();
+  const uploaded = await uploadDocumentInternal(
+    uploadInput(fixture.client.id),
+    fixture.administrator,
+    { storage: fixture.storage, scanner: cleanScanner },
+  );
+  return {
+    fixture,
+    input: {
+      clientId: fixture.client.id,
+      documentId: uploaded.documentId,
+      versionId: uploaded.versionId,
+    },
+  };
+}
+
+describe("Document download transaction failure containment", () => {
+  it.each([
+    ["intent", 1, "INTENT"],
+    ["successful outcome", 2, "OUTCOME"],
+  ] as const)(
+    "releases no payload and closes the handle when %s audit persistence fails",
+    async (_stage, transactionCall, failingAuditWrite) => {
+      const { fixture, input } = await createDownloadFixture();
+      const closeCount = trackNextDownloadHandle(fixture.storage);
+      const interception = interceptInteractiveTransaction({
+        callNumber: transactionCall,
+        failingAuditWrite,
+      });
+      let released = false;
+
+      await expect(
+        authoriseDocumentDownloadInternal(
+          input,
+          fixture.administrator,
+          fixture.storage,
+        ).then((download) => {
+          released = true;
+          return download;
+        }),
+      ).rejects.toMatchObject({ code: "INCONSISTENT_RESULT" });
+
+      expect(released).toBe(false);
+      expect(closeCount()).toBe(1);
+      expect(
+        await downloadOutcomeCount(fixture.organisationId, "SUCCEEDED"),
+      ).toBe(0);
+      expect(await downloadOutcomeCount(fixture.organisationId, "FAILED")).toBe(
+        0,
+      );
+      expect(
+        await prisma.auditOperation.count({
+          where: {
+            organisationId: fixture.organisationId,
+            action: "DOCUMENT_DOWNLOAD_AUTHORISED",
+          },
+        }),
+      ).toBe(failingAuditWrite === "INTENT" ? 0 : 1);
+      expect(interception.getAuditWriteCall()?.[0]).toMatchObject(
+        failingAuditWrite === "INTENT"
+          ? {
+              data: {
+                action: "DOCUMENT_DOWNLOAD_AUTHORISED",
+                targetId: input.versionId,
+              },
+            }
+          : {
+              data: {
+                type: "OUTCOME",
+                result: "SUCCEEDED",
+                resolvedTargetId: input.versionId,
+              },
+            },
+      );
+    },
+  );
+
+  it("releases no payload or contradictory FAILED outcome after commit acknowledgement loss", async () => {
+    const { fixture, input } = await createDownloadFixture();
+    const closeCount = trackNextDownloadHandle(fixture.storage);
+    interceptInteractiveTransaction({ callNumber: 2, failAfterCommit: true });
+    const failedOutcomeAttempt = vi.spyOn(audit, "recordFailedAuditOutcome");
+    let released = false;
+
+    await expect(
+      authoriseDocumentDownloadInternal(
+        input,
+        fixture.administrator,
+        fixture.storage,
+      ).then((download) => {
+        released = true;
+        return download;
+      }),
+    ).rejects.toMatchObject({ code: "INCONSISTENT_RESULT" });
+
+    expect(released).toBe(false);
+    expect(closeCount()).toBe(1);
+    expect(
+      await downloadOutcomeCount(fixture.organisationId, "SUCCEEDED"),
+    ).toBe(1);
+    expect(await downloadOutcomeCount(fixture.organisationId, "FAILED")).toBe(
+      0,
+    );
+    expect(failedOutcomeAttempt).not.toHaveBeenCalled();
+  });
+
+  it("closes the handle when a definitive denial audit cannot persist", async () => {
+    const { fixture, input } = await createDownloadFixture();
+    const open = fixture.storage.open.bind(fixture.storage);
+    let closeCount = 0;
+    let revoked = false;
+    vi.spyOn(fixture.storage, "open").mockImplementationOnce(async (key) => {
+      const handle = await open(key);
+      return {
+        size: handle.size,
+        close: async () => {
+          closeCount += 1;
+          await handle.close();
+        },
+        createReadStream: () =>
+          Readable.from(
+            (async function* () {
+              for await (const chunk of handle.createReadStream()) {
+                if (!revoked) {
+                  revoked = true;
+                  await prisma.user.update({
+                    where: { id: fixture.administrator.userId },
+                    data: { banned: true },
+                  });
+                }
+                yield chunk;
+              }
+            })(),
+          ),
+      };
+    });
+    const failedAuditWrite = vi
+      .spyOn(prisma.auditEvent, "create")
+      .mockRejectedValueOnce(
+        new Error("Fictional injected failed-outcome persistence failure"),
+      );
+    let released = false;
+
+    await expect(
+      authoriseDocumentDownloadInternal(
+        input,
+        fixture.administrator,
+        fixture.storage,
+      ).then((download) => {
+        released = true;
+        return download;
+      }),
+    ).rejects.toMatchObject({ code: "INCONSISTENT_RESULT" });
+
+    expect(revoked).toBe(true);
+    expect(released).toBe(false);
+    expect(closeCount).toBe(1);
+    expect(
+      await downloadOutcomeCount(fixture.organisationId, "SUCCEEDED"),
+    ).toBe(0);
+    expect(await downloadOutcomeCount(fixture.organisationId, "FAILED")).toBe(
+      0,
+    );
+    expect(
+      await prisma.auditOperation.count({
+        where: {
+          organisationId: fixture.organisationId,
+          action: "DOCUMENT_DOWNLOAD_AUTHORISED",
+        },
+      }),
+    ).toBe(1);
+    expect(failedAuditWrite).toHaveBeenCalledOnce();
+    expect(failedAuditWrite.mock.calls[0]?.[0]).toMatchObject({
+      data: {
+        type: "OUTCOME",
+        result: "FAILED",
+        resolvedTargetId: input.versionId,
+      },
+    });
+  });
+
+  it.each([
+    ["audit intent", 1],
+    ["authorization transaction", 2],
+  ] as const)(
+    "does not release a payload while the %s is pending",
+    async (_stage, transactionCall) => {
+      const { fixture, input } = await createDownloadFixture();
+      const closeCount = trackNextDownloadHandle(fixture.storage);
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      interceptInteractiveTransaction({
+        callNumber: transactionCall,
+        beforeTransaction: async () => {
+          entered.resolve();
+          await release.promise;
+        },
+      });
+      let state: "PENDING" | "FULFILLED" | "REJECTED" = "PENDING";
+      const result = authoriseDocumentDownloadInternal(
+        input,
+        fixture.administrator,
+        fixture.storage,
+      ).then(
+        (download) => {
+          state = "FULFILLED";
+          return download;
+        },
+        (error: unknown) => {
+          state = "REJECTED";
+          throw error;
+        },
+      );
+
+      let download: Awaited<typeof result> | undefined;
+      try {
+        await entered.promise;
+        await Promise.resolve();
+        expect(state).toBe("PENDING");
+        expect(closeCount()).toBe(0);
+        expect(
+          await prisma.auditOperation.count({
+            where: {
+              organisationId: fixture.organisationId,
+              action: "DOCUMENT_DOWNLOAD_AUTHORISED",
+            },
+          }),
+        ).toBe(transactionCall === 1 ? 0 : 1);
+        expect(
+          await downloadOutcomeCount(fixture.organisationId, "SUCCEEDED"),
+        ).toBe(0);
+
+        release.resolve();
+        download = await result;
+        expect(state).toBe("FULFILLED");
+        expect(closeCount()).toBe(0);
+        expect(
+          await downloadOutcomeCount(fixture.organisationId, "SUCCEEDED"),
+        ).toBe(1);
+      } finally {
+        release.resolve();
+        const completed = download ?? (await result.catch(() => undefined));
+        await completed?.handle.close();
+      }
+      expect(closeCount()).toBe(1);
+    },
+  );
+});
+
+describe("Document download commit acknowledgement release", () => {
+  it("does not release a payload while committed authorization awaits acknowledgement", async () => {
+    const { fixture, input } = await createDownloadFixture();
+    const closeCount = trackNextDownloadHandle(fixture.storage);
+    const committed = Promise.withResolvers<void>();
+    const acknowledge = Promise.withResolvers<void>();
+    interceptInteractiveTransaction({
+      callNumber: 2,
+      afterCommit: async () => {
+        committed.resolve();
+        await acknowledge.promise;
+      },
+    });
+    let state: "PENDING" | "FULFILLED" | "REJECTED" = "PENDING";
+    const result = authoriseDocumentDownloadInternal(
+      input,
+      fixture.administrator,
+      fixture.storage,
+    ).then(
+      (download) => {
+        state = "FULFILLED";
+        return download;
+      },
+      (error: unknown) => {
+        state = "REJECTED";
+        throw error;
+      },
+    );
+
+    let download: Awaited<typeof result> | undefined;
+    try {
+      await committed.promise;
+      await Promise.resolve();
+      expect(state).toBe("PENDING");
+      expect(closeCount()).toBe(0);
+      expect(
+        await downloadOutcomeCount(fixture.organisationId, "SUCCEEDED"),
+      ).toBe(1);
+      expect(await downloadOutcomeCount(fixture.organisationId, "FAILED")).toBe(
+        0,
+      );
+
+      acknowledge.resolve();
+      download = await result;
+      expect(state).toBe("FULFILLED");
+      expect(closeCount()).toBe(0);
+    } finally {
+      acknowledge.resolve();
+      const completed = download ?? (await result.catch(() => undefined));
+      await completed?.handle.close();
+    }
+    expect(closeCount()).toBe(1);
+  });
+});
 
 async function waitForClientMutationLockWaiter(clientId: string) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
