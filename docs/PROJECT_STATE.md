@@ -13,7 +13,7 @@ operational assumptions.
 ## Active integration execution — 5 September 2026
 
 The owner accepted source-of-truth reconciliation and authorized ticketed
-development. The active local candidate is
+development. The active unified candidate is
 `codex/unified-candidate-20260905`, starting at Astra
 `27df04ef18d397e1693dad747df803e2604ed748`, a direct descendant of
 PR #44's `82bf2987189a029516b7e6221f600af931827522`.
@@ -29,6 +29,27 @@ Fresh dependency audit still fails under the unchanged policy; supported
 upstream remediation remains a release blocker, not a ban on controlled
 development. No live deployment or infrastructure change is authorized by
 this execution phase.
+
+## Unified validation checkpoint — 5 September 2026
+
+Draft [PR #46](https://github.com/EERON36/kaul/pull/46) is the designated
+integration candidate. Exact source dc29c03023cc2d138d3a71702cd4021230ca5361
+passed [GitHub run 33952908177](https://github.com/EERON36/kaul/actions/runs/33952908177):
+628 unit tests, 215 PostgreSQL integration tests, all 44 browser tests,
+formatting/lint/typecheck/build, migration rehearsals and the three operational
+CI rehearsal jobs. The original Documents upload failure was measured as stale
+scanner signatures and resolved by CI-only refresh plus real adapter readiness
+under the unchanged 24-hour rule; the same fix also passes all 44 browsers on
+the original diagnostic baseline. [Exact investigation](integration/2026-09-05/CI_UPLOAD_INVESTIGATION.md).
+
+Overall CI remains FAILURE because the mandatory audit ran and rejected the
+same upstream deepmerge-ts/mysql2 advisories. No audit, dependency, schema or
+migration change was made in this execution phase. These GitHub results do
+not replace manual accessibility, full Windows harness, local Docker recovery,
+live-host, attended key/conversion or production restore evidence. Main and
+Pilot remain unchanged, and no live deployment occurred. Later handoff commits
+are documentation only; the board distinguishes the tested source from the
+current branch tip.
 
 ## Repository baseline
 

@@ -66,3 +66,34 @@ Success returns only normalized fields from the caller's own accepted submission
 Worker evidence: 32 focused tests, formatting, lint and typecheck passed. After integration, Main Astra ran all 68 affected Client/report UI/action unit tests and typecheck successfully. The enhanced browser assertions cover failed-save value preservation, dirty cancel reject/accept, guarded navigation, reverting to clean, focus return, save/re-edit and consecutive saves; real browser execution is still pending.
 
 Reviewed hashes: editor B86B51F7B3F6C2BAB5B2CA83805E0658F2EB3DFA9BCEC18404C12B5C1359A687; Client actions 98AB9B913D900CF394005FEB1797CAC435C9E62FD219596A9ABBB682A7415DAA; Client E2E E75EA6F3A5D5F4B634F7177F557DC13A1363FE12F20E5BC718781F05D2511616. The reviewer ran diff check and inspected tests; it did not run runtime suites.
+## KAUL-205 signature freshness fix
+
+Worker commit 3ce63cc8563d294958564963c133a11aa65fd21b was accepted by Main Astra and the independent critical reviewer, then integrated as dc29c03023cc2d138d3a71702cd4021230ca5361. The identical fix was applied to the original diagnostic baseline as 0e413522cf6383a6f9d4e8d96d0fdf480f81abe5. Only the CI workflow, a small readiness CLI/helper and its tests changed; the large one-off service probe remains outside the unified candidate.
+
+Review result: ACCEPT for real CI validation, no blocking finding. The workflow validates GitHub's trusted service-container ID, disables the competing background updater, and performs one bounded explicit refresh with only fixed labels and numeric exit statuses. Readiness requires CI/test/ci-target/loopback guards and the production adapter's genuine CLEAN result under the unchanged 24-hour policy. It accepts no alternate health signal or relaxed signature age.
+
+Worker checks passed: 14 focused tests including all eight existing scanner regressions, lint, typecheck, formatting and diff check. A separate final-candidate Astra context also inspected the four-file extension and independently executed 11 injected in-memory guard/outcome/retry cases successfully. These checks do not themselves prove real refresh/reload/upload behavior.
+
+Reviewed SHA-256 hashes:
+
+- .github/workflows/validate.yml: 6AB7F9F07500DC1EE150B7832619D863FB0ECAB5350A90AF1AACAC2CDB28F878
+- scripts/document-scanner-ci-readiness.ts: CCAC94101C46FF7A3E17258CB2BC4B1C0A20C49079BB306FFB3D26F495E4AAEE
+- src/test/document-scanner-ci-readiness.ts: 0FC8E9C2AD1420EB236593C1B78E57D4021DB18CF41A189E8E16A419F3FC9A54
+- src/test/document-scanner-ci-readiness.test.ts: E7DEFF2438B4334738BC1FC92DB02505FC936798C24CD2444F365600C0E75C2F
+
+Limit: host timeout bounds the Docker client, while failed-job ephemeral service teardown provides final containment of a possibly surviving container-side updater. There is no refresh retry, live service operation or production policy change. Paired GitHub runs 33952908177 and 33952919474 are the runtime validation gate.
+
+## Combined candidate review checkpoint
+
+A separate fresh Astra context reviewed the combined changes from PR #44 at 82bf298 through source ab933fe, with documentation at 734fa0b, then the exact readiness extension above. This reviewer did not plan, implement, coordinate or integrate those changes. No blocking source finding was found across authorization, Client/report/download rules, privacy, encryption, additive migrations, scanner/storage boundaries, UI changes and ancestry. It also ran 31 in-memory diagnostic/path cases and diff checks successfully before the 11 readiness cases.
+
+Final acceptance remains provisional until the exact integrated source and paired CI results are assessed. Runtime suites remain separate evidence; manual assistive-technology, live operational and production restore/key-custody gates are not covered by this review.
+## Final combined acceptance
+
+The fresh final Astra context independently verified exact source dc29c03023cc2d138d3a71702cd4021230ca5361, the four readiness hashes, Product/Documents/Astra/PR #44 ancestry, unchanged dependencies/schema/migrations and complete diff checks. It independently read the completed unified run 33952908177 (628 unit, 215 PostgreSQL, 44 browser passes) and paired baseline run 33952919474 (598 unit, 197 PostgreSQL, 44 browser passes), including actual refresh/readiness, migration/static/build and three operational rehearsal successes. It confirmed the same four-file fix is the sole delta after the diagnostic STALE/503 checkpoint and verified matching patch identities.
+
+Verdict: ACCEPT the combined development candidate at dc29c03; no new blocking source defect found. Main Astra assessed and accepted this verdict. KAUL-208 is closed. Earlier provisional statements in this report describe their dated review stage and are superseded by this exact-source acceptance. Both enhanced Client workflows and real Documents uploads now have passing GitHub browser evidence.
+
+Both completed CI runs failed only at the unchanged mandatory dependency audit, including deepmerge-ts/mysql2 advisories and Prisma/config aggregate package entries. This remains a merge/release gate; no bypass or release readiness is claimed. The review covers authorization, signed-record integrity, Personnummer privacy/encryption, Documents authorization/audit/storage/scanning, ambiguous failures, migration retention, Client save/cancel behavior and evidence claims.
+
+Limits remain: manual assistive-technology acceptance, live operations, retained-key/production restore proof, local Docker availability and broader Windows operator-harness reliability. The new download ambiguity branch lacks a direct fault-injection regression; source fail-closed review is not claimed as that runtime proof. Owned test storage does not defend against a hostile same-user filesystem race. No reviewer or lead approval here authorizes merge, deployment, release, sensitive-data use or cleanup. Final handoff edits after dc29c03 are documentation only.

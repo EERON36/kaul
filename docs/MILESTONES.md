@@ -1278,6 +1278,22 @@ The approved Monthly Report and Documents tracks do not remove any
 credential-delivery, account-recovery, legal, operational, backup, security, or
 production-readiness gate.
 
+### Unified repository candidate — 5 September 2026
+
+The designated unmerged candidate is Draft PR #46, branch
+`codex/unified-candidate-20260905`. Exact source `dc29c03` passed GitHub
+migration rehearsals, 628 unit tests, 215 PostgreSQL tests and all 44 browser
+tests, including real-scanner Documents upload. The CI-only scanner readiness
+fix preserves the existing freshness and quarantine policies. Critical source
+reviews and exact evidence are recorded in the
+[execution board](integration/2026-09-05/BOARD.md).
+
+This checkpoint does not complete Milestone 5, Pilot Readiness or activation.
+Overall CI remains red because the unchanged mandatory audit fails on the
+upstream dependency findings. Attended conversion/key custody, live operating
+configuration, restore and stakeholder gates remain as stated above. Main and
+Pilot were not merged or deployed.
+
 ---
 
 # Scope Decision Rule

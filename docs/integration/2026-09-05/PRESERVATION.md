@@ -31,8 +31,8 @@ timeout proposal remains preserved in its isolated worktree and is not
 accepted into the candidate. Full Windows shell-harness reliability remains
 unproven.
 
-The next diagnostic `09b33d0` belongs only to the original PR #45 diagnostic
-baseline branch. It is not an ancestor of the active candidate and remains a
+The one-off diagnostic `09b33d0` and correction `0e62b6b` belong only to the original PR #45 diagnostic
+baseline branch. Neither is an ancestor of the active candidate; they remain a
 separately preserved investigation; it must not be treated as integrated candidate
 work.
 
@@ -77,3 +77,13 @@ unpreserved work, and explicit per-target cleanup authorization exists.
 This document does not declare release readiness, deployment readiness, or
 approval of any later cleanup. It is the preservation handoff for future
 cleanup preflight.
+
+## Final readiness provenance
+
+The minimal CI readiness fix `3ce63cc` is integrated as `dc29c03` in PR #46
+and independently applied as `0e41352` to PR #45 for paired before-and-after
+proof. Both runs pass all 44 browsers; the unified branch contains neither
+large one-off service-probe commit. There is no unresolved diagnostic-branch
+dependency. The final source is preserved remotely in PR #46; subsequent
+handoff changes only update documentation. Existing worker branches and
+historical worktrees remain retained.

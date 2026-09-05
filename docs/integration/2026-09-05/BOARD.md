@@ -1,89 +1,71 @@
-# Unified candidate execution board
+# Unified Kaul candidate — execution board
 
-Accepted reconciliation: 5 September 2026. This board tracks Phase 2 execution.
-[Full ticket definitions and preservation inventory](RECONCILIATION.md) remain the starting scope.
+Updated: 5 September 2026. This is the active source of truth for the accepted reconciliation work. Historical reports retain their original dates and evidence.
 
 ## Active candidate
 
-- Branch: codex/unified-candidate-20260905.
-- Worktree: C:/Projects/kaul/.codex-worktrees/unified-candidate-20260905.
-- Starting commit: 27df04ef18d397e1693dad747df803e2604ed748, a direct descendant of PR #44 at 82bf2987189a029516b7e6221f600af931827522.
-- Protected main and Pilot branches remain unchanged. Existing worktrees and ignored evidence stay preserved.
-- The owner authorized ordinary development, commits, development-branch pushes for CI and internal integration. Live deployment, secrets/key custody, protected-branch merges and destructive cleanup remain outside execution.
+- Draft [PR #46](https://github.com/EERON36/kaul/pull/46), branch `codex/unified-candidate-20260905`.
+- Worktree: `C:/Projects/kaul/.codex-worktrees/unified-candidate-20260905`.
+- Validated source: `dc29c03023cc2d138d3a71702cd4021230ca5361`. Subsequent handoff changes are documentation only; resolve the branch tip for its current documentation SHA.
+- Exact-source [GitHub run 33952908177](https://github.com/EERON36/kaul/actions/runs/33952908177): all application, migration, browser and operational rehearsal stages pass. Overall CI remains FAILURE because the mandatory dependency audit fails.
+- Direct ancestry retains Product `406aa755b74c8908b360c64ffe3b9f7bb5c3630f`, Documents `d22fe0b59a8708febdc89daa7cdf8516cc8f9c15`, PR #44 `82bf2987189a029516b7e6221f600af931827522` and Astra `27df04ef18d397e1693dad747df803e2604ed748`.
 
-## Current tickets
+This is a repository integration candidate, not Pilot or production approval. Main, Pilot and existing PRs #41/#43/#44 remain unmerged and unchanged. No live infrastructure, production keys or live data were accessed.
 
-- KAUL-201 CLOSED — reconciliation accepted by owner; 25 original registered worktrees and 20 distinct local-branch commits absent from remote heads were verified.
-- KAUL-202 INTEGRATED — retained report access/direct-replacement changes accepted by independent Astra and lead; fresh 215-test PostgreSQL suite passed. Final combined validation pending.
-- KAUL-203 INTEGRATED — retained Documents read/download authorization accepted by independent Astra and lead; fresh PostgreSQL evidence passed. Final combined validation pending.
-- KAUL-204 INTEGRATED — owned test storage accepted by independent Astra and lead; unit evidence passed. Combined browser evidence remains pending.
-- KAUL-205 IN PROGRESS — Sol: diagnostic-only reproduction from exact PR #44 baseline in kaul-205-upload-diagnostics. Capture only allowlisted upload status/code, not arbitrary payloads/secrets. Diagnose before changing runtime.
-- KAUL-206 IN PROGRESS — Astra: durable execution board and evidence correction; historical reports remain dated snapshots.
-- KAUL-207 REVIEW / DEFERRED — Luna measured Windows fixture overhead; incomplete timeout proposal rejected for integration and preserved in its isolated worktree. No assertion or global timeout weakening in candidate; see findings below.
-- KAUL-208 BLOCKED — combined candidate freeze, validation and fresh separate Astra Red-Team depend on scoped work.
-- KAUL-209 BLOCKED — supported upstream audit remediation. WAIT FOR UPSTREAM; no suppression/override/downgrade/prerelease. Development continues.
-- KAUL-210 INTEGRATED — Terra a08ff2d, Astra-reviewed and integrated as 2d3c0a8: stored historical signer title/role with truthful Swedish fallback; focused unit and static checks passed.
-- KAUL-211 CLOSED — d5d8339 + ab933fe accepted by Main Astra and independent Astra; 68 affected local units/typecheck pass, and enhanced real GitHub browser cases pass at 734fa0b/run 33951288543.
-- KAUL-212 INTEGRATED — c8aeb0b accepted by Main Astra and independent Astra; integrated as 5b05c2d. Eight scanner tests passed; final real-scanner CI pending, no claim of KAUL-205 causality.
-- KAUL-213 CLOSED (classification) — exact preservation/provenance disposition reviewed in PRESERVATION.md. Physical cleanup is deferred to verified per-target gates; no deletion performed.
-- KAUL-214 BACKLOG — owner-attended operations, outside this development phase.
+## Ticket disposition
 
-## Verification resources and boundaries
+- KAUL-201 CLOSED — accepted reconciliation; original 25 worktrees and 20 local-only commits accounted for.
+- KAUL-202 CLOSED — retained report access and direct-child replacement retry; independent Astra acceptance and exact-candidate PostgreSQL/browser validation.
+- KAUL-203 CLOSED — retained Documents read/download authorization and lock/audit boundaries; independent Astra acceptance and exact-candidate validation.
+- KAUL-204 CLOSED — owned test storage and safe retry lifecycle retained, reviewed and validated; ambient-root deletion was not restored.
+- KAUL-205 CLOSED — stale ClamAV signatures root-caused on GitHub; bounded CI refresh and real adapter readiness resolve the upload on both original baseline and unified candidate. See the [causal evidence](CI_UPLOAD_INVESTIGATION.md).
+- KAUL-206 CLOSED — current source-of-truth, review and CI handoff recorded; historical evidence remains dated and retained report feedback is validated.
+- KAUL-207 PARTIAL / DEFERRED — cross-drive/LF fixes accepted; measured single Windows Git-fixture allowance passes all 13 cases. Broader incomplete operator timeout proposal rejected and preserved. Full Windows shell-harness reliability is unproven.
+- KAUL-208 CLOSED — exact combined CI and fresh separate Astra final acceptance complete at dc29c03. Main Astra accepts the development candidate; audit remains a distinct merge/release blocker.
+- KAUL-209 BLOCKED — WAIT FOR UPSTREAM. Strict audit rejects supported pinned Prisma/deepmerge-ts/mysql2 findings; no suppression, override, downgrade or prerelease.
+- KAUL-210 CLOSED — historical signer title/role snapshot with truthful Swedish fallback; worker, lead and independent review accepted, full candidate validation passed.
+- KAUL-211 CLOSED — controlled Client edits preserve failed saves, guard dirty navigation/cancel and handle consecutive saves; review corrections resolved and enhanced real browser cases pass.
+- KAUL-212 CLOSED — settled scanner connection timer cleared without weakening socket/freshness/error handling; eight focused scanner tests and real scanner CI pass. This timer was not the upload root cause.
+- KAUL-213 CLOSED (classification) — [preservation disposition](PRESERVATION.md) accounts for original local-only work and worker derivatives; no physical cleanup performed.
+- KAUL-214 BACKLOG — owner-attended activation/operations; outside this repository execution phase.
+- KAUL-215 BLOCKED (local environment) — Docker Desktop API became unavailable during local E2E. Preserve the failed run and task resources; no restart or shared-service mutation. Independent GitHub runtime evidence passes.
 
-Lead owns serial PostgreSQL/browser execution. The normal local kaul database is separate and untouched.
-The explicitly named disposable task is unified_0905, port 3119; repository guards validate its derived database before creation/migration. Existing task databases are not reused or deleted.
-Only the locally verified Docker Desktop engine and loopback services are used; no homelab access.
-All credentials and data used for tests are fictional. No .env was opened or modified.
+## Exact-candidate validation
 
-## Evidence checkpoints
+Run 33952908177 at dc29c03 passed:
 
-- Phase 1: PR #44 GitHub run 33919394787, attempts 1/2: 570 units and 197 PostgreSQL pass; 43/44 browsers; audit skipped after failure.
-- Astra source 90f1eb3 retained logs: 601 units, 215 PostgreSQL, 44 browsers locally. These do not prove GitHub's upload issue fixed.
-- Fresh Phase 1 checks: 24 report/storage units plus 12 pure snapshot path cases pass. Strict audit exits 1 on four High package entries.
-- Phase 2 source 27df04e plus documentation: exact locked npm ci, Prisma generation, guarded database create and all ten migrations passed. Fresh PostgreSQL: 215/215 tests in 19 files. Formatting, lint (three existing warnings), typecheck and production build passed. No audit policy or lockfile changes.
+- 628 unit tests in 75 files; 215 PostgreSQL integration tests in 19 files; 44 browser tests, including Documents and both enhanced Client-edit workflows.
+- Locked install, Prisma generation, all ten migrations, legacy structured-record migration rehearsal and Personnummer conversion rehearsal.
+- Formatting, lint, strict TypeScript and production build.
+- Explicit signature refresh and genuine ClamAvDocumentScanner readiness under the unchanged 24-hour policy.
+- Firewall, private ingress and append-only combined backup/exact-restore CI rehearsals.
 
-## Integration rules
+Audit ran and FAILED on High GHSA-ggr8-5vv4-36mx (deepmerge-ts) and GHSA-3f6p-5ww8-9rcr (mysql2); mysql2 also reports Moderate GHSA-rgwj-5xj2-c3m3. The four High package entries include Prisma/config aggregates. No dependency, lockfile, schema, migration or audit-policy change was introduced by this execution phase.
 
-Each worker self-checks and commits a bounded slice. Astra reviews the exact diff and evidence before incorporation. Security-sensitive work receives a fresh independent Astra Red-Team, with fixes/rejections supported by evidence. Review can group related exact commits without claiming inherited approval.
+## Documents before-and-after proof
 
-No candidate is release-ready while the mandatory audit or operational gates remain open. A failed audit remains visible even when all other validation succeeds.
+Original diagnostic source 0e62b6b, run 33951865295: stale signature classification, actual adapter rejection, initial upload 503 with storage directories present, 43 other browser cases passed. The single CI fix was applied as 0e41352, run 33952919474: successful explicit refresh, real adapter readiness and 44/44 browser passes, plus 598 unit and 197 PostgreSQL passes. Only audit failed.
 
-## Runtime availability finding — KAUL-215
+Unified source dc29c03 independently passed the same real upload within its full 44-browser suite. The large diagnostic probe stays on PR #45 and is not a candidate dependency. The small allowlisted failure diagnostic remains available for future failures. [Full investigation](CI_UPLOAD_INVESTIGATION.md).
 
-IN PROGRESS / ENVIRONMENT: During the fresh full local Playwright attempt, Docker Desktop became unavailable. The browser run used the repository default of six local workers and ended with 11 failures, 29 not run and four passes; Documents failed at login before upload. Afterwards loopback PostgreSQL port 5432 was not listening and the already-verified local Docker Desktop API returned HTTP 500 for container inspect/version. The cause of the Docker failure is not established and is not attributed to the application or worker count.
+## Review and preservation
 
-No engine restart, shared-service stop, database deletion or homelab access was performed. The guarded kaul_test_unified_0905 database and owned temporary storage root remain preserved. A retry needs healthy local services and a newly validated disposable task, run serially. GitHub validation can continue independently. This attempt is a failed environment validation, not passing browser evidence and not reproduction of KAUL-205's upload-stage failure.
+Worker self-checks, Main Astra acceptance and fresh independent critical reviews precede integration. The separate combined-candidate Astra review covers the retained security work, conflict resolution, Client lifecycle and final CI fix. Findings and corrections are recorded in [RED_TEAM.md](RED_TEAM.md).
 
-## Independent diagnostic review
+The original 20 local-only commits are classified as eight retained Astra commits and twelve patch-equivalent alternatives. No duplicates were replayed. Historical dirty work, unique concepts, safety refs and ignored evidence remain preserved. New worker-to-candidate commit provenance is in [PRESERVATION.md](PRESERVATION.md).
 
-Fresh Astra Red-Team accepted the four-file KAUL-205 diagnostic-only diff for publication: strict public-code/status output, exact artifact glob, original assertions retained. Seventeen adversarial in-memory sanitizer checks passed independently. A nonblocking diagnostic filesystem-error robustness finding was sent to Sol for correction before publication. This acceptance does not establish the upload failure cause or approve the final combined candidate.
+Protected refs verified unchanged: remote/local main a93c863cd906b3e25157c1d04a3529fb2ed7db67; remote Pilot a631d8e66f4a039553eafdf86254acd04144b140; local Pilot d20e45369e5a0ebb768d9a791c7ee47607cfdb32.
 
-KAUL-205 diagnostic publication: de079f5180167d987896866c5d54a0de11dff582, Draft PR #45, run 33949791534. P3 review correction accepted. Actual GitHub investigation continues. See [independent review evidence](RED_TEAM.md).
+## Local evidence and limits
 
+Lead-created guarded task unified_0905, port 3119, passed test:db:check, new-only database creation, all ten migrations and 215 PostgreSQL tests before Docker Desktop became unavailable. Normal kaul was confirmed separately and untouched. The subsequent local E2E run failed with 11 failures, 29 not run and four passes; Documents failed at login, not upload. Afterwards the verified local engine returned API HTTP 500 and PostgreSQL connectivity failed. Cause is unestablished; this is not application pass evidence or proof of worker-count causality.
 
-KAUL-205 measured checkpoint: run 33949791534 failed with 43/44 browsers; all three initial upload attempts returned 503 / DOCUMENT_SERVICE_UNAVAILABLE. The next bounded diagnostic distinguishes storage from scanning. See [CI upload investigation](CI_UPLOAD_INVESTIGATION.md).
+The disposable database, owned temporary storage and ignored logs remain preserved. No database deletion, reset, Docker restart, compose down or volume cleanup occurred. Any local retry requires healthy services and a newly guarded task. Windows fixtures measured 5.7/9.4 seconds for real Git and 13.1–27.45 seconds for fake-only operator cases; even a diagnostic 30-second allowance failed. Only the measured single Git case received a 15-second Windows allowance; Linux and pure-case defaults remain unchanged.
 
-Fresh Phase 2 audit: exit 1, same four High package entries (Prisma/config aggregates, deepmerge-ts, mysql2) and the known mysql2 Moderate advisory. No bypass or dependency change. KAUL-209 remains WAIT FOR UPSTREAM.
+Focused local regressions, formatting/lint/typecheck/build passed as recorded in the investigation and review documents. GitHub supplies the current complete Linux/runtime validation; it does not establish full Windows reliability, manual assistive-technology acceptance, live host configuration, production restore/key custody or stakeholder approval.
 
-## KAUL-207 Windows evidence and disposition
+## Next gate
 
-Luna's bounded investigation measured detached Git fixtures at 5.7 and 9.4 seconds against a five-second default. Fake-only operator cases completed in 13.1–27.45 seconds; several exceeded existing five/fifteen-second limits. A diagnostic thirty-second allowance also failed, so broad timeout changes are not accepted as a complete fix. The unfinished two-file proposal remains uncommitted and outside the candidate. No running worker test sessions remain. Logs and fixtures stay preserved in that worktree.
+Stop before live deployment. Await supported upstream audit remediation under unchanged policy. Any later transition requires separately authorized owner-attended activation, retained-key restore/conversion proof, persistent Documents/scanner configuration and operational/stakeholder acceptance. Physical cleanup is a separate verified per-target task.
 
-Both worker inspection and Main Astra source inspection confirm that operator tests prepend their fixture bin directory containing docker/restic/id stubs; the script resolves docker through that path. No real Docker invocation or service mutation was reported by the worker. The Windows delay is not established as the cause of Docker Desktop's separate failure.
-
-The existing reviewed path-containment/LF fixes remain in the candidate. Full Windows harness reliability remains an explicit evidence gap; Linux GitHub harness execution passes on the original diagnostic baseline. No test skip or global allowance was added to conceal the Windows failure.
-## Published candidate and combined review
-
-Draft PR #46 now designates codex/unified-candidate-20260905. Its first exact-head run 33950802108 tests 13fced974c863921a44fb1cd027925c4fabddf88. Later Client-edit integration ab933fe requires its own GitHub run. A new independent Astra context is reviewing the combined source, separate from planning, implementation and coordination.
-
-KAUL-207 partial accepted fix: 13fced9 gives only the single real-Git Windows snapshot fixture a measured fifteen-second limit; pure path cases and Linux defaults remain unchanged. All thirteen cases passed in 6.18 seconds, with formatting/lint/diff checks passing. The broader unfinished operator timeout proposal remains rejected and preserved outside the candidate; Windows shell-harness reliability is still an explicit limitation.
-
-Integrated regression checkpoint before Client-edit: 101 focused scanner/diagnostic/owned-storage/Client/report tests passed. After Client-edit integration: 68 affected UI/action tests and strict typecheck passed. These focused results do not replace full candidate CI.
-
-Latest local source checkpoint 734fa0b: full formatting and lint passed (three existing warnings); production build including TypeScript passed. Candidate worktree generated AGENTS addition was backed up byte-for-byte and only that task-generated change restored. No historical worktree was altered.
-
-
-CI service probe 33951215750 isolated signature acceptance after successful storage/connection/raw-stream checks; timestamp reason remains pending run 33951865295. Its E2E collector import regression was corrected and independently reviewed on diagnostic-only branch. Active candidate did not import that probe.
-
-
-KAUL-205 root-cause checkpoint: corrected run 33951865295 explicitly classified STALE signatures while storage/raw scan worked and the actual adapter rejected them. Sol is implementing the separately reviewed minimal CI update/readiness gate; paired real upload validation remains mandatory before closure.
+[Accepted Phase 1 report and original ticket definitions](RECONCILIATION.md) remain preserved; this board supersedes their dated execution statuses.

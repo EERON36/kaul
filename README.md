@@ -10,7 +10,7 @@ reliable historical records.
 
 ## Current status
 
-The active local development candidate and exact validation gates are tracked
+The active unified development candidate and exact validation gates are tracked
 in the [unified integration board](docs/integration/2026-09-05/BOARD.md).
 
 The completed Milestones 0–4 baseline on `main` provides:
@@ -43,9 +43,11 @@ The separate, unmerged product integration candidate adds the approved tracks:
 
 These implementations do not mark Milestone 5 complete or approve activation.
 **Homelab Pilot Readiness** remains an open release track, alongside product
-validation. The dependency audit, combined migration and browser evidence,
-Personnummer conversion and restore gates, Documents operating requirements,
-and stakeholder acceptance remain unresolved. **Production / Cloud Launch
+validation. The unified candidate has passing GitHub migration rehearsals and
+all 44 browser tests, including Documents; see the board for exact-source
+evidence. The dependency audit, attended Personnummer conversion and restore
+gates, Documents operating requirements, and stakeholder acceptance remain
+unresolved. **Production / Cloud Launch
 Readiness** is a separate later decision. Global search, exports,
 notifications, and other unapproved features remain deferred. Kaul is not
 Pilot-ready or production-ready.
