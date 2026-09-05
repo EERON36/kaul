@@ -84,6 +84,15 @@ jobs:
             bash -c 'cd "$1" && exec scripts/pilot-backup-rehearsal.sh' \
             bash "$KAUL_CI_OPERATOR_WORKSPACE"
 
+      - name: Rehearse full-schema Documents backup and authorised restore
+        run: |
+          sudo --user "$KAUL_CI_OPERATOR" -- \
+            env PATH="/usr/local/kaul-backup-tools:$PATH" \
+            CI=true GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            GITHUB_SHA="$GITHUB_SHA" \
+            bash -c 'cd "$1" && exec bash scripts/pilot-documents-backup-rehearsal.sh' \
+            bash "$KAUL_CI_OPERATOR_WORKSPACE"
+
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
