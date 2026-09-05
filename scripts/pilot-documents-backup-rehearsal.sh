@@ -60,11 +60,19 @@ RESTIC_EXPECTED_VERSION=0.19.1
 RESTIC_REPOSITORY=$RESTIC_REPOSITORY
 RESTIC_PASSWORD_FILE=$RESTIC_PASSWORD_FILE
 EOF
+# Pilot's internal-only network does not publish host ports. Add a bridge only
+# for this CI PostgreSQL fixture; the original private network remains attached.
 cat > "$WORK_DIRECTORY/ports.yaml" <<'EOF'
 services:
   postgres:
+    networks:
+      - private
+      - ci-host-access
     ports:
       - "127.0.0.1::5432"
+networks:
+  ci-host-access:
+    internal: false
 EOF
 # Only isolated PostgreSQL starts. No application image is pulled or run.
 compose up -d --wait --wait-timeout 120 postgres
@@ -92,8 +100,14 @@ sed -i 's/kaul_documents_bootstrap/kaul_test_ci_backup_documents/g' "$KAUL_CI_EN
 cat > "$WORK_DIRECTORY/ports.yaml" <<EOF
 services:
   postgres:
+    networks:
+      - private
+      - ci-host-access
     ports:
       - "127.0.0.1:$postgres_port:5432"
+networks:
+  ci-host-access:
+    internal: false
 EOF
 compose up -d --no-deps --wait --wait-timeout 120 postgres
 [[ $(compose port postgres 5432) = "127.0.0.1:$postgres_port" ]]
