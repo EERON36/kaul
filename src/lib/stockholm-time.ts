@@ -84,6 +84,14 @@ export function formatStockholmCalendarDate(value: Date): string {
   return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}`;
 }
 
+export function getStockholmCalendarMonth(value: Date): Readonly<{
+  year: number;
+  month: number;
+}> {
+  const parts = getStockholmParts(value);
+  return { year: parts.year, month: parts.month };
+}
+
 export function addCalendarDays(value: string, days: number): string {
   const date = parseCalendarDate(value);
   if (!date) throw new Error("Invalid calendar date.");

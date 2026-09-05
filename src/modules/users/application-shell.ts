@@ -7,21 +7,45 @@ export type ApplicationShellContext = Readonly<{
   roleLabel: "Administratör" | "Medarbetare";
 }>;
 
-export type ApplicationNavigationItem = Readonly<{
-  href: "/" | "/klienter" | "/personal";
-  label: "Hem" | "Klienter" | "Personal";
-}>;
+export type ApplicationNavigationPath = "/" | "/klienter" | "/personal";
+
+export type ApplicationNavigationItem =
+  | Readonly<{
+      type: "link";
+      href: "/" | "/personal";
+      label: "Hem" | "Personal";
+    }>
+  | Readonly<{
+      type: "group";
+      label: "Klienter";
+      children: readonly Readonly<{
+        category: "ADULT" | "YOUTH";
+        href: "/klienter" | "/klienter?kategori=ungdomar";
+        label: "Vuxna" | "Ungdomar";
+      }>[];
+    }>;
 
 export function getApplicationNavigation(
   user: ApplicationUser,
 ): readonly ApplicationNavigationItem[] {
   const shared: ApplicationNavigationItem[] = [
-    { href: "/", label: "Hem" },
-    { href: "/klienter", label: "Klienter" },
+    { type: "link", href: "/", label: "Hem" },
+    {
+      type: "group",
+      label: "Klienter",
+      children: [
+        { category: "ADULT", href: "/klienter", label: "Vuxna" },
+        {
+          category: "YOUTH",
+          href: "/klienter?kategori=ungdomar",
+          label: "Ungdomar",
+        },
+      ],
+    },
   ];
 
   return user.role === "ADMINISTRATOR"
-    ? [...shared, { href: "/personal", label: "Personal" }]
+    ? [...shared, { type: "link", href: "/personal", label: "Personal" }]
     : shared;
 }
 

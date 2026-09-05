@@ -241,19 +241,25 @@ events, recurrence, subtasks, or workflow automation.
 
 Responsible for:
 
-- Uploaded files
-- Generated documents
-- Templates
+- Client-scoped Document and immutable DocumentVersion application workflows
+- Bounded streaming upload, format validation, SHA-256, and fail-closed scan
+- Private quarantine and immutable-object promotion through `DocumentStorage`
+- Integrity-checked, server-mediated attachment downloads
 
-Examples:
+The Documents application layer reuses Authentication and Client Management
+for current access and Audit for durable traceability. The storage adapter is
+deliberately narrower: it knows opaque keys and streams only, not users,
+Organisations, Clients, assignments, or audit policy.
 
-- Weekly Reports
-- Socialtjänsten
-- Skatteverket
+The accepted upload sequence is audit intent, quarantine stream, validation,
+scan, promotion, Client lock, access revalidation, metadata plus successful
+audit outcome transaction, then safe response. File storage cannot participate
+in a PostgreSQL transaction, so definitive rollback uses compensation while an
+ambiguous commit preserves the object for reconciliation.
 
-The document system should not know how authentication or client assignment works.
-
-It simply stores and retrieves documents.
+Generated documents, templates, OCR, conversion, indexing, preview, generic
+attachments, and cloud-provider frameworks are outside this slice. ADR 0004
+records the storage, scanner, and backup-set boundary.
 
 ---
 
@@ -275,13 +281,29 @@ Users should never receive search results for clients they cannot access.
 
 Responsible for generating:
 
-- Weekly reports
+- Monthly reports
 - Printable summaries
 - Future statistics
 
-Reports should read from existing data.
+The implemented Monthly Report is a manually authored Client-scoped module
+with one canonical lineage per calendar month. Its shared drafts use optimistic
+versions. Signing atomically records the signer snapshot and audit outcome;
+PostgreSQL protects every signed revision from update, deletion, or silent
+replacement. A correction extends the existing lineage with a directly linked
+signed revision.
 
-They should never duplicate information.
+Automatic synthesis from Journal records remains future work.
+
+The structured-record migration is forward-only and additive: nullable Client
+fields and structured Journal columns are added without rewriting existing
+rows, and legacy Journal content remains explicitly versioned and readable.
+The migration replaces signing constraints and trigger functions in place so
+old and new signed formats retain PostgreSQL-level integrity. Rolling the
+application back after this migration requires an owner-reviewed compatibility
+decision; the safe recovery path is the pre-migration backup plus normal
+forward migration, not destructive column removal. A dedicated disposable
+database rehearsal applies every pre-feature migration, inserts a realistic
+legacy signed row, then applies and verifies the feature migration.
 
 ---
 
@@ -435,9 +457,11 @@ access loss, archived read-only behaviour, terminal states, concurrency,
 keyboard use, narrow screens, and high-text reflow. The foundation and visible
 workflows were squash-merged in #38 and #39.
 
-**Pilot Readiness** is the next project focus. It should prove a repeatable,
-isolated deployment and operational loop with fictional or sanitised data
-before another major feature milestone is selected. Document, report, global
-search, export, and other later modules remain unimplemented and are not pilot
-requirements without validated need. Pilot Readiness is not complete, and Kaul
-is not approved for sensitive production use.
+**Homelab Pilot Readiness** is the next project focus. It should prove a
+repeatable, isolated deployment and operational loop with fictional or
+sanitised data before another major feature milestone is selected. The later
+**Production / Cloud Launch Readiness** gate governs professional hosting and
+live organisational information. Document, report, global search, export, and
+other later modules remain unimplemented and are not Pilot requirements without
+validated need. Homelab Pilot Readiness is not complete, and Kaul is not
+approved for sensitive production use.

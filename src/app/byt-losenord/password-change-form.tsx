@@ -40,7 +40,12 @@ export function PasswordChangeForm({ operationId }: { operationId: string }) {
   }
 
   return (
-    <form aria-describedby="password-policy password-error" onSubmit={submit}>
+    <form
+      action="/byt-losenord"
+      aria-describedby="password-policy password-error"
+      method="post"
+      onSubmit={submit}
+    >
       <div className="form-field">
         <label htmlFor="currentPassword">Nuvarande lösenord</label>
         <input

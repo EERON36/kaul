@@ -50,6 +50,12 @@ const initialDraftState: JournalDraftActionState = {
     eventDate: "2026-08-12",
     eventTime: "08:15",
     content: "Tidigare innehåll.",
+    healthContent: "",
+    educationOccupationContent: "",
+    emotionsBehaviorContent: "",
+    socialRelationsContent: "",
+    dailyLivingIndependenceContent: "",
+    otherContent: "Tidigare innehåll.",
     goalIds: [],
   },
   journalEntryId: entryId,
@@ -66,6 +72,12 @@ function draftForm() {
   form.set("eventDate", "2026-08-12");
   form.set("eventTime", "08:15");
   form.set("content", "Webbläsarens osparade innehåll.");
+  form.set("healthContent", "");
+  form.set("educationOccupationContent", "");
+  form.set("emotionsBehaviorContent", "");
+  form.set("socialRelationsContent", "");
+  form.set("dailyLivingIndependenceContent", "");
+  form.set("otherContent", "Webbläsarens osparade innehåll.");
   form.set("submitIntent", "save");
   form.append("goalIds", goalId);
   return form;
@@ -138,6 +150,12 @@ describe("Journal Server Action safe feedback", () => {
         eventDate: "2026-08-12",
         eventTime: "08:15",
         content: "Webbläsarens osparade innehåll.",
+        healthContent: "",
+        educationOccupationContent: "",
+        emotionsBehaviorContent: "",
+        socialRelationsContent: "",
+        dailyLivingIndependenceContent: "",
+        otherContent: "Webbläsarens osparade innehåll.",
         goalIds: [previouslySavedGoalId],
       },
       journalEntryId: entryId,
@@ -251,6 +269,7 @@ describe("Journal Server Action safe feedback", () => {
       id: entryId,
       entryType: "CONVERSATION",
       eventOccurredAt: new Date("2026-08-12T06:15:00Z"),
+      contentFormat: "LEGACY_NARRATIVE",
       content: "Fiktivt original.",
     });
     mocks.beginJournalCorrection.mockRejectedValueOnce(

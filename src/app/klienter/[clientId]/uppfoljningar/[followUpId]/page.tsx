@@ -162,7 +162,13 @@ export default async function FollowUpDetailPage({
                 className="secondary-button button-link"
                 href={`/klienter/${clientId}/uppfoljningar/${followUp.id}/redigera`}
               >
-                Redigera och byt ansvarig
+                Redigera uppföljning
+              </Link>
+              <Link
+                className="secondary-button button-link"
+                href={`/klienter/${clientId}/uppfoljningar/${followUp.id}/ansvarig`}
+              >
+                Byt ansvarig
               </Link>
               <FollowUpLifecycleControl
                 followUpId={followUp.id}

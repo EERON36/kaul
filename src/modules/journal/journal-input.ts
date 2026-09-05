@@ -2,29 +2,32 @@ import { z } from "zod";
 
 import { auditOperationIdSchema } from "../audit/audit-vocabulary";
 import {
-  JOURNAL_CONTENT_MAX_LENGTH,
-  JOURNAL_ENTRY_TYPE_VALUES,
-} from "./journal-entry-type";
+  addStructuredContentIssues,
+  STRUCTURED_SECTION_SCHEMA_SHAPE,
+  type StructuredSectionValues,
+} from "../../lib/structured-sections";
+import { JOURNAL_ENTRY_TYPE_VALUES } from "./journal-entry-type";
 
 const internalUuidSchema = z.uuid();
 const expectedVersionSchema = z.number().int().positive();
-
-const journalContentSchema = z
-  .string()
-  .max(JOURNAL_CONTENT_MAX_LENGTH)
-  .refine((value) => value.trim().length > 0, {
-    message: "Journal content must not be empty.",
-  });
 
 const eventOccurredAtSchema = z
   .union([z.date(), z.iso.datetime({ offset: true })])
   .transform((value) => (value instanceof Date ? value : new Date(value)));
 
-const editableJournalFieldsSchema = z.object({
+const editableJournalFieldsShape = {
   entryType: z.enum(JOURNAL_ENTRY_TYPE_VALUES),
   eventOccurredAt: eventOccurredAtSchema,
-  content: journalContentSchema,
-});
+} as const;
+
+function requireStructuredJournalContent(
+  value: StructuredSectionValues,
+  context: z.RefinementCtx,
+) {
+  addStructuredContentIssues(value, context, {
+    requireMeaningfulContent: true,
+  });
+}
 
 export const clientJournalQueryInputSchema = z
   .object({ clientId: internalUuidSchema })
@@ -34,16 +37,24 @@ export const journalEntryQueryInputSchema = z
   .object({ journalEntryId: internalUuidSchema })
   .strict();
 
-export const createJournalDraftInputSchema = editableJournalFieldsSchema
-  .extend({ clientId: internalUuidSchema })
-  .strict();
+const structuredJournalFieldsShape = {
+  ...editableJournalFieldsShape,
+  ...STRUCTURED_SECTION_SCHEMA_SHAPE,
+} as const;
 
-export const saveJournalDraftInputSchema = editableJournalFieldsSchema
-  .extend({
+export const createJournalDraftInputSchema = z
+  .object({ ...structuredJournalFieldsShape, clientId: internalUuidSchema })
+  .strict()
+  .superRefine(requireStructuredJournalContent);
+
+export const saveJournalDraftInputSchema = z
+  .object({
+    ...structuredJournalFieldsShape,
     journalEntryId: internalUuidSchema,
     expectedVersion: expectedVersionSchema,
   })
-  .strict();
+  .strict()
+  .superRefine(requireStructuredJournalContent);
 
 export const discardJournalDraftInputSchema = z
   .object({
@@ -60,9 +71,13 @@ export const signJournalDraftInputSchema = z
   })
   .strict();
 
-export const beginJournalCorrectionInputSchema = editableJournalFieldsSchema
-  .extend({ originalEntryId: internalUuidSchema })
-  .strict();
+export const beginJournalCorrectionInputSchema = z
+  .object({
+    ...structuredJournalFieldsShape,
+    originalEntryId: internalUuidSchema,
+  })
+  .strict()
+  .superRefine(requireStructuredJournalContent);
 
 export const replaceJournalDraftGoalsInputSchema = z
   .object({
