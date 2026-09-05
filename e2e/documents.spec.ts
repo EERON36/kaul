@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
+import { resolve } from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Page,
+  type Response,
+  type TestInfo,
+} from "@playwright/test";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import {
@@ -14,6 +22,10 @@ import {
   createDocumentTestStorage,
   type OwnedDocumentTestStorage,
 } from "../src/test/document-test-storage";
+import {
+  replaceDiagnosticFileAtomically,
+  sanitizeDocumentUploadDiagnostic,
+} from "../src/test/document-upload-diagnostic";
 import { getTestEnvironment } from "../src/test/test-environment";
 
 const testEnvironment = getTestEnvironment();
@@ -32,6 +44,84 @@ const unassignedEmail = "documents.e2e.unassigned@example.test";
 const unassignedPassword = "Fictional Documents Unassigned password 2032";
 const organisationName = "Fiktiva Dokumentorganisationen";
 let clientId = "";
+
+type UploadDiagnosticObservation = Readonly<{
+  stage: "initial-upload" | "version-upload";
+  attempt: number;
+  httpStatus: number | null;
+  applicationCode: string;
+}>;
+
+async function writeUploadDiagnostic(
+  testInfo: TestInfo,
+  observations: readonly UploadDiagnosticObservation[],
+) {
+  const diagnosticDirectory = resolve(process.cwd(), "test-results");
+  await mkdir(diagnosticDirectory, { recursive: true });
+  await replaceDiagnosticFileAtomically(
+    resolve(
+      diagnosticDirectory,
+      `kaul-205-documents-upload-diagnostic-attempt-${testInfo.retry + 1}.json`,
+    ),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        ticket: "KAUL-205",
+        observations,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+async function captureUploadResponse(
+  page: Page,
+  testInfo: TestInfo,
+  stage: UploadDiagnosticObservation["stage"],
+  endpointPath: string,
+  action: () => Promise<void>,
+  observations: UploadDiagnosticObservation[],
+): Promise<Response> {
+  let response: Response;
+  try {
+    [response] = await Promise.all([
+      page.waitForResponse(
+        (candidate) =>
+          candidate.request().method() === "POST" &&
+          new URL(candidate.url()).pathname === endpointPath,
+      ),
+      action(),
+    ]);
+  } catch (error) {
+    observations.push({
+      stage,
+      attempt: testInfo.retry + 1,
+      ...sanitizeDocumentUploadDiagnostic(null, null),
+    });
+    try {
+      await writeUploadDiagnostic(testInfo, observations);
+    } catch {
+      // Diagnostics must not replace the original browser/request failure.
+    }
+    throw error;
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    // A non-JSON response is represented by the stable fallback code below.
+  }
+
+  observations.push({
+    stage,
+    attempt: testInfo.retry + 1,
+    ...sanitizeDocumentUploadDiagnostic(response.status(), payload),
+  });
+  await writeUploadDiagnostic(testInfo, observations);
+  return response;
+}
 
 async function cleanup() {
   const users = await prisma.user.findMany({
@@ -188,7 +278,8 @@ test.afterAll(async () => {
 test("upload, history, download, keyboard navigation, reflow, and archived read-only state", async ({
   browser,
   page,
-}) => {
+}, testInfo) => {
+  const uploadDiagnostics: UploadDiagnosticObservation[] = [];
   await logIn(page);
   await page.goto(`/klienter/${clientId}`);
   await page.getByRole("link", { name: "Dokument", exact: true }).click();
@@ -215,7 +306,18 @@ test("upload, history, download, keyboard navigation, reflow, and archived read-
     mimeType: "text/plain",
     buffer: Buffer.from("Fiktivt dokument åäö\n", "utf8"),
   });
-  await page.getByRole("button", { name: "Ladda upp dokument" }).click();
+  const initialUploadResponse = await captureUploadResponse(
+    page,
+    testInfo,
+    "initial-upload",
+    `/api/kaul/clients/${clientId}/documents`,
+    () => page.getByRole("button", { name: "Ladda upp dokument" }).click(),
+    uploadDiagnostics,
+  );
+  expect(
+    initialUploadResponse.status(),
+    "Initial upload must return HTTP 201; inspect the bounded KAUL-205 diagnostic artifact.",
+  ).toBe(201);
   await expect(
     page.getByText("Dokumentet har laddats upp.", { exact: true }),
   ).toBeVisible();
@@ -229,7 +331,20 @@ test("upload, history, download, keyboard navigation, reflow, and archived read-
     mimeType: "text/plain",
     buffer: Buffer.from("Fiktivt dokument version två\n", "utf8"),
   });
-  await page.getByRole("button", { name: "Ladda upp ny version" }).click();
+  const documentId = new URL(page.url()).pathname.split("/").at(-1);
+  expect(documentId).toBeTruthy();
+  const versionUploadResponse = await captureUploadResponse(
+    page,
+    testInfo,
+    "version-upload",
+    `/api/kaul/clients/${clientId}/documents/${documentId}/versions`,
+    () => page.getByRole("button", { name: "Ladda upp ny version" }).click(),
+    uploadDiagnostics,
+  );
+  expect(
+    versionUploadResponse.status(),
+    "Version upload must return HTTP 201; inspect the bounded KAUL-205 diagnostic artifact.",
+  ).toBe(201);
   await expect(
     page.getByText("Dokumentet har laddats upp.", { exact: true }),
   ).toBeVisible();
