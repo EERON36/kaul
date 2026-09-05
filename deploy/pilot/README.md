@@ -132,6 +132,24 @@ docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image
 
 ## GHCR access and post-publication gate
 
+Before registry login or image publication, the release workflow requires:
+
+1. The version tag's exact commit is an ancestor of `main`, preserving the
+   approved release lineage.
+2. The latest matching `Validate` run is a successful same-repository `push`
+   on `main` for that exact commit. Its current attempt must include all four
+   successful jobs: application validation, firewall, ingress and backup
+   rehearsals. A pull-request result alone is insufficient; a partial rerun
+   must be followed by a successful full rerun before release.
+3. A fresh `npm ci` followed by the unchanged mandatory `npm run audit:ci`
+   passes before GHCR login. A previous green run does not waive newly
+   reported dependency findings.
+
+Missing, pending, failed, skipped, incomplete or untrusted validation, and any
+GitHub API failure, stop publication. Wait for full validation to succeed and
+rerun the release workflow; do not bypass or relax either gate. These source
+controls do not authorize a tag, publication, deployment or real-data use.
+
 Choose the image-access model explicitly before deployment:
 
 - A public GHCR package may be pulled anonymously only when making the image
