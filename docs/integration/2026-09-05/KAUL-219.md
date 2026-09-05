@@ -1,6 +1,6 @@
 # KAUL-219 — Monthly Report signing recovery serialization
 
-Status: Implemented and self-checked; independent security review pending.
+Status: CLOSED - accepted, integrated and exact-source CI verified.
 Risk: CRITICAL / SECURITY-SENSITIVE. Priority: P2.
 Base: `63ba72a1d5eacc24c3cb619cc570f1d8b72c6f05`.
 
@@ -64,3 +64,6 @@ build and dependency-audit reruns were not needed for this narrow recovery
 change. No schema, migration, dependency, UI, deployment or security-policy
 change was made. Independent review and final combined-candidate CI are separate
 gates; no staging, commit, push, merge or live operation is implied.
+## Main and independent acceptance
+
+Main reviewed the complete delta and accepted worker 49537bf, integrated as f880e2c. Independent Astra verified the exact source/test/evidence blobs, repeated the task guard and passed all 14 Monthly Report PostgreSQL cases. Additional memory-only checks preserved UNKNOWN classification on indeterminate verification and verification exceptions; no payload is returned for that state. Main then passed 107 PostgreSQL cases across six integrated Documents/Reports/Journal/Audit/Client suites. Run 33959074626 at 5968550 passed 692 unit, 224 PostgreSQL and all 44 browser tests. Audit alone failed. The earlier pending-review wording describes worker-stage evidence; no required source review remains for this delta.

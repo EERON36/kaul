@@ -6,8 +6,8 @@ Updated: 5 September 2026. This is the active source of truth for the accepted r
 
 - Draft [PR #46](https://github.com/EERON36/kaul/pull/46), branch `codex/unified-candidate-20260905`.
 - Worktree: `C:/Projects/kaul/.codex-worktrees/unified-candidate-20260905`.
-- Previously validated application source: `dc29c03023cc2d138d3a71702cd4021230ca5361`; its handoff was `ec5c5ea`. KAUL-216 adds only tests and review records as `2721891144fdc80cadbba77f0551998b345af782`; application code is unchanged. See the KAUL-216 checkpoint below for its separate CI evidence.
-- Latest application/test-source [GitHub run 33956697235](https://github.com/EERON36/kaul/actions/runs/33956697235) at 2721891: all application, migration, browser and operational rehearsal stages pass. Overall CI remains FAILURE because the mandatory dependency audit fails.
+- Current integrated source: 9f0d9a8, including closed KAUL-217 through KAUL-221; KAUL-222 remains in progress.
+- Latest completed exact-source [run 33959433118](https://github.com/EERON36/kaul/actions/runs/33959433118) at 9f0d9a8 passed 704 unit tests, 224 PostgreSQL tests and 44 browser tests, static/build/migration/scanner checks, the new Pilot Documents readiness adapter and three operational rehearsals. Overall CI failed only at mandatory dependency audit. The backup rehearsal is still PostgreSQL-only; KAUL-222 combined evidence remains pending.
 - Direct ancestry retains Product `406aa755b74c8908b360c64ffe3b9f7bb5c3630f`, Documents `d22fe0b59a8708febdc89daa7cdf8516cc8f9c15`, PR #44 `82bf2987189a029516b7e6221f600af931827522` and Astra `27df04ef18d397e1693dad747df803e2604ed748`.
 
 This is a repository integration candidate, not Pilot or production approval. Main, Pilot and existing PRs #41/#43/#44 remain unmerged and unchanged. No live infrastructure, production keys or live data were accessed.
@@ -31,6 +31,23 @@ This is a repository integration candidate, not Pilot or production approval. Ma
 - KAUL-215 OPEN (historical environment evidence) — the failed local E2E run and resources remain preserved. Docker API and PostgreSQL are healthy again; KAUL-216 passed newly guarded local PostgreSQL validation. The original API failure cause and full local E2E recovery remain unproven; current availability is not root-cause evidence.
 - KAUL-216 CLOSED — [download transaction failure coverage](KAUL-216.md); seven real-PostgreSQL/filesystem fault cases, Main 88 PostgreSQL and 80 surrounding unit passes, independent Astra acceptance and 24 Documents passes. Tests only; integrated as 2721891 and pushed to Draft PR #46 under explicit owner authorization. Exact-source CI passed 628 unit, 222 PostgreSQL and all 44 browser tests; only the unchanged mandatory dependency audit failed.
 
+## Whole-candidate hardening in progress
+
+[Integrated assessment and refreshed external blocker](HARDENING.md).
+
+At base 63ba72a, independent whole-candidate review identified three bounded P2 findings. These are evidence-backed hardening work; the earlier no-READY checkpoint is historical.
+
+- KAUL-217 CLOSED - [raw profile mutation](KAUL-217.md); Sol worker.
+- KAUL-218 CLOSED - [scanner freshness ceiling](KAUL-218.md); Main Astra worker.
+- KAUL-219 CLOSED - [uncertain report signing recovery](KAUL-219.md); real PostgreSQL reproduction and settled commit/rollback proof.
+
+- KAUL-220 CLOSED - [release validation gate](KAUL-220.md); bounded image-publication false-green correction.
+- KAUL-221 CLOSED - [combined activation prerequisites](KAUL-221.md); supported transition and truthful backup evidence.
+
+- KAUL-222 IN PROGRESS - [quiesced combined backup and isolated restore](KAUL-222.md); Sol worker. This is the concrete repository component of the previously deferred activation requirements.
+
+KAUL-217-221 have Main and independent Astra acceptance. KAUL-222 review and final integrated validation remain required. Strict audit remains externally blocked; no dependency churn is planned.
+
 ## KAUL-216 integration checkpoint
 
 Worker commit d052392f24d5fd015a3a8a58c3c427b49c7201c3 was accepted by Main
@@ -43,7 +60,7 @@ source, dependency, lockfile, schema, migration or CI policy changed.
 2721891 passed 628 unit tests in 75 files, 222 PostgreSQL tests in 19 files,
 and all 44 browser tests. Formatting, lint, typecheck, production build,
 migration/conversion rehearsals, real scanner refresh/readiness and all three
-operational rehearsals passed. Only mandatory dependency audit failed, on the
+operational rehearsals passed (the backup rehearsal proves database restore and standalone object validation, not a manifest-bound database-plus-object restore). Only mandatory dependency audit failed, on the
 same recorded deepmerge-ts/mysql2 advisories. Main accepts and closes KAUL-216;
 this does not clear KAUL-209 or grant merge/release/activation approval.
 
@@ -62,7 +79,7 @@ Run 33952908177 at dc29c03 passed:
 - Locked install, Prisma generation, all ten migrations, legacy structured-record migration rehearsal and Personnummer conversion rehearsal.
 - Formatting, lint, strict TypeScript and production build.
 - Explicit signature refresh and genuine ClamAvDocumentScanner readiness under the unchanged 24-hour policy.
-- Firewall, private ingress and append-only combined backup/exact-restore CI rehearsals.
+- Firewall, private ingress and append-only PostgreSQL backup/exact-restore CI rehearsal. Standalone object-manifest verification is separate; combined database-plus-object restore is not proved.
 
 Audit ran and FAILED on High GHSA-ggr8-5vv4-36mx (deepmerge-ts) and GHSA-3f6p-5ww8-9rcr (mysql2); mysql2 also reports Moderate GHSA-rgwj-5xj2-c3m3. The four High package entries include Prisma/config aggregates. No dependency, lockfile, schema, migration or audit-policy change was introduced by this execution phase.
 
