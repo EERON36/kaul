@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AssignmentResponsibility,
@@ -10,6 +10,7 @@ import {
 } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
 import { generateAuditOperationId } from "../audit/audit";
+import * as audit from "../audit/audit";
 import type { ApplicationUser } from "../authentication/guards";
 import type { AdministratorUser } from "../users/authorization";
 import {
@@ -239,6 +240,171 @@ async function expectReportSqlRejected(
 }
 
 describe("Monthly Reports with PostgreSQL", () => {
+  it.each(["commit", "rollback"] as const)(
+    "waits for an unsettled signing %s before classifying recovery",
+    async (completion) => {
+      const fixture = await createFixture();
+      const { draft } = await createMonthlyReportDraftForTest(
+        { clientId: fixture.client.id, calendarYear: 2026, calendarMonth: 8 },
+        fixture.firstStaff,
+      );
+      const saved = await saveMonthlyReportDraftForTest(
+        {
+          monthlyReportId: draft.id,
+          expectedVersion: draft.version,
+          ...populatedSections,
+        },
+        fixture.firstStaff,
+      );
+      const operationId = generateAuditOperationId();
+      const callbackReturned = Promise.withResolvers<void>();
+      const releaseSigning = Promise.withResolvers<void>();
+      const failedOutcome = vi.spyOn(audit, "recordFailedAuditOutcome");
+      type ExecuteTransaction = <T>(
+        callback: (transaction: Prisma.TransactionClient) => Promise<T>,
+      ) => Promise<T>;
+      const client = prisma as unknown as { $transaction: ExecuteTransaction };
+      const execute = client.$transaction.bind(client);
+      let calls = 0;
+      let unsettledTransaction:
+        Promise<{ state: "COMMITTED" | "ROLLED_BACK" }> | undefined;
+      const intercept: ExecuteTransaction = async (callback) => {
+        calls += 1;
+        // Preflight and durable intent finish normally. The real signing
+        // callback returns, but its transaction remains open while recovery
+        // receives an injected loss of commit acknowledgement.
+        if (calls !== 3) return execute(callback);
+        unsettledTransaction = execute(async (transaction) => {
+          await callback(transaction);
+          callbackReturned.resolve();
+          await releaseSigning.promise;
+          if (completion === "rollback") {
+            throw new Error("Fictional unsettled signing rollback.");
+          }
+        }).then(
+          () => ({ state: "COMMITTED" as const }),
+          () => ({ state: "ROLLED_BACK" as const }),
+        );
+        await callbackReturned.promise;
+        throw new Error("Fictional signing acknowledgement loss.");
+      };
+      const transactionSpy = vi
+        .spyOn(client, "$transaction")
+        .mockImplementation(intercept);
+      let operationSettled = false;
+      const signing = signMonthlyReportDraftForTest(
+        {
+          monthlyReportId: saved.id,
+          expectedVersion: saved.version,
+          operationId,
+        },
+        fixture.firstStaff,
+      ).then(
+        (value) => {
+          operationSettled = true;
+          return { state: "COMPLETED" as const, value };
+        },
+        (error: unknown) => {
+          operationSettled = true;
+          return { state: "REJECTED" as const, error };
+        },
+      );
+
+      try {
+        await callbackReturned.promise;
+        let recoveryWaiting = false;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          expect(failedOutcome).not.toHaveBeenCalled();
+          const [lock] = await prisma.$queryRaw<Array<{ waiting: bigint }>>`
+            SELECT count(*) AS "waiting"
+            FROM pg_locks
+            WHERE locktype = 'advisory'
+              AND classid::bigint = 1129607912
+              AND objid::bigint = (hashtext(${fixture.client.id})::bigint & 4294967295)
+              AND NOT granted
+          `;
+          if (lock && Number(lock.waiting) > 0) {
+            recoveryWaiting = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(recoveryWaiting).toBe(true);
+        expect(operationSettled).toBe(false);
+        expect(failedOutcome).not.toHaveBeenCalled();
+        // Neither the business transition nor its outcome is visible before
+        // the held transaction settles.
+        await expect(
+          prisma.monthlyReport.findUniqueOrThrow({ where: { id: saved.id } }),
+        ).resolves.toMatchObject({ status: "DRAFT", version: saved.version });
+        await expect(
+          prisma.auditEvent.count({ where: { operationId } }),
+        ).resolves.toBe(0);
+
+        releaseSigning.resolve();
+        await expect(unsettledTransaction).resolves.toEqual({
+          state: completion === "commit" ? "COMMITTED" : "ROLLED_BACK",
+        });
+        if (completion === "commit") {
+          await expect(signing).resolves.toMatchObject({
+            state: "COMPLETED",
+            value: {
+              id: saved.id,
+              organisationId: fixture.firstStaff.organisationId,
+              clientId: fixture.client.id,
+              status: "SIGNED",
+              version: saved.version + 1,
+              signerUserId: fixture.firstStaff.userId,
+              signerName: fixture.firstStaff.name,
+              signerProfessionalTitle: fixture.firstStaff.professionalTitle,
+              signerRole: fixture.firstStaff.role,
+              ...populatedSections,
+            },
+          });
+          expect(failedOutcome).not.toHaveBeenCalled();
+        } else {
+          await expect(signing).resolves.toMatchObject({
+            state: "REJECTED",
+            error: {
+              message: "Monthly report requirement not satisfied.",
+              code: "INCONSISTENT_RESULT",
+            },
+          });
+          expect(failedOutcome).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ operationId }),
+          );
+          await expect(
+            prisma.monthlyReport.findUniqueOrThrow({ where: { id: saved.id } }),
+          ).resolves.toMatchObject({
+            status: "DRAFT",
+            version: saved.version,
+            signerUserId: null,
+            ...populatedSections,
+          });
+        }
+        await expect(
+          prisma.auditEvent.findMany({
+            where: { operationId },
+            select: { type: true, result: true, resolvedTargetId: true },
+          }),
+        ).resolves.toEqual([
+          {
+            type: "OUTCOME",
+            result: completion === "commit" ? "SUCCEEDED" : "FAILED",
+            resolvedTargetId: saved.id,
+          },
+        ]);
+      } finally {
+        releaseSigning.resolve();
+        await unsettledTransaction;
+        await signing;
+        transactionSpy.mockRestore();
+        failedOutcome.mockRestore();
+      }
+    },
+    15_000,
+  );
+
   it("shares one optimistic draft, signs atomically, and preserves linked replacements", async () => {
     const fixture = await createFixture();
     const first = await createMonthlyReportDraftForTest(

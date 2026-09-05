@@ -572,13 +572,17 @@ export async function beginMonthlyReportReplacementInternal(
 async function verifySigningTransactionCompletion(
   intent: AuditIntentHandle,
   actor: ApplicationUser,
+  clientId: string,
   reportId: string,
   expectedVersion: number,
 ): Promise<MonthlyReportSigningTransactionVerification<MonthlyReportRecord>> {
   return prisma.$transaction(async (transaction) => {
+    await lockClientForMutation(transaction, clientId);
+
     const report = await transaction.monthlyReport.findFirst({
       where: {
         id: reportId,
+        clientId,
         organisationId: actor.organisationId,
       },
       select: monthlyReportSelection,
@@ -746,6 +750,7 @@ export async function signMonthlyReportDraftInternal(
       verifySigningTransactionCompletion(
         intent,
         preflightActor,
+        clientId,
         parsed.monthlyReportId,
         parsed.expectedVersion,
       ),
