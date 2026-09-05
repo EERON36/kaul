@@ -55,3 +55,14 @@ Reviewed SHA-256: scanner source C0FEAD6624DC509B1A9AD73663DBEACC794C7DDE944C0AC
 ## Diagnostic integration resolution
 
 Commit a360a7d incorporates diagnostic commit de079f5 into the candidate. The two import conflicts in e2e/documents.spec.ts were resolved by retaining createDocumentTestStorage and adding the required diagnostic helpers, mkdir and resolve. Ambient-root recursive cleanup was not restored. Main Astra inspected the merged lifecycle and ran focused ESLint, Prettier and diff checks successfully. Final combined independent review will include this resolution.
+## KAUL-211 Client edit lifecycle
+
+Worker commits 3f8d847 and 2f6be7b were integrated as d5d8339 and ab933fe. Independent Astra inspected the complete six-file slice, including the four-file correction, and accepted it after findings were resolved. Main Astra separately reviewed the lifecycle and action boundaries.
+
+Accepted P2 correction: confirmed cancellation now restores the last saved baseline before hiding the controlled editor; discarded values cannot reappear marked clean. A browser-test response filter was corrected to inspect synchronous request headers and await completion of the second save. Earlier lead review also required preservation of failed submissions and avoided reading already-reset DOM values after React form actions.
+
+Success returns only normalized fields from the caller's own accepted submission, after authenticated Administrator mutation. No extra Personnummer retrieval, projection, URL, log, previous-state trust or error-value response was added. Controlled fields preserve failed edits and pending inputs prevent a late successful save from overwriting newly entered values. Existing navigation guards and focus handling are reused.
+
+Worker evidence: 32 focused tests, formatting, lint and typecheck passed. After integration, Main Astra ran all 68 affected Client/report UI/action unit tests and typecheck successfully. The enhanced browser assertions cover failed-save value preservation, dirty cancel reject/accept, guarded navigation, reverting to clean, focus return, save/re-edit and consecutive saves; real browser execution is still pending.
+
+Reviewed hashes: editor B86B51F7B3F6C2BAB5B2CA83805E0658F2EB3DFA9BCEC18404C12B5C1359A687; Client actions 98AB9B913D900CF394005FEB1797CAC435C9E62FD219596A9ABBB682A7415DAA; Client E2E E75EA6F3A5D5F4B634F7177F557DC13A1363FE12F20E5BC718781F05D2511616. The reviewer ran diff check and inspected tests; it did not run runtime suites.

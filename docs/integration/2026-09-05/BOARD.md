@@ -23,7 +23,7 @@ Accepted reconciliation: 5 September 2026. This board tracks Phase 2 execution.
 - KAUL-208 BLOCKED — combined candidate freeze, validation and fresh separate Astra Red-Team depend on scoped work.
 - KAUL-209 BLOCKED — supported upstream audit remediation. WAIT FOR UPSTREAM; no suppression/override/downgrade/prerelease. Development continues.
 - KAUL-210 INTEGRATED — Terra a08ff2d, Astra-reviewed and integrated as 2d3c0a8: stored historical signer title/role with truthful Swedish fallback; focused unit and static checks passed.
-- KAUL-211 REVIEW / REVISION — Terra 3f8d847; Astra requested lifecycle and browser regression coverage before acceptance. No integration yet.
+- KAUL-211 INTEGRATED — d5d8339 + ab933fe, corrected controlled save/cancel lifecycle accepted by Main Astra and independent Astra. Integrated 68 affected units and typecheck pass; browser evidence pending.
 - KAUL-212 INTEGRATED — c8aeb0b accepted by Main Astra and independent Astra; integrated as 5b05c2d. Eight scanner tests passed; final real-scanner CI pending, no claim of KAUL-205 causality.
 - KAUL-213 BACKLOG — preservation disposition only; no cleanup until stable integration and explicit per-target gates.
 - KAUL-214 BACKLOG — owner-attended operations, outside this development phase.
@@ -72,3 +72,10 @@ Luna's bounded investigation measured detached Git fixtures at 5.7 and 9.4 secon
 Both worker inspection and Main Astra source inspection confirm that operator tests prepend their fixture bin directory containing docker/restic/id stubs; the script resolves docker through that path. No real Docker invocation or service mutation was reported by the worker. The Windows delay is not established as the cause of Docker Desktop's separate failure.
 
 The existing reviewed path-containment/LF fixes remain in the candidate. Full Windows harness reliability remains an explicit evidence gap; Linux GitHub harness execution passes on the original diagnostic baseline. No test skip or global allowance was added to conceal the Windows failure.
+## Published candidate and combined review
+
+Draft PR #46 now designates codex/unified-candidate-20260905. Its first exact-head run 33950802108 tests 13fced974c863921a44fb1cd027925c4fabddf88. Later Client-edit integration ab933fe requires its own GitHub run. A new independent Astra context is reviewing the combined source, separate from planning, implementation and coordination.
+
+KAUL-207 partial accepted fix: 13fced9 gives only the single real-Git Windows snapshot fixture a measured fifteen-second limit; pure path cases and Linux defaults remain unchanged. All thirteen cases passed in 6.18 seconds, with formatting/lint/diff checks passing. The broader unfinished operator timeout proposal remains rejected and preserved outside the candidate; Windows shell-harness reliability is still an explicit limitation.
+
+Integrated regression checkpoint before Client-edit: 101 focused scanner/diagnostic/owned-storage/Client/report tests passed. After Client-edit integration: 68 affected UI/action tests and strict typecheck passed. These focused results do not replace full candidate CI.
