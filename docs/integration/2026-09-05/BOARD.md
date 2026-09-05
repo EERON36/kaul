@@ -6,8 +6,9 @@ Updated: 5 September 2026. This is the active source of truth for the accepted r
 
 - Draft [PR #46](https://github.com/EERON36/kaul/pull/46), branch `codex/unified-candidate-20260905`.
 - Worktree: `C:/Projects/kaul/.codex-worktrees/unified-candidate-20260905`.
-- Current integrated source: 9f0d9a8, including closed KAUL-217 through KAUL-221; KAUL-222 remains in progress.
-- Latest completed exact-source [run 33959433118](https://github.com/EERON36/kaul/actions/runs/33959433118) at 9f0d9a8 passed 704 unit tests, 224 PostgreSQL tests and 44 browser tests, static/build/migration/scanner checks, the new Pilot Documents readiness adapter and three operational rehearsals. Overall CI failed only at mandatory dependency audit. The backup rehearsal is still PostgreSQL-only; KAUL-222 combined evidence remains pending.
+- Final hardened source: 0173710, including closed KAUL-217 through KAUL-222. Documentation closure may advance the branch tip; resolve PR #46 for its current SHA.
+- [Final source run 33962467276](https://github.com/EERON36/kaul/actions/runs/33962467276) passed 752 unit, 224 PostgreSQL and all 44 browser tests; static/build/migration/scanner, firewall/ingress and actual combined backup/restore checks passed. Overall CI failed only at unchanged mandatory dependency audit.
+- Prior exact-source [run 33959433118](https://github.com/EERON36/kaul/actions/runs/33959433118) at 9f0d9a8 passed 704 unit tests, 224 PostgreSQL tests and 44 browser tests, static/build/migration/scanner checks, the new Pilot Documents readiness adapter and three operational rehearsals. Overall CI failed only at mandatory dependency audit. That run's backup rehearsal was PostgreSQL-only; the final run above now supplies KAUL-222 combined evidence.
 - Direct ancestry retains Product `406aa755b74c8908b360c64ffe3b9f7bb5c3630f`, Documents `d22fe0b59a8708febdc89daa7cdf8516cc8f9c15`, PR #44 `82bf2987189a029516b7e6221f600af931827522` and Astra `27df04ef18d397e1693dad747df803e2604ed748`.
 
 This is a repository integration candidate, not Pilot or production approval. Main, Pilot and existing PRs #41/#43/#44 remain unmerged and unchanged. No live infrastructure, production keys or live data were accessed.
@@ -31,7 +32,7 @@ This is a repository integration candidate, not Pilot or production approval. Ma
 - KAUL-215 OPEN (historical environment evidence) — the failed local E2E run and resources remain preserved. Docker API and PostgreSQL are healthy again; KAUL-216 passed newly guarded local PostgreSQL validation. The original API failure cause and full local E2E recovery remain unproven; current availability is not root-cause evidence.
 - KAUL-216 CLOSED — [download transaction failure coverage](KAUL-216.md); seven real-PostgreSQL/filesystem fault cases, Main 88 PostgreSQL and 80 surrounding unit passes, independent Astra acceptance and 24 Documents passes. Tests only; integrated as 2721891 and pushed to Draft PR #46 under explicit owner authorization. Exact-source CI passed 628 unit, 222 PostgreSQL and all 44 browser tests; only the unchanged mandatory dependency audit failed.
 
-## Whole-candidate hardening in progress
+## Whole-candidate hardening complete
 
 [Integrated assessment and refreshed external blocker](HARDENING.md).
 
@@ -44,9 +45,9 @@ At base 63ba72a, independent whole-candidate review identified three bounded P2 
 - KAUL-220 CLOSED - [release validation gate](KAUL-220.md); bounded image-publication false-green correction.
 - KAUL-221 CLOSED - [combined activation prerequisites](KAUL-221.md); supported transition and truthful backup evidence.
 
-- KAUL-222 IN PROGRESS - [quiesced combined backup and isolated restore](KAUL-222.md); Sol worker. This is the concrete repository component of the previously deferred activation requirements.
+- KAUL-222 CLOSED - [quiesced combined backup and isolated restore](KAUL-222.md); Sol operator worker and separate Records rehearsal worker. Main and independent source/conflict/runtime review passed. Actual combined PostgreSQL/Restic capture and isolated restore, two authorised byte downloads, four denials, audit and read-only permission checks passed in the final CI run.
 
-KAUL-217-221 have Main and independent Astra acceptance. KAUL-222 review and final integrated validation remain required. Strict audit remains externally blocked; no dependency churn is planned.
+KAUL-217-222 have Main and independent Astra acceptance. Whole-candidate engineering review is complete; no further evidence-backed repository READY ticket remains. KAUL-209 stays externally blocked. KAUL-207/215 are preserved historical environment limitations; KAUL-214 is owner-attended work. None is silently reported as resolved.
 
 ## KAUL-216 integration checkpoint
 
@@ -107,6 +108,6 @@ Focused local regressions, formatting/lint/typecheck/build passed as recorded in
 
 ## Next gate
 
-Stop before live deployment. Await supported upstream audit remediation under unchanged policy. Any later transition requires separately authorized owner-attended activation, retained-key restore/conversion proof, persistent Documents/scanner configuration and operational/stakeholder acceptance. Physical cleanup is a separate verified per-target task.
+Repository hardening is complete. Stop before live deployment and await supported upstream audit remediation under unchanged policy. Follow the [exact owner-attended gate](../../../deploy/pilot/UNIFIED_CANDIDATE_ACCEPTANCE.md). Any later transition requires separately authorized owner-attended activation, retained-key restore/conversion proof, persistent Documents/scanner configuration and operational/stakeholder acceptance. Physical cleanup is a separate verified per-target task.
 
 [Accepted Phase 1 report and original ticket definitions](RECONCILIATION.md) remain preserved; this board supersedes their dated execution statuses.

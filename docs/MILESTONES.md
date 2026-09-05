@@ -1281,18 +1281,23 @@ production-readiness gate.
 ### Unified repository candidate — 5 September 2026
 
 The designated unmerged candidate is Draft PR #46, branch
-`codex/unified-candidate-20260905`. Exact source `dc29c03` passed GitHub
-migration rehearsals, 628 unit tests, 215 PostgreSQL tests and all 44 browser
-tests, including real-scanner Documents upload. The CI-only scanner readiness
-fix preserves the existing freshness and quarantine policies. Critical source
-reviews and exact evidence are recorded in the
+`codex/unified-candidate-20260905`. Whole-candidate hardening accepted KAUL-217
+through KAUL-221: raw authentication mutation controls, scanner freshness ceiling,
+settled Report transaction recovery, trusted release validation, and actual
+Documents readiness before ingress. KAUL-222 combined backup/isolated restore
+also passed independent review and real Linux PostgreSQL/Restic restore evidence.
+Source 0173710 passed 752 unit, 224 PostgreSQL and 44 browser tests. No additional
+meaningful repository READY ticket remains at this engineering checkpoint.
+Exact source, completed counts, failed attempts and independent review are in the
 [execution board](integration/2026-09-05/BOARD.md).
 
 This checkpoint does not complete Milestone 5, Pilot Readiness or activation.
-Overall CI remains red because the unchanged mandatory audit fails on the
-upstream dependency findings. Attended conversion/key custody, live operating
-configuration, restore and stakeholder gates remain as stated above. Main and
-Pilot were not merged or deployed.
+The unchanged mandatory audit remains blocked on upstream dependency findings.
+The [owner-attended transition procedure](../deploy/pilot/UNIFIED_CANDIDATE_ACCEPTANCE.md)
+covers exact release/image authority, pre-outage authentication, migration and
+conversion, retained-key/combined restore proof, scanner persistence, deliberate
+startup and stakeholder gates. No live host state was inspected or changed in
+this phase. The candidate was not merged into main or Pilot, and no deployment occurred.
 
 ---
 

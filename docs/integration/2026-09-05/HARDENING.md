@@ -1,6 +1,7 @@
 # Unified candidate hardening - 5 September 2026
 
-Status: engineering continues on KAUL-222. Do not freeze or deploy yet.
+Status: repository hardening complete at source 0173710. No meaningful READY
+repository ticket remains. Mandatory audit blocks release and deployment.
 The execution board is authoritative for exact source and final validation.
 
 ## Whole-candidate assessment
@@ -21,12 +22,13 @@ Six evidence-backed tickets resulted:
 - KAUL-221: scanner refresh isolation and startup readiness were incomplete.
 - KAUL-222: combined backup/isolated restore orchestration was missing.
 
-The first five have Main and independent Astra acceptance. The initial
+All six have Main and independent Astra acceptance. The initial
 application findings were proved with pinned-router memory execution, scanner
 protocol/configuration execution and real PostgreSQL fault regressions. Changes
 remain bounded to those verified conditions and associated tests. No dependency,
 lockfile, schema, migration, ordinary authorisation, privacy or audit policy was
-changed. KAUL-222 remains in implementation and must undergo the same lifecycle.
+changed. KAUL-222 completed source review, integrated review and real combined
+PostgreSQL/Restic restore validation under the same lifecycle.
 
 ## Interactions and preserved boundaries
 
@@ -59,10 +61,13 @@ initial historical-to-unified conversion/activation procedure.
 
 The original backup rehearsal proves PostgreSQL backup/restore and retained-key
 fixture behavior. Standalone object-manifest verification is separate. Earlier
-board wording calling this combined restore proof was corrected. KAUL-222 must
-supply real exact-set capture and isolated database/object restore, including
-comparison to restored DocumentVersion metadata. No future or unrun result may
-be used to close that gate.
+board wording calling this combined restore proof was corrected. KAUL-222 now
+supplies actual exact-set capture and isolated database/object restore in
+CI 33962467276, including restored DocumentVersion metadata comparison, two
+authorised byte downloads, four denials, durable audit and UID1000 read-only
+permission checks. The unpublished-image/status fixture and fictional upload
+scan do not prove image packaging, a live scanner, a read-only bind mount or
+the owner's host. Those remain explicit attended gates.
 
 ## Strict dependency gate refreshed
 
@@ -115,9 +120,27 @@ not first-install host-preflight: that command intentionally rejects an active
 Caddy listener. Prove actual Restic authentication in the exact protected
 operator context before stopping healthy services.
 
-The final transition record must identify the final candidate SHA and CI state,
-mandatory audit blocker, remaining review, explicit release authority, host and
-network gates, retained-key custody, migration/conversion order, manifest-bound
-restore commands, scanner persistence/alerts, controlled startup and browser/
-stakeholder acceptance. No homelab command, deployment, live key or database
+The [owner-attended transition record](../../../deploy/pilot/UNIFIED_CANDIDATE_ACCEPTANCE.md)
+covers release authority, host/network checks, retained-key custody,
+migration/conversion order, exact restore commands, scanner persistence/alerts,
+controlled startup and browser/stakeholder acceptance. The board and PR identify
+the candidate SHA, CI state and mandatory audit blocker. No homelab command, deployment, live key or database
 operation is authorized by this engineering report.
+
+## Final engineering validation
+
+[Run 33962467276](https://github.com/EERON36/kaul/actions/runs/33962467276) at
+`01737101e91596bc599fd556f0698084dbd06cf1` passed 752 unit tests, 224 PostgreSQL
+tests and all 44 browser tests; static checks, production build, all ten
+migrations, legacy conversion rehearsals, actual scanner/readiness checks,
+firewall/ingress rehearsals and both database-only and combined backup rehearsals
+passed. The only failed step was mandatory dependency audit on the same recorded
+upstream advisories. No additional source churn is justified by that blocker.
+
+Independent Astra confirmed the combined runtime logs and all reviewed source
+identities, finding no additional actionable repository issue. Main accepts the
+bounded hardening work. The repository may be held at this reviewed technical
+checkpoint while upstream remediation is awaited; it is not release-ready.
+Dependency remediation or any later source delta requires proportionate tests
+and renewed independent review. Documentation-only closure is recorded on the
+candidate branch; resolve its tip for the final documentation SHA.

@@ -125,3 +125,75 @@ Exact-source CI run 33956697235 passed 628 unit, 222 PostgreSQL and all 44 brows
 tests, along with static/build/migration/scanner and operational checks. Only
 the unchanged dependency audit failed. This is Main-owned post-integration
 validation, separate from the independent reviewer's executed 24-test evidence.
+
+## Whole-candidate hardening and KAUL-217-221 acceptance
+
+Whole-candidate discovery at 63ba72a used independent identity/privacy/access
+and records/Documents/migration reviews, plus a separate operations worker
+review. It established three P2 application findings and three bounded
+release/activation prerequisites; these were not presented as regressions in
+KAUL-202/203/204 or as defects exposed by KAUL-216.
+
+A dedicated independent Astra reviewer, who did not implement, manage or
+integrate these changes, accepted each final delta before integration:
+
+- KAUL-217: four unapproved raw authentication mutations blocked. Independent
+  execution passed 64 route/auth/logout/password-change tests and confirmed
+  mounted policy and the unchanged controlled UI logout path.
+- KAUL-218: configuration ceiling reduced to the approved 24 hours. Independent
+  execution passed 20 focused tests and a stricter parsed 12-hour loopback
+  boundary check, including rejection before consuming payload.
+- KAUL-219: Report recovery waits for the Client lock. Independent guarded
+  PostgreSQL suite passed 14 cases, including unsettled commit and rollback;
+  unknown/verification-error checks returned no payload.
+- KAUL-220: exact trusted full Validate attempt plus fresh strict audit before
+  publication. Independent execution passed 50 gate/audit tests, checking API
+  identity, complete attempts, fail-closed errors and workflow ordering.
+- KAUL-221: scanner-only update network and real Documents readiness before
+  ingress. Review caught a stale lock contract and missing stop attempt after
+  partial first startup. Main corrected both; independent checks passed and
+  accepted the final nine-file delta, including its additive actual-adapter CI
+  step. Host update connectivity and persistence are still attended evidence.
+
+Exact accepted blobs and worker/Main checks are retained in the corresponding
+ticket and implementation records. Main inspected the final deltas before
+staging, committing and integrating under standing owner development authority.
+No reviewer authorization is treated as permission for live or protected Git
+operations.
+
+Main's completed run 33959433118 at 9f0d9a8 passed 704 unit, 224 PostgreSQL and
+44 browser tests, including the real new Pilot Documents readiness command,
+static/build/migration/scanner and operational rehearsal stages. Audit alone
+failed. Main also passed 107 integrated PostgreSQL regressions locally.
+
+KAUL-222 subsequently completed the same independent lifecycle, as recorded
+below. Earlier combined acceptance records retain their exact dated source
+scope; the original database-only rehearsal is not retroactively relabelled.
+
+## KAUL-222 and final independent engineering acceptance
+
+The reviewer independently passed core 17, operator 13 and strict rehearsal
+adapter 27 tests. Review corrected an adapter rejection of the actual pg_dump
+child. Main's two integration conflicts combined the lock list and its test;
+independent inspection confirmed every KAUL-221 startup/scanner safeguard and
+KAUL-222 recovery command remained protected. Two first-CI corrections were
+separately reviewed: removal of an unnecessary auth-listing option and a
+loopback-only bridge for the temporary CI PostgreSQL fixture.
+
+Final candidate `01737101e91596bc599fd556f0698084dbd06cf1` was independently
+accepted after direct inspection of completed run 33962467276: 752 unit tests,
+224 PostgreSQL tests and 44 browser tests passed; all operational jobs and the
+real Pilot Documents readiness step passed. Only mandatory dependency audit
+failed. The reviewer separately read completed backup job 101296619437 and
+confirmed exact-set restoration, ten migrations, two actual authorised byte
+downloads, four denials, durable audit, no denied file opens, object integrity,
+quarantine exclusion and actual UID1000 read-only permission failures.
+
+Main accepts KAUL-222 closure and the reviewed engineering checkpoint. No
+additional actionable repository READY ticket was found. The fixture's declared
+image/status substitution and fictional upload scan are explicit; permission
+checks are not real bind-mount proof. Published-image identity, live host/network,
+scanner persistence, retained-key recovery, accessibility and stakeholder gates
+remain owner attended. Strict audit remains unwaived. Any later dependency or
+source delta needs renewed proportionate validation and independent review.
+This is not protected-merge, release-publication or deployment authorization.

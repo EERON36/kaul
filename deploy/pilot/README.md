@@ -415,11 +415,12 @@ scripts/pilot-ops.sh update \
 
 The script reports the current and target images and pulls the digest while the
 verified current release is still serving. It then stops Caddy, stops Kaul,
-streams and validates a quiesced custom-format PostgreSQL backup into the
-encrypted off-host Restic repository, records its exact snapshot ID, applies
+captures and validates the required quiesced backup in the encrypted off-host
+Restic repository, records its exact snapshot or manifest ID, and applies
 committed Prisma migrations, verifies migration status,
 starts the new app privately, and waits for its database-backed health check.
-Caddy is started only after Kaul is healthy.
+Caddy is started only after Kaul is healthy and the real Documents readiness
+check succeeds. Use the [attended Unified Candidate procedure](UNIFIED_CANDIDATE_ACCEPTANCE.md) for the initial historical-to-unified transition.
 
 If Caddy cannot be stopped, the update does not continue. If Kaul cannot be
 confirmed stopped, Caddy remains stopped and the update does not continue. If
@@ -439,7 +440,13 @@ issues.
 
 ## Backup and restore
 
-Create and validate a logical backup:
+The database-only commands below are for historical databases without the
+Documents schema or objects. Once the Documents schema exists, `backup` requires
+both Kaul and Caddy stopped and selects a manifest-bound combined set, including
+when no document has been uploaded yet. Do not schedule online DB-only backups
+for an activated Documents system. See the combined procedure below.
+
+Create and validate a historical logical database backup:
 
 ```sh
 scripts/pilot-ops.sh backup \
@@ -500,7 +507,11 @@ verified by the Git Bash test path and must be present on the Linux Pilot host.
 
 There is no retention or repository-maintenance command in `pilot-ops.sh`.
 Run maintenance only from a separately secured off-VM identity with delete
-rights. Review a dry run before applying the approved objective:
+rights. The following example applies only to a historical DB-only repository.
+Do not apply independent tag-based retention to Documents sets: retain each
+manifest together with both exact snapshots it references. A separate reviewed
+set-aware retention procedure is required before deleting any component.
+Review a dry run before applying the approved historical objective:
 
 ```sh
 restic forget \
@@ -542,9 +553,12 @@ Start the approved image privately against that restored database with:
 ```sh
 scripts/pilot-ops.sh start-restore-check \
   --env-file /etc/kaul/pilot.env \
-  --database kaul_restore_20260819
+  --database kaul_restore_20260819 \
+  --storage-root /srv/kaul-restores/EXACT_RESTORE_NAME
 ```
 
+The root must be separately prepared, outside active Documents storage, with
+verified `objects` and empty `quarantine` directories. It is mounted read-only.
 The protected command validates the unchanged active Pilot environment, derives
 the restored database URL internally, rechecks migration status, and starts a
 profile-gated `kaul-restore-check` service only on the internal Compose network.
@@ -571,6 +585,67 @@ scripts/pilot-ops.sh stop-restore-check \
 The restored database is preserved. Promotion remains a separate recorded
 recovery decision. Never restore over the active database.
 
+## Combined Documents backup and isolated restore
+
+KAUL-222 completed repository and disposable CI verification. These are future
+owner operations: all release and owner gates in the execution board and
+attended procedure must pass before any live transition.
+
+Before an outage, install the repository-pinned Node 24 runtime and prove actual
+Restic authentication in the protected operator context. Prepare separate empty
+restore storage with the approved numeric ownership and permissions. Never use
+active storage or a parent/child of it as the restore root.
+
+```sh
+scripts/pilot-ops.sh quiesce --env-file /etc/kaul/pilot.env
+scripts/pilot-ops.sh backup-documents-set --env-file /etc/kaul/pilot.env
+```
+
+The capture requires confirmed stopped Kaul and Caddy. It compares immutable
+objects with PostgreSQL metadata, streams the database archive, captures only
+`objects`, and stores an encrypted manifest binding their exact snapshot IDs,
+source revision, applied migrations, object sizes and hashes. It verifies the
+Restic catalogs and restored object bytes before reporting success. Quarantine
+contents are excluded. Services remain stopped; failure is not permission to
+restart or delete partial evidence.
+
+`applicationGitSha` declares the recovery/verification image; it does not prove
+which image last wrote every row. Standalone `backup` and `backup-documents-set`
+use the approved `KAUL_IMAGE` selected in the protected environment. In the
+post-migration/pre-start sequence, that is the new image which ran the migration
+and conversion, even if an old stopped application container remains. Internal
+pre-update/pre-migration/pre-conversion captures use the current container image
+when available, retaining its recovery identity. The manifest also records the
+actual applied migration names. The owner must select and prove a compatible
+recovery image; a revision label by itself is not compatibility evidence.
+
+Use the exact full manifest snapshot ID reported by successful capture:
+
+```sh
+scripts/pilot-ops.sh validate-documents-set \
+  --env-file /etc/kaul/pilot.env \
+  --manifest-snapshot EXACT_64_CHARACTER_MANIFEST_SNAPSHOT_ID
+
+scripts/pilot-ops.sh restore-documents-set \
+  --env-file /etc/kaul/pilot.env \
+  --manifest-snapshot EXACT_64_CHARACTER_MANIFEST_SNAPSHOT_ID \
+  --database kaul_restore_EXACT_NAME \
+  --storage-root /srv/kaul-restores/EXACT_RESTORE_NAME
+```
+
+Validation reads only the manifest-selected snapshots. Restore refuses an
+existing database or nonempty root and preserves a failed destination. It
+compares restored metadata, migrations and object bytes. `validate-documents-set`
+alone checks the archive and objects; it does not execute the restored database
+or prove application behavior. Use the isolated restored database and root for
+`start-restore-check`, retained-key and actual allowed/denied download proof.
+An empty quarantine directory supports read-only application initialization;
+source quarantine is never restored. Keep the active environment unchanged.
+
+The [owner-attended acceptance procedure](UNIFIED_CANDIDATE_ACCEPTANCE.md)
+records conversion ordering, private checks, recovery and deliberate startup.
+Neither a valid manifest nor a healthy container waives those gates.
+
 ## Small operational loop
 
 - Use an external HTTPS uptime check against `/api/health`; it intentionally
@@ -581,7 +656,9 @@ recovery decision. Never restore over the active database.
 - Compose limits each service to five 10 MB JSON log files. Logs are operational
   evidence, not records: never log Client names, Journal content, credentials,
   cookies, request bodies, or database URLs.
-- Schedule `pilot-ops.sh backup` with the host's service manager only after the
+- Schedule an explicitly quiesced combined backup window for Documents; the
+  operator does not reopen ingress after capture. Approve the deliberate
+  restart and failure handling as part of that window. Schedule backup work only after the
   encrypted off-host destination, writer role, offline recovery material,
   retention-maintainer role, schedule, and alert target
   are approved. A timer without failure notification is not an accepted backup.
