@@ -14,10 +14,7 @@ const documentEnvironmentSchema = z
     DOCUMENT_SCANNER_HOST: z.string().trim().min(1),
     DOCUMENT_SCANNER_PORT: z.coerce.number().int().min(1).max(65_535),
     DOCUMENT_SCANNER_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000),
-    DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS: z.coerce
-      .number()
-      .positive()
-      .max(168),
+    DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS: z.coerce.number().positive().max(24),
   })
   .strict();
 
