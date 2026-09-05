@@ -1,7 +1,7 @@
 # KAUL-225 - Classify repeated-signing browser request-capture failure
 
-Status: ACCEPTED - test correction integrated; final candidate CI pending. Owner: Signing verification worker. Lead: Main Astra.
-Risk: test-only investigation of a security-sensitive workflow. No product defect classification yet.
+Status: CLOSED (verification) - classified, reviewed, integrated and full updated candidate validation completed. Owner: Signing verification worker. Lead: Main Astra.
+Risk: test-only investigation of a security-sensitive workflow. Classified as test instrumentation; no product defect established.
 Discovery base: 3a93122515350570e176c08a97620d404d38fd57.
 
 ## Evidence and scope
@@ -22,8 +22,12 @@ Main and fresh independent review classify the failure as request-capture instru
 
 The corrected test waits for the actual first POST to the exact review URL. Actual native replay returned HTML 404 because the signed draft is no longer available to the review page; hydrated Action replay returned RSC 200. Both required the exact safe signing conflict, exactly one signed entry and an unchanged full signed row. Payloads and narrow replay headers remain in memory only.
 
-Worker proved both transports and all nine existing Journal browser tests passed. Focused ESLint, typecheck and diff check passed. Main reviewed the complete diff; a separate independent review found no actionable issue and confirmed that replay proof is preserved and strengthened. Reviewed test blob: `7074635af0e8c835a1dc040351fc95c0f9f1a5e9`. Worker commit `67167cc` integrated as `a7c1b00` with identical blob. The exact candidate validation remains the final closure gate.
+Worker proved both transports and all nine existing Journal browser tests passed. Focused ESLint, typecheck and diff check passed. Main reviewed the complete diff; a separate independent review found no actionable issue and confirmed that replay proof is preserved and strengthened. Reviewed test blob: `7074635af0e8c835a1dc040351fc95c0f9f1a5e9`. Worker commit `67167cc` integrated as `a7c1b00` with identical blob. The exact candidate validation was the final closure gate and is recorded below.
 
 Two preliminary attempts failed before capture at the original immediate overflow assertion; they are not replay passes. A temporary hydration diagnostic and transport logging were removed after proving the cause. Prior failed evidence remains preserved locally. KAUL-215 historical environment cause remains open.
 
 Primary references: [Next updating data](https://nextjs.org/docs/app/getting-started/updating-data), [Next forms](https://nextjs.org/docs/app/guides/forms), [Playwright Request](https://playwright.dev/docs/api/class-request). Exact native/fetch behavior is established by installed pinned source plus the executed tests, rather than documentation alone.
+
+## Final closure
+
+Main accepts and closes this ticket after integrated mobile QA, 22 relevant local browser passes and [full updated candidate validation](https://github.com/EERON36/kaul/actions/runs/33995335426): 752 unit, 224 PostgreSQL and 49 browser passes, with only the already-known mandatory audit blocker. [Complete mobile acceptance](MOBILE_REMEDIATION.md) records the evidence and remaining physical-phone boundary.

@@ -2,15 +2,15 @@
 
 Updated: 6 September 2026. This is the active source of truth for the accepted reconciliation work. Historical reports retain their original dates and evidence.
 
-## Bounded mobile remediation reopened
+## Bounded mobile remediation accepted
 
-Owner authorization reopens former frozen candidate 3a931225 only for verified mobile findings. The earlier no-READY and acceptance checkpoints below are historical until this delta is reviewed and validated.
+Owner authorization reopens former frozen candidate 3a931225 only for verified mobile findings. The earlier no-READY and acceptance checkpoints below are historical; the bounded delta is now reviewed and validated.
 
-- KAUL-223 ACCEPTED / INTEGRATED - [Journal date/time reflow](KAUL-223.md); Journal mobile worker.
-- KAUL-224 ACCEPTED / INTEGRATED - [Administrator search proximity](KAUL-224.md); Client mobile worker.
-- KAUL-225 CLASSIFIED / INTEGRATED (verification) - [repeated-signing request capture](KAUL-225.md); separate diagnosis, no signing defect presumed.
+- KAUL-223 CLOSED - [Journal date/time reflow](KAUL-223.md); Journal mobile worker.
+- KAUL-224 CLOSED - [Administrator search proximity](KAUL-224.md); Client mobile worker.
+- KAUL-225 CLOSED (verification) - [repeated-signing request capture](KAUL-225.md); separate diagnosis, no signing defect presumed.
 
-Updated executable source: `f60cb6776e72a24bc7ba4c60872ac566cc503695`. Main and fresh independent review accepted the bounded delta; worker responsive/browser regressions passed. Broader integrated mobile QA and exact-candidate CI remain pending. The former SHA is not the updated candidate.
+Updated executable source: `f60cb6776e72a24bc7ba4c60872ac566cc503695`. Main and fresh independent review accepted the bounded delta; worker responsive/browser regressions passed. Integrated mobile QA passed 179 screen/text observations, real zoom and touch checks, plus 22 relevant browser tests. [Full candidate run 33995335426](https://github.com/EERON36/kaul/actions/runs/33995335426) at 80c00a3 passed 752 unit, 224 PostgreSQL and 49 browser tests; build/static/migration/scanner and operational checks passed. Only unchanged mandatory audit failed. Main accepts the updated engineering source. [Mobile acceptance](MOBILE_REMEDIATION.md) records exact evidence and scope; resolve Draft PR #46 for the final documentation tip and checks. The former SHA is not the updated candidate.
 
 Retained fictional Documents storage from mobile_qa_20260905_01 is handled separately in the [safe disposition](MOBILE_STORAGE_DISPOSITION.md). The [physical-phone checklist](MOBILE_PHONE_SMOKE.md) remains owner-attended. Cleanup requires positive exclusive-ownership proof; no broad deletion or Documents polish is authorized. Main/Pilot/deployment remain outside scope.
 

@@ -1,6 +1,6 @@
 # KAUL-223 - Journal date/time reflow under text enlargement
 
-Status: ACCEPTED - integrated; broader candidate QA/CI pending. Owner: Journal mobile worker. Lead: Main Astra.
+Status: CLOSED - Main accepted, integrated and full updated candidate validation completed. Owner: Journal mobile worker. Lead: Main Astra.
 Risk: MEDIUM (presentation only). Priority: P2.
 Discovery base: 3a93122515350570e176c08a97620d404d38fd57.
 
@@ -28,3 +28,7 @@ The new regression failed against original source at 360 pixels/200% text when c
 Focused formatting, lint, full typecheck and diff check passed. Main reviewed the full diff and a fresh independent review found no actionable issue or product security-behavior change. The final test-only screenshot-path adjustment was separately accepted by Main. Worker commit `da6564c` integrated as `f60cb67`. Source blobs `fea0820b49207594ef356075b450791565404fff` and `b12aba35301dc81b63bd9605557164f13b580f50` match independent review; final test blob `bdf958daaf617efe7decbdd2612a17aa976cd856` matches Main acceptance.
 
 An initial nested fixture field was rejected before browser execution and corrected; it is not product failure evidence. No trigger, signing, authorization, Documents, dependency or migration source changed.
+
+## Final closure
+
+Main accepts and closes this ticket after integrated mobile QA, 22 relevant local browser passes and [full updated candidate validation](https://github.com/EERON36/kaul/actions/runs/33995335426): 752 unit, 224 PostgreSQL and 49 browser passes, with only the already-known mandatory audit blocker. [Complete mobile acceptance](MOBILE_REMEDIATION.md) records the evidence and remaining physical-phone boundary.

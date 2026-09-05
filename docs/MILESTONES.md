@@ -1291,6 +1291,8 @@ meaningful repository READY ticket remains at this engineering checkpoint.
 Exact source, completed counts, failed attempts and independent review are in the
 [execution board](integration/2026-09-05/BOARD.md).
 
+On 6 September, bounded mobile QA remediation closed KAUL-223/224 and classified the KAUL-225 Journal capture failure as test instrumentation. Updated source f60cb67 and checkpoint 80c00a3 passed 752 unit, 224 PostgreSQL and 49 browser tests; the three-phone/text/zoom rerun and 22 relevant local browser checks passed. Main and independent review accepted the delta, with no product signing, authorization or Documents behavior change. The prior frozen SHA is superseded; [mobile acceptance](integration/2026-09-05/MOBILE_REMEDIATION.md) and the execution board identify the updated candidate. Physical-phone behavior remains unverified and mandatory dependency audit remains blocked.
+
 This checkpoint does not complete Milestone 5, Pilot Readiness or activation.
 The unchanged mandatory audit remains blocked on upstream dependency findings.
 The [owner-attended transition procedure](../deploy/pilot/UNIFIED_CANDIDATE_ACCEPTANCE.md)

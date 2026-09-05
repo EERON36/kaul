@@ -1,6 +1,6 @@
 # KAUL-224 - Keep Administrator search results near search controls
 
-Status: ACCEPTED - integrated; broader candidate QA/CI pending. Owner: Client mobile worker. Lead: Main Astra.
+Status: CLOSED - Main accepted, integrated and full updated candidate validation completed. Owner: Client mobile worker. Lead: Main Astra.
 Risk: MEDIUM (presentation only). Priority: P2.
 Discovery base: 3a93122515350570e176c08a97620d404d38fd57.
 
@@ -28,3 +28,7 @@ The new browser regression failed against original source with a 1,460-pixel sea
 Focused Client units passed 26/26; formatting, typecheck and diff check passed. Full lint passed with four existing warnings outside changed files. Main full-diff review and fresh independent review found no actionable issue or product security-behavior change. Main separately accepted the final settling/screenshot test adjustments. Worker commit `e8ee30b` integrated as `b055d6b`. Source blob `bef243b01fe9896cb59e3220d8b1ee650dfe2507`; final browser blob `b58f3da13e8ba4f9259119c946d0d015942f99cf`.
 
 An initial partial-reference fixture query did not match the existing exact-reference search behavior; the fixture was corrected. A stopped baseline server caused one connection-refused attempt. Neither is classified as a product defect. The completed causal red and green runs are separate evidence.
+
+## Final closure
+
+Main accepts and closes this ticket after integrated mobile QA, 22 relevant local browser passes and [full updated candidate validation](https://github.com/EERON36/kaul/actions/runs/33995335426): 752 unit, 224 PostgreSQL and 49 browser passes, with only the already-known mandatory audit blocker. [Complete mobile acceptance](MOBILE_REMEDIATION.md) records the evidence and remaining physical-phone boundary.
