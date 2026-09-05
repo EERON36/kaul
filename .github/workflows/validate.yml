@@ -193,6 +193,9 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Capture bounded Documents service diagnostic
+        run: node --conditions=react-server --import tsx scripts/document-upload-ci-diagnostic.ts
+
       - name: Run browser smoke tests
         run: npm run test:e2e
 
@@ -201,7 +204,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: documents-upload-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
-          path: test-results/kaul-205-documents-upload-diagnostic-attempt-*.json
+          path: |
+            test-results/kaul-205-documents-upload-diagnostic-attempt-*.json
+            ${{ runner.temp }}/kaul-205-service-diagnostic/diagnostic.json
           if-no-files-found: ignore
           retention-days: 7
 

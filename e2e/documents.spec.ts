@@ -23,6 +23,10 @@ import {
   replaceDiagnosticFileAtomically,
   sanitizeDocumentUploadDiagnostic,
 } from "../src/test/document-upload-diagnostic";
+import {
+  inspectCiDocumentStorageDirectories,
+  type DocumentStorageDirectoryState,
+} from "../src/test/document-upload-service-diagnostic";
 import { getTestEnvironment } from "../src/test/test-environment";
 
 const testEnvironment = getTestEnvironment();
@@ -49,6 +53,7 @@ type UploadDiagnosticObservation = Readonly<{
   attempt: number;
   httpStatus: number | null;
   applicationCode: string;
+  storageDirectories?: DocumentStorageDirectoryState;
 }>;
 
 async function writeUploadDiagnostic(
@@ -117,6 +122,13 @@ async function captureUploadResponse(
     stage,
     attempt: testInfo.retry + 1,
     ...sanitizeDocumentUploadDiagnostic(response.status(), payload),
+    ...(stage === "initial-upload" && response.status() === 503
+      ? {
+          storageDirectories: await inspectCiDocumentStorageDirectories(
+            process.env,
+          ),
+        }
+      : {}),
   });
   await writeUploadDiagnostic(testInfo, observations);
   return response;
