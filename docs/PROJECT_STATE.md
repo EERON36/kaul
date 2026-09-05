@@ -10,6 +10,26 @@ approval. The [23 August snapshot](astra/2026-09-04/PROJECT_STATE_2026-08-23.md)
 is retained as historical evidence, including its exact CI run and earlier
 operational assumptions.
 
+## Active integration execution — 5 September 2026
+
+The owner accepted source-of-truth reconciliation and authorized ticketed
+development. The active local candidate is
+`codex/unified-candidate-20260905`, starting at Astra
+`27df04ef18d397e1693dad747df803e2604ed748`, a direct descendant of
+PR #44's `82bf2987189a029516b7e6221f600af931827522`.
+See the [execution board](integration/2026-09-05/BOARD.md) and
+[accepted reconciliation](integration/2026-09-05/RECONCILIATION.md).
+The baseline below remains a dated source snapshot.
+
+PR #44 GitHub run `33919394787` passed 570 units and 197 PostgreSQL tests but
+failed Documents upload: 43/44 browser cases passed in both attempts. Its
+audit step was skipped after that failure. Astra's local 601/215/44 results
+do not prove that GitHub failure fixed; diagnostic work is tracked as KAUL-205.
+Fresh dependency audit still fails under the unchanged policy; supported
+upstream remediation remains a release blocker, not a ban on controlled
+development. No live deployment or infrastructure change is authorized by
+this execution phase.
+
 ## Repository baseline
 
 - `main` at `a93c863` contains the completed Milestones 0–4 baseline.

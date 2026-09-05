@@ -10,6 +10,9 @@ reliable historical records.
 
 ## Current status
 
+The active local development candidate and exact validation gates are tracked
+in the [unified integration board](docs/integration/2026-09-05/BOARD.md).
+
 The completed Milestones 0–4 baseline on `main` provides:
 
 - Individual email-and-password authentication, Administrator and Staff Member
