@@ -180,6 +180,41 @@ describe("Client Server Action audit operation lifecycle", () => {
     );
   });
 
+  it("returns the normalized saved values for the editor baseline", async () => {
+    const form = updateForm();
+    form.set("firstName", "  Efter  ");
+    form.set("lastName", "  Sparande  ");
+    form.set("personIdentifier", " e2e-normalized ");
+    form.set("personalIdentityNumber", " 19000101-0202 ");
+    form.set("placingUnit", "  Fiktiv enhet  ");
+    form.set("legalBasis", "  Fiktivt lagrum  ");
+    form.set("responsibleSocialWorkerName", "  Fiktiv handläggare  ");
+    form.set("responsibleSocialWorkerPhone", " 070-000 00 00 ");
+    form.set("responsibleSocialWorkerEmail", " handlaggare@example.test ");
+    form.set("category", " YOUTH ");
+    mocks.updateClient.mockResolvedValueOnce({
+      changed: true,
+      client: { id: clientId },
+    });
+
+    await expect(updateClientAction(initialState, form)).resolves.toMatchObject(
+      {
+        status: "SUCCESS",
+        values: {
+          firstName: "Efter",
+          lastName: "Sparande",
+          personIdentifier: "E2E-NORMALIZED",
+          category: "YOUTH",
+          personalIdentityNumber: "19000101-0202",
+          placingUnit: "Fiktiv enhet",
+          legalBasis: "Fiktivt lagrum",
+          responsibleSocialWorkerName: "Fiktiv handläggare",
+          responsibleSocialWorkerPhone: "070-000 00 00",
+          responsibleSocialWorkerEmail: "handlaggare@example.test",
+        },
+      },
+    );
+  });
   it("does not claim a mutation when unchanged Client values are submitted", async () => {
     mocks.updateClient.mockResolvedValueOnce({
       changed: false,

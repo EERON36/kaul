@@ -1,11 +1,22 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import {
+  useActionState,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 
 import { useNavigationGuard } from "@/components/navigation-guard";
 import { CLIENT_CATEGORY_LABELS } from "@/modules/clients/client-category";
 
-import { updateClientAction, type ClientActionState } from "../actions";
+import {
+  updateClientAction,
+  type ClientEditActionState,
+  type ClientEditFormValues,
+} from "../actions";
 
 type EditableClient = Readonly<{
   id: string;
@@ -19,19 +30,6 @@ type EditableClient = Readonly<{
   responsibleSocialWorkerName?: string | null;
   responsibleSocialWorkerPhone?: string | null;
   responsibleSocialWorkerEmail?: string | null;
-}>;
-
-type ClientEditFormValues = Readonly<{
-  firstName: string;
-  lastName: string;
-  personIdentifier: string;
-  category: string;
-  personalIdentityNumber: string;
-  placingUnit: string;
-  legalBasis: string;
-  responsibleSocialWorkerName: string;
-  responsibleSocialWorkerPhone: string;
-  responsibleSocialWorkerEmail: string;
 }>;
 
 const clientEditFormFieldNames = [
@@ -107,29 +105,43 @@ export function ClientEdit({
   startEditing?: boolean;
 }>) {
   const [editing, setEditing] = useState(startEditing);
-  const hasApprovedCategory =
-    client.category === "ADULT" || client.category === "YOUTH";
-  const initialState: ClientActionState = { status: "IDLE", operationId };
-  const [state, action, pending] = useActionState(
-    updateClientAction,
-    initialState,
+  const [formValues, setFormValues] = useState(() =>
+    getInitialClientEditFormValues(client),
   );
+  const initialState: ClientEditActionState = { status: "IDLE", operationId };
   const setNavigationBlocked = useNavigationGuard();
   const editTriggerRef = useRef<HTMLButtonElement>(null);
-  const formRef = useRef<HTMLFormElement>(null);
-  const initialValuesRef = useRef(getInitialClientEditFormValues(client));
+  const initialValuesRef = useRef(formValues);
+  const wasEditingRef = useRef(editing);
   const dirtyRef = useRef(false);
+  const saveClient = useCallback(
+    async (
+      previousState: ClientEditActionState,
+      submittedFormData: FormData,
+    ) => {
+      const nextState = await updateClientAction(
+        previousState,
+        submittedFormData,
+      );
+      if (nextState.status === "SUCCESS" && nextState.values) {
+        setFormValues(nextState.values);
+        initialValuesRef.current = nextState.values;
+        dirtyRef.current = false;
+        setNavigationBlocked(false);
+      }
+      return nextState;
+    },
+    [setNavigationBlocked],
+  );
+  const [state, action, pending] = useActionState(saveClient, initialState);
+  const hasApprovedCategory =
+    formValues.category === "ADULT" || formValues.category === "YOUTH";
 
   useEffect(() => {
-    if (!editing) editTriggerRef.current?.focus();
+    const returnedToEditTrigger = wasEditingRef.current && !editing;
+    wasEditingRef.current = editing;
+    if (returnedToEditTrigger) editTriggerRef.current?.focus();
   }, [editing]);
-
-  useEffect(() => {
-    if (state.status !== "SUCCESS" || !formRef.current) return;
-    initialValuesRef.current = readClientEditFormValues(formRef.current);
-    dirtyRef.current = false;
-    setNavigationBlocked(false);
-  }, [setNavigationBlocked, state.status]);
 
   useEffect(() => {
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -147,10 +159,16 @@ export function ClientEdit({
     [setNavigationBlocked],
   );
 
-  function handleFormChange(form: HTMLFormElement) {
+  function handleFormChange(
+    event: ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+  ) {
+    const form = event.currentTarget.form;
+    if (!form) return;
+    const nextValues = readClientEditFormValues(form);
+    setFormValues(nextValues);
     const dirty = !areClientEditFormValuesEqual(
       initialValuesRef.current,
-      readClientEditFormValues(form),
+      nextValues,
     );
     dirtyRef.current = dirty;
     setNavigationBlocked(dirty);
@@ -165,6 +183,7 @@ export function ClientEdit({
     ) {
       return;
     }
+    setFormValues(initialValuesRef.current);
     dirtyRef.current = false;
     setNavigationBlocked(false);
     setEditing(false);
@@ -186,31 +205,30 @@ export function ClientEdit({
   return (
     <section aria-labelledby="edit-client-heading" className="client-section">
       <h2 id="edit-client-heading">Redigera klient</h2>
-      <form
-        action={action}
-        aria-busy={pending}
-        onChange={(event) => handleFormChange(event.currentTarget)}
-        ref={formRef}
-      >
+      <form action={action} aria-busy={pending}>
         <input name="operationId" type="hidden" value={state.operationId} />
         <input name="clientId" type="hidden" value={client.id} />
         <div className="form-field">
           <label htmlFor="edit-client-first-name">Förnamn</label>
           <input
-            defaultValue={client.firstName}
+            value={formValues.firstName}
+            disabled={pending}
             id="edit-client-first-name"
             maxLength={100}
             name="firstName"
+            onChange={handleFormChange}
             required
           />
         </div>
         <div className="form-field">
           <label htmlFor="edit-client-last-name">Efternamn</label>
           <input
-            defaultValue={client.lastName}
+            value={formValues.lastName}
+            disabled={pending}
             id="edit-client-last-name"
             maxLength={100}
             name="lastName"
+            onChange={handleFormChange}
             required
           />
         </div>
@@ -218,10 +236,12 @@ export function ClientEdit({
           <label htmlFor="edit-client-person-identifier">Personreferens</label>
           <input
             aria-describedby="edit-client-person-identifier-help"
-            defaultValue={client.personIdentifier}
+            value={formValues.personIdentifier}
+            disabled={pending}
             id="edit-client-person-identifier"
             maxLength={64}
             name="personIdentifier"
+            onChange={handleFormChange}
             required
           />
           <p className="form-help" id="edit-client-person-identifier-help">
@@ -231,13 +251,15 @@ export function ClientEdit({
         <div className="form-field">
           <label htmlFor="edit-client-category">Kategori</label>
           <select
-            defaultValue={client.category}
+            value={formValues.category}
+            disabled={pending}
             id="edit-client-category"
             name="category"
+            onChange={handleFormChange}
             required
           >
             {!hasApprovedCategory ? (
-              <option disabled value={client.category}>
+              <option disabled value={formValues.category}>
                 Okänd kategori – välj Vuxna eller Ungdomar
               </option>
             ) : null}
@@ -254,10 +276,12 @@ export function ClientEdit({
             <input
               aria-describedby="edit-client-personal-identity-number-help"
               autoComplete="off"
-              defaultValue={client.personalIdentityNumber ?? ""}
+              value={formValues.personalIdentityNumber}
+              disabled={pending}
               id="edit-client-personal-identity-number"
               maxLength={32}
               name="personalIdentityNumber"
+              onChange={handleFormChange}
             />
             <p
               className="form-help"
@@ -270,19 +294,23 @@ export function ClientEdit({
           <div className="form-field">
             <label htmlFor="edit-client-placing-unit">Placerande enhet</label>
             <input
-              defaultValue={client.placingUnit ?? ""}
+              value={formValues.placingUnit}
+              disabled={pending}
               id="edit-client-placing-unit"
               maxLength={200}
               name="placingUnit"
+              onChange={handleFormChange}
             />
           </div>
           <div className="form-field">
             <label htmlFor="edit-client-legal-basis">Lagrum</label>
             <input
-              defaultValue={client.legalBasis ?? ""}
+              value={formValues.legalBasis}
+              disabled={pending}
               id="edit-client-legal-basis"
               maxLength={200}
               name="legalBasis"
+              onChange={handleFormChange}
             />
           </div>
         </fieldset>
@@ -293,10 +321,12 @@ export function ClientEdit({
               Namn
             </label>
             <input
-              defaultValue={client.responsibleSocialWorkerName ?? ""}
+              value={formValues.responsibleSocialWorkerName}
+              disabled={pending}
               id="edit-client-responsible-social-worker-name"
               maxLength={200}
               name="responsibleSocialWorkerName"
+              onChange={handleFormChange}
             />
           </div>
           <div className="form-field">
@@ -304,10 +334,12 @@ export function ClientEdit({
               Telefon
             </label>
             <input
-              defaultValue={client.responsibleSocialWorkerPhone ?? ""}
+              value={formValues.responsibleSocialWorkerPhone}
+              disabled={pending}
               id="edit-client-responsible-social-worker-phone"
               maxLength={50}
               name="responsibleSocialWorkerPhone"
+              onChange={handleFormChange}
               type="tel"
             />
           </div>
@@ -316,10 +348,12 @@ export function ClientEdit({
               E-post
             </label>
             <input
-              defaultValue={client.responsibleSocialWorkerEmail ?? ""}
+              value={formValues.responsibleSocialWorkerEmail}
+              disabled={pending}
               id="edit-client-responsible-social-worker-email"
               maxLength={254}
               name="responsibleSocialWorkerEmail"
+              onChange={handleFormChange}
               type="email"
             />
           </div>

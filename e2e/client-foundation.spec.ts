@@ -899,6 +899,11 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   await expect(
     page.getByText("Personreferensen används redan för en annan klient."),
   ).toBeVisible();
+  await expect(page.getByLabel("Förnamn")).toHaveValue("Får inte");
+  await expect(page.getByLabel("Efternamn")).toHaveValue("Sparas");
+  await expect(page.getByLabel("Personreferens")).toHaveValue(
+    "e2e-edit-conflict",
+  );
   await expect(
     page.getByRole("heading", { name: "Efter Redigering" }),
   ).toBeVisible();
@@ -978,9 +983,11 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   await staffContext.close();
 });
 
-test("Client editing remains functional at a 375px viewport", async ({
+test("Client editing protects unsaved values at a 375px viewport", async ({
   page,
 }) => {
+  const discardConfirmation =
+    "Vill du avbryta redigeringen? Dina osparade ändringar försvinner.";
   await page.setViewportSize({ width: 375, height: 812 });
   await logIn(page, administratorEmail, "192.0.2.188");
   const client = await prisma.client.findFirstOrThrow({
@@ -989,7 +996,10 @@ test("Client editing remains functional at a 375px viewport", async ({
   await page.goto(`/klienter/${client.id}`);
   await page.getByRole("link", { name: "Redigera klientuppgifter" }).click();
 
-  await expect(page.getByLabel("Förnamn")).toBeVisible();
+  const firstName = page.getByLabel("Förnamn");
+  const originalFirstName = await firstName.inputValue();
+  const unsavedFirstName = "Osparad ändring";
+  await expect(firstName).toBeVisible();
   await expect(page.getByLabel("Efternamn")).toBeVisible();
   await expect(page.getByLabel("Personreferens")).toBeVisible();
   await expect(page.getByLabel("Kategori", { exact: true })).toBeVisible();
@@ -1003,10 +1013,75 @@ test("Client editing remains functional at a 375px viewport", async ({
     ),
   ).resolves.toBe(true);
 
+  await firstName.fill(unsavedFirstName);
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toBe(discardConfirmation);
+    void dialog.dismiss();
+  });
   await page.getByRole("button", { name: "Avbryt" }).click();
-  await expect(
-    page.getByRole("button", { name: "Redigera klient" }),
-  ).toBeVisible();
+  await expect(firstName).toHaveValue(unsavedFirstName);
+
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toContain(
+      "osparade ändringar i klientuppgifterna",
+    );
+    void dialog.dismiss();
+  });
+  await page.getByRole("link", { name: "Anteckningar" }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/klienter/${client.id}\\?redigera=ja$`),
+  );
+  await expect(firstName).toHaveValue(unsavedFirstName);
+
+  await firstName.fill(originalFirstName);
+  let cleanCancelOpenedDialog = false;
+  const dismissUnexpectedDialog = (dialog: { dismiss(): Promise<void> }) => {
+    cleanCancelOpenedDialog = true;
+    void dialog.dismiss();
+  };
+  page.on("dialog", dismissUnexpectedDialog);
+  await page.getByRole("button", { name: "Avbryt" }).click();
+  page.off("dialog", dismissUnexpectedDialog);
+  expect(cleanCancelOpenedDialog).toBe(false);
+  const editTrigger = page.getByRole("button", { name: "Redigera klient" });
+  await expect(editTrigger).toBeVisible();
+  await expect(editTrigger).toBeFocused();
+
+  await editTrigger.click();
+  await firstName.fill("Godkänd kassering");
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toBe(discardConfirmation);
+    void dialog.accept();
+  });
+  await page.getByRole("button", { name: "Avbryt" }).click();
+  await expect(editTrigger).toBeFocused();
+  await editTrigger.click();
+  await expect(firstName).toHaveValue(originalFirstName);
+
+  const savedFirstName = "Sparad omredigering";
+  await firstName.fill(savedFirstName);
+  await page.getByRole("button", { name: "Spara ändringar" }).click();
+  await expect(page.getByText("Klientuppgifterna har sparats.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Avbryt" }).click();
+  await expect(editTrigger).toBeFocused();
+  await editTrigger.click();
+  await expect(firstName).toHaveValue(savedFirstName);
+
+  const secondSavedFirstName = "Andra sparade ändringen";
+  const saveButton = page.getByRole("button", { name: "Spara ändringar" });
+  await firstName.fill(secondSavedFirstName);
+  const secondUpdateResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.request().headers()["next-action"] !== undefined,
+  );
+  await saveButton.click();
+  expect((await secondUpdateResponsePromise).ok()).toBe(true);
+  await expect(saveButton).toBeEnabled();
+  await page.getByRole("button", { name: "Avbryt" }).click();
+  await editTrigger.click();
+  await expect(firstName).toHaveValue(secondSavedFirstName);
 });
 
 test("Administrator archives only after ending all Assignments while Staff remains denied", async ({

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { generateAuditOperationId } from "@/modules/audit/audit";
 import { getClientManagementFeedback } from "@/modules/clients/client-feedback";
+import { updateClientInputSchema } from "@/modules/clients/client-input";
 import {
   archiveClient,
   createAssignment,
@@ -22,6 +23,23 @@ export type ClientActionState = Readonly<{
   clientId?: string;
 }>;
 
+export type ClientEditFormValues = Readonly<{
+  firstName: string;
+  lastName: string;
+  personIdentifier: string;
+  category: string;
+  personalIdentityNumber: string;
+  placingUnit: string;
+  legalBasis: string;
+  responsibleSocialWorkerName: string;
+  responsibleSocialWorkerPhone: string;
+  responsibleSocialWorkerEmail: string;
+}>;
+
+export type ClientEditActionState = ClientActionState &
+  Readonly<{
+    values?: ClientEditFormValues;
+  }>;
 export type ClientSearchActionState = Readonly<{
   status: "IDLE" | "ERROR" | "SUCCESS";
   clients: readonly ClientListItem[];
@@ -162,13 +180,13 @@ export async function archiveClientAction(
 }
 
 export async function updateClientAction(
-  _previousState: ClientActionState,
+  _previousState: ClientEditActionState,
   formData: FormData,
-): Promise<ClientActionState> {
+): Promise<ClientEditActionState> {
   const operationId = String(formData.get("operationId") ?? "");
   const clientId = String(formData.get("clientId") ?? "");
   try {
-    const result = await updateClient({
+    const submittedInput = {
       operationId,
       clientId,
       firstName: String(formData.get("firstName") ?? ""),
@@ -189,7 +207,9 @@ export async function updateClientAction(
         formData.get("responsibleSocialWorkerEmail") ?? "",
       ),
       category: String(formData.get("category") ?? ""),
-    });
+    };
+    const result = await updateClient(submittedInput);
+    const values = updateClientInputSchema.parse(submittedInput);
     revalidatePath("/");
     revalidatePath("/klienter");
     revalidatePath(`/klienter/${result.client.id}`);
@@ -199,6 +219,18 @@ export async function updateClientAction(
       message: result.changed
         ? "Klientuppgifterna har sparats."
         : "Det finns inga ändringar att spara.",
+      values: {
+        firstName: values.firstName,
+        lastName: values.lastName,
+        personIdentifier: values.personIdentifier,
+        category: values.category,
+        personalIdentityNumber: values.personalIdentityNumber ?? "",
+        placingUnit: values.placingUnit ?? "",
+        legalBasis: values.legalBasis ?? "",
+        responsibleSocialWorkerName: values.responsibleSocialWorkerName ?? "",
+        responsibleSocialWorkerPhone: values.responsibleSocialWorkerPhone ?? "",
+        responsibleSocialWorkerEmail: values.responsibleSocialWorkerEmail ?? "",
+      },
     };
   } catch (error) {
     const message = getClientManagementFeedback(error);
