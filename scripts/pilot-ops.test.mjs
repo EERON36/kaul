@@ -268,6 +268,8 @@ function dockerStubLines() {
     '  *" pg_dump "*) [ "${KAUL_TEST_FAIL_BACKUP:-0}" != 1 ] || exit 1; printf \'fictional custom archive\\n\' ; exit 0 ;;',
     '  *" pg_restore --list "*) cat >/dev/null ; exit 0 ;;',
     '  *" npm run db:deploy "*) [ "${KAUL_TEST_FAIL_MIGRATION:-0}" != 1 ] ; exit $? ;;',
+    '  *"scripts/check-pilot-documents.ts "*) [ "${KAUL_TEST_FAIL_DOCUMENT_READINESS:-0}" != 1 ] ; exit $? ;;',
+    '  *"--wait-timeout 180 document-scanner "*) [ "${KAUL_TEST_FAIL_SCANNER_START:-0}" != 1 ] ; exit $? ;;',
     '  *" npm run db:status "*) exit 0 ;;',
     '  *" up -d --no-deps kaul-restore-check "*) [ "${KAUL_TEST_FAIL_RESTORE_CHECK_START:-0}" != 1 ] ; exit $? ;;',
     '  *" up -d --no-deps kaul "*) [ "${KAUL_TEST_FAIL_APP_START:-0}" != 1 ] ; exit $? ;;',
@@ -849,7 +851,7 @@ describe("Pilot operator safety controls", () => {
       "Another Pilot operator workflow is already running",
     );
     expect(script).toMatch(
-      /backup\|restore\|start-restore-check\|stop-restore-check\|migrate\|migrate-pristine\|convert-personnummer\|update\|start-postgres\|bootstrap-admin\|start-stack\) return 0/,
+      /backup\|restore\|start-restore-check\|stop-restore-check\|migrate\|migrate-pristine\|convert-personnummer\|update\|start-postgres\|bootstrap-admin\|start-stack\|prepare-scanner\|verify-documents\) return 0/,
     );
   });
 
@@ -1018,6 +1020,14 @@ describe("Pilot operator safety controls", () => {
     expect(publicIngressCompose).toContain('"80:80"');
     expect(publicIngressCompose).toContain('"443:443"');
     expect(compose).toContain("internal: true");
+    const scannerService = compose.match(
+      /^  document-scanner:\n([\s\S]*?)(?=^  postgres:)/m,
+    )?.[1];
+    expect(scannerService).toContain("- scanner-updates");
+    expect(scannerService).toContain("- private");
+    expect(scannerService).not.toContain("- edge");
+    expect(scannerService).not.toMatch(/^    ports:/m);
+    expect(compose.match(/      - scanner-updates/g)).toHaveLength(1);
     const restoreCheckService = compose.match(
       /^  kaul-restore-check:\r?\n([\s\S]*?)(?=^  postgres:)/m,
     )?.[1];
@@ -1881,6 +1891,75 @@ describe("Pilot Restic backup and restore behavior", () => {
 });
 
 describe("Pilot update behavior", () => {
+  it("stops a partially created application when first startup fails", () => {
+    const result = executePilotCommand("start-stack", {
+      stub: { KAUL_TEST_FAIL_APP_START: "1" },
+    });
+    expect(result.status).not.toBe(0);
+    expect(commandPosition(result.commandLog, "stop kaul")).toBeGreaterThan(
+      commandPosition(result.commandLog, "up -d --no-deps kaul"),
+    );
+    expect(commandPosition(result.commandLog, "up -d --no-deps caddy")).toBe(
+      -1,
+    );
+    expect(outputOf(result)).toContain("Kaul and Caddy remain stopped");
+  }, 60_000);
+
+  it.each(["update", "start-stack"])(
+    "checks Documents before reopening ingress for %s",
+    (command) => {
+      const result = executePilotCommand(command);
+      expect(result.status, outputOf(result)).toBe(0);
+      const scanner = commandPosition(
+        result.commandLog,
+        "--wait-timeout 180 document-scanner",
+      );
+      const readiness = commandPosition(
+        result.commandLog,
+        "scripts/check-pilot-documents.ts",
+      );
+      const ingress = commandPosition(
+        result.commandLog,
+        "up -d --no-deps caddy",
+      );
+      expect(scanner).toBeGreaterThan(-1);
+      expect(readiness).toBeGreaterThan(scanner);
+      expect(ingress).toBeGreaterThan(readiness);
+    },
+    60_000,
+  );
+
+  it.each(["update", "start-stack"])(
+    "keeps ingress closed when Documents readiness fails for %s",
+    (command) => {
+      const result = executePilotCommand(command, {
+        stub: { KAUL_TEST_FAIL_DOCUMENT_READINESS: "1" },
+      });
+      expect(result.status).not.toBe(0);
+      expect(
+        commandPosition(result.commandLog, "scripts/check-pilot-documents.ts"),
+      ).toBeGreaterThan(-1);
+      expect(commandPosition(result.commandLog, "up -d --no-deps caddy")).toBe(
+        -1,
+      );
+      expect(commandPosition(result.commandLog, "stop kaul")).toBeGreaterThan(
+        -1,
+      );
+      expect(outputOf(result)).toContain("Caddy remain");
+    },
+    60_000,
+  );
+
+  it("rejects a failed scanner preparation before taking the healthy application down", () => {
+    const result = executePilotCommand("update", {
+      stub: { KAUL_TEST_FAIL_SCANNER_START: "1" },
+    });
+    expect(result.status).not.toBe(0);
+    expect(commandPosition(result.commandLog, "stop caddy")).toBe(-1);
+    expect(commandPosition(result.commandLog, "stop kaul")).toBe(-1);
+    expect(commandPosition(result.commandLog, "pg_dump")).toBe(-1);
+  }, 60_000);
+
   it("keeps Caddy stopped until a healthy Kaul release passes validation", () => {
     const result = executePilotCommand("update");
     const commands = result.commandLog;

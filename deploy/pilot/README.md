@@ -8,6 +8,39 @@ does **not** deploy Kaul, approve a homelab, or permit real Client data.
 Only fictional or sanitized data is allowed. Kaul is not approved for
 sensitive production use.
 
+## Combined candidate activation boundary
+
+The historical Pilot-to-unified transition is owner attended. Do not use
+`update` for the initial transition: Stage A requires explicit Personnummer
+conversion before application readiness can pass, and Documents activation
+requires manifest-bound database/object backup and isolated restore evidence.
+The execution board records which of those gates is actually complete.
+
+`prepare-scanner` starts only the pinned private scanner and waits for its
+container health. Its dedicated `scanner-updates` network permits signature
+updates without attaching PostgreSQL or Kaul to an external network. It has no
+published port, Documents mount or application credential. The image's normal
+FreshClam daemon refreshes the persistent signature volume. Owner acceptance
+must prove outbound DNS/update access, reload, restart persistence and alerts
+before signatures reach the unchanged maximum age of 24 hours. Container ping
+alone does not prove signature freshness.
+
+`verify-documents` runs the exact image's real ClamAV adapter with fictional
+bytes and probes a newly owned quarantine file. It rejects absent/linked
+storage, unavailable or stale scanning, and any non-clean result. It does not
+upload a Client record or modify accepted objects. Both `start-stack` and
+`update` keep Caddy stopped until application health and this separate check
+pass; readiness failure stops Kaul and leaves ingress stopped. Application
+health alone remains a database/key readiness signal, not scanner evidence.
+
+```sh
+scripts/pilot-ops.sh prepare-scanner --env-file /etc/kaul/pilot.env
+scripts/pilot-ops.sh verify-documents --env-file /etc/kaul/pilot.env
+```
+
+These commands are future owner operations, not authorization to run them now.
+Finish the exact backup/restore and conversion gates before `start-stack`.
+
 ## Topology
 
 ```text

@@ -99,6 +99,8 @@ Usage:
   scripts/pilot-ops.sh start-postgres --env-file PATH
   scripts/pilot-ops.sh bootstrap-admin --env-file PATH
   scripts/pilot-ops.sh start-stack --env-file PATH
+  scripts/pilot-ops.sh prepare-scanner --env-file PATH
+  scripts/pilot-ops.sh verify-documents --env-file PATH
 
 The environment file is parsed as data and is never sourced as shell code.
 USAGE
@@ -278,7 +280,7 @@ load_compose_project() {
 
 command_requires_operation_lock() {
   case "$1" in
-    backup|restore|start-restore-check|stop-restore-check|migrate|migrate-pristine|convert-personnummer|update|start-postgres|bootstrap-admin|start-stack) return 0 ;;
+    backup|restore|start-restore-check|stop-restore-check|migrate|migrate-pristine|convert-personnummer|update|start-postgres|bootstrap-admin|start-stack|prepare-scanner|verify-documents) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -1022,6 +1024,34 @@ stop_restore_check() {
   note "Private restore-check container removed. Restored databases were preserved."
 }
 
+prepare_document_scanner() {
+  compose pull document-scanner
+  compose up -d --no-deps --wait --wait-timeout 180 document-scanner ||
+    die "Private document scanner did not start. Application and ingress were not started."
+}
+
+verify_documents() {
+  compose run --rm --no-deps kaul node --conditions=react-server --import tsx scripts/check-pilot-documents.ts ||
+    return 1
+}
+
+start_stack_privately() {
+  # A first activation must finish migration, conversion and exact restore gates
+  # before invoking this command. Never expose an unverified app through Caddy.
+  compose stop caddy || die "Caddy could not be stopped. Startup did not proceed."
+  prepare_document_scanner
+  if ! compose up -d --no-deps kaul; then
+    compose stop kaul || die "Kaul startup failed and Kaul could not be confirmed stopped. Caddy remains stopped."
+    die "Kaul startup failed. Kaul and Caddy remain stopped."
+  fi
+  if ! wait_for_application_health kaul || ! verify_documents; then
+    compose stop kaul || die "Readiness failed and Kaul could not be confirmed stopped. Caddy remains stopped."
+    die "Application or Documents readiness failed. Kaul and Caddy remain stopped."
+  fi
+  compose up -d --no-deps caddy || die "Caddy failed to start."
+  note "Application and Documents readiness passed. Verify attended HTTPS, allowed and denied workflows."
+}
+
 update_application() {
   current_container=$(compose ps -q kaul 2>/dev/null || true)
   if [ -n "$current_container" ]; then
@@ -1033,6 +1063,7 @@ update_application() {
   target_image=$(environment_value KAUL_IMAGE)
   note "Target application image: $target_image"
   compose pull kaul
+  prepare_document_scanner
   compose stop caddy || die "Caddy could not be stopped. Update did not proceed."
   compose stop kaul || die "Kaul could not be stopped. Caddy remains stopped and update did not proceed."
   create_backup
@@ -1049,6 +1080,10 @@ update_application() {
       die "The new application did not become healthy, and Kaul could not be confirmed stopped. Caddy remains stopped."
     fi
     die "The new application did not become healthy and was stopped. Caddy remains stopped. Database rollback requires the documented clean-restore workflow."
+  fi
+  if ! verify_documents; then
+    compose stop kaul || die "Documents readiness failed and Kaul could not be confirmed stopped. Caddy remains stopped."
+    die "Documents readiness failed. Kaul and Caddy remain stopped."
   fi
   if ! compose up -d --no-deps caddy; then
     die "Kaul is healthy, but Caddy failed to start. The Pilot remains unavailable."
@@ -1133,9 +1168,17 @@ case "$COMMAND" in
     preflight
     compose run --rm --no-deps kaul npm run bootstrap:admin
     ;;
+  prepare-scanner)
+    preflight
+    prepare_document_scanner
+    ;;
+  verify-documents)
+    preflight
+    verify_documents || die "Documents readiness failed."
+    ;;
   start-stack)
     preflight
-    compose up -d
+    start_stack_privately
     ;;
   -h|--help|help)
     usage

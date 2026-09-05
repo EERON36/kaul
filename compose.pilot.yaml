@@ -135,6 +135,7 @@ services:
       start_period: 120s
     networks:
       - private
+      - scanner-updates
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -171,6 +172,7 @@ services:
     logging: *pilot-logging
 
 networks:
+  scanner-updates:
   edge:
   private:
     internal: true

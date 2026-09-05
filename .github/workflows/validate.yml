@@ -183,6 +183,14 @@ jobs:
             exit "$readiness_status"
           fi
 
+      - name: Verify Pilot Documents readiness adapter
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          readiness_root="$RUNNER_TEMP/kaul-pilot-documents-readiness"
+          install -d -m 0700 "$readiness_root/objects" "$readiness_root/quarantine"
+          DOCUMENT_STORAGE_ROOT="$readiness_root" \
+            node --conditions=react-server --import tsx scripts/check-pilot-documents.ts
       - name: Generate Prisma Client
         run: npm run prisma:generate
 
