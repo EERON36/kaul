@@ -196,5 +196,14 @@ jobs:
       - name: Run browser smoke tests
         run: npm run test:e2e
 
+      - name: Upload bounded Documents failure diagnostic
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: documents-upload-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/kaul-205-documents-upload-diagnostic-attempt-*.json
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Audit dependencies
         run: npm run audit:ci
