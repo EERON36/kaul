@@ -86,46 +86,52 @@ describe("reviewed slice snapshot", () => {
       },
     );
   });
-  it("invalidates detached-HEAD review when only untracked content changes", () => {
-    const repository = createDetachedFixture();
-    expect(String(git(repository, ["branch", "--show-current"])).trim()).toBe(
-      "",
-    );
-    const snapshot = captureReviewSnapshot(repository);
-    const statusBefore = git(
-      repository,
-      ["status", "--porcelain=v2", "--untracked-files=all", "-z"],
-      null,
-    );
+  it(
+    "invalidates detached-HEAD review when only untracked content changes",
+    () => {
+      const repository = createDetachedFixture();
+      expect(String(git(repository, ["branch", "--show-current"])).trim()).toBe(
+        "",
+      );
+      const snapshot = captureReviewSnapshot(repository);
+      const statusBefore = git(
+        repository,
+        ["status", "--porcelain=v2", "--untracked-files=all", "-z"],
+        null,
+      );
 
-    expect(snapshot.untracked.map((entry) => entry.path)).toEqual([
-      "nested folder/räksmörgås.txt",
-      "review note.txt",
-    ]);
-    expect(
-      snapshot.untracked.some((entry) => entry.path === "ignored.local"),
-    ).toBe(false);
-    assertReviewSnapshotMatches(snapshot, repository);
+      expect(snapshot.untracked.map((entry) => entry.path)).toEqual([
+        "nested folder/räksmörgås.txt",
+        "review note.txt",
+      ]);
+      expect(
+        snapshot.untracked.some((entry) => entry.path === "ignored.local"),
+      ).toBe(false);
+      assertReviewSnapshotMatches(snapshot, repository);
 
-    writeFileSync(
-      path.join(repository, "review note.txt"),
-      "changed after review\n",
-    );
-    const statusAfter = git(
-      repository,
-      ["status", "--porcelain=v2", "--untracked-files=all", "-z"],
-      null,
-    );
-    expect(statusAfter).toEqual(statusBefore);
-    expect(compareReviewSnapshot(snapshot, repository)).toMatchObject({
-      matches: false,
-      differences: ["untracked content (review note.txt)"],
-    });
-    expect(() => assertReviewSnapshotMatches(snapshot, repository)).toThrow(
-      "untracked content (review note.txt)",
-    );
+      writeFileSync(
+        path.join(repository, "review note.txt"),
+        "changed after review\n",
+      );
+      const statusAfter = git(
+        repository,
+        ["status", "--porcelain=v2", "--untracked-files=all", "-z"],
+        null,
+      );
+      expect(statusAfter).toEqual(statusBefore);
+      expect(compareReviewSnapshot(snapshot, repository)).toMatchObject({
+        matches: false,
+        differences: ["untracked content (review note.txt)"],
+      });
+      expect(() => assertReviewSnapshotMatches(snapshot, repository)).toThrow(
+        "untracked content (review note.txt)",
+      );
 
-    writeFileSync(path.join(repository, "review note.txt"), "reviewed one\n");
-    expect(compareReviewSnapshot(snapshot, repository).matches).toBe(true);
-  });
+      writeFileSync(path.join(repository, "review note.txt"), "reviewed one\n");
+      expect(compareReviewSnapshot(snapshot, repository).matches).toBe(true);
+      // This real-Git case performs repeated fixture/capture subprocesses. Measured
+      // Windows runs take 5.7-9.4 seconds; pure path cases keep Vitest's default.
+    },
+    process.platform === "win32" ? 15_000 : 5_000,
+  );
 });
