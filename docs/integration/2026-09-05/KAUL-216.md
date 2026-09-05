@@ -1,6 +1,6 @@
 # KAUL-216 — Documents download transaction failure evidence
 
-Status: ACCEPTED — integration authorized. Owner: Sol. Lead: Main Astra.
+Status: CLOSED — accepted, integrated and CI verified. Owner: Sol. Lead: Main Astra.
 Risk: CRITICAL / SECURITY-SENSITIVE (Documents authorization and audit before release).
 Priority: P2 verification gap, not a demonstrated production defect.
 Base: ec5c5ea9146c35853ef976c482a52228a79788cd.
@@ -96,6 +96,16 @@ automatic approval block preserved the work without any Git mutation. The owner
 then explicitly authorized staging, committing, integration into
 codex/unified-candidate-20260905 and pushing that development branch for CI.
 
-Integration and exact-head CI results will be recorded after execution. No
+Worker commit d052392f24d5fd015a3a8a58c3c427b49c7201c3 was integrated without
+conflict as 2721891144fdc80cadbba77f0551998b345af782 and pushed to Draft PR #46.
+The integrated test blob matches independent acceptance.
+
+CI run 33956697235 passed 628 unit tests, 222 PostgreSQL tests and all 44 browser
+tests. Formatting, lint, typecheck, build, migrations, real scanner refresh and
+readiness, and the three operational rehearsals passed. Only the unchanged
+mandatory dependency audit failed (GHSA-ggr8-5vv4-36mx, GHSA-3f6p-5ww8-9rcr and
+GHSA-rgwj-5xj2-c3m3). Main Astra closes KAUL-216; KAUL-209 remains blocked. No
 protected merge, Pilot change, deployment, live data/key operation or destructive
 cleanup is authorized. The worker worktree and task database remain preserved.
+
+Exact integrated validation: [GitHub run 33956697235](https://github.com/EERON36/kaul/actions/runs/33956697235). Closure changes after 2721891 are documentation only.

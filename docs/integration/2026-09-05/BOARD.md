@@ -6,8 +6,8 @@ Updated: 5 September 2026. This is the active source of truth for the accepted r
 
 - Draft [PR #46](https://github.com/EERON36/kaul/pull/46), branch `codex/unified-candidate-20260905`.
 - Worktree: `C:/Projects/kaul/.codex-worktrees/unified-candidate-20260905`.
-- Validated source: `dc29c03023cc2d138d3a71702cd4021230ca5361`. Subsequent handoff changes are documentation only; resolve the branch tip for its current documentation SHA.
-- Exact-source [GitHub run 33952908177](https://github.com/EERON36/kaul/actions/runs/33952908177): all application, migration, browser and operational rehearsal stages pass. Overall CI remains FAILURE because the mandatory dependency audit fails.
+- Previously validated application source: `dc29c03023cc2d138d3a71702cd4021230ca5361`; its handoff was `ec5c5ea`. KAUL-216 adds only tests and review records as `2721891144fdc80cadbba77f0551998b345af782`; application code is unchanged. See the KAUL-216 checkpoint below for its separate CI evidence.
+- Latest application/test-source [GitHub run 33956697235](https://github.com/EERON36/kaul/actions/runs/33956697235) at 2721891: all application, migration, browser and operational rehearsal stages pass. Overall CI remains FAILURE because the mandatory dependency audit fails.
 - Direct ancestry retains Product `406aa755b74c8908b360c64ffe3b9f7bb5c3630f`, Documents `d22fe0b59a8708febdc89daa7cdf8516cc8f9c15`, PR #44 `82bf2987189a029516b7e6221f600af931827522` and Astra `27df04ef18d397e1693dad747df803e2604ed748`.
 
 This is a repository integration candidate, not Pilot or production approval. Main, Pilot and existing PRs #41/#43/#44 remain unmerged and unchanged. No live infrastructure, production keys or live data were accessed.
@@ -28,11 +28,33 @@ This is a repository integration candidate, not Pilot or production approval. Ma
 - KAUL-212 CLOSED — settled scanner connection timer cleared without weakening socket/freshness/error handling; eight focused scanner tests and real scanner CI pass. This timer was not the upload root cause.
 - KAUL-213 CLOSED (classification) — [preservation disposition](PRESERVATION.md) accounts for original local-only work and worker derivatives; no physical cleanup performed.
 - KAUL-214 BACKLOG — owner-attended activation/operations; outside this repository execution phase.
-- KAUL-215 BLOCKED (local environment) — Docker Desktop API became unavailable during local E2E. Preserve the failed run and task resources; no restart or shared-service mutation. Independent GitHub runtime evidence passes.
+- KAUL-215 OPEN (historical environment evidence) — the failed local E2E run and resources remain preserved. Docker API and PostgreSQL are healthy again; KAUL-216 passed newly guarded local PostgreSQL validation. The original API failure cause and full local E2E recovery remain unproven; current availability is not root-cause evidence.
+- KAUL-216 CLOSED — [download transaction failure coverage](KAUL-216.md); seven real-PostgreSQL/filesystem fault cases, Main 88 PostgreSQL and 80 surrounding unit passes, independent Astra acceptance and 24 Documents passes. Tests only; integrated as 2721891 and pushed to Draft PR #46 under explicit owner authorization. Exact-source CI passed 628 unit, 222 PostgreSQL and all 44 browser tests; only the unchanged mandatory dependency audit failed.
 
-- KAUL-216 ACCEPTED — [download transaction failure coverage](KAUL-216.md); seven real-PostgreSQL/filesystem fault cases, Main 88 PostgreSQL and 80 surrounding unit passes, independent Astra acceptance and 24 Documents passes. Tests only; owner explicitly authorized development-candidate integration and push for CI.
+## KAUL-216 integration checkpoint
 
-## Exact-candidate validation
+Worker commit d052392f24d5fd015a3a8a58c3c427b49c7201c3 was accepted by Main
+Astra and fresh independent Astra Red-Team, then integrated without conflict as
+2721891144fdc80cadbba77f0551998b345af782 and pushed to Draft PR #46.
+The test blob remains ca7af578f3831f83f259ff80a5d13733f9e0dfa0. No production
+source, dependency, lockfile, schema, migration or CI policy changed.
+
+[Run 33956697235](https://github.com/EERON36/kaul/actions/runs/33956697235) at
+2721891 passed 628 unit tests in 75 files, 222 PostgreSQL tests in 19 files,
+and all 44 browser tests. Formatting, lint, typecheck, production build,
+migration/conversion rehearsals, real scanner refresh/readiness and all three
+operational rehearsals passed. Only mandatory dependency audit failed, on the
+same recorded deepmerge-ts/mysql2 advisories. Main accepts and closes KAUL-216;
+this does not clear KAUL-209 or grant merge/release/activation approval.
+
+Subsequent closure edits are documentation only; resolve the branch tip for its
+current documentation SHA. This P2 closure is separate from KAUL-205 upload
+root-cause proof and the prior KAUL-208 combined acceptance. No full initial
+source re-review was repeated for this bounded test delta. No independent READY
+ticket was identified; historical Windows/Docker evidence and owner-attended
+activation remain distinct open work.
+
+## Prior exact-candidate validation
 
 Run 33952908177 at dc29c03 passed:
 

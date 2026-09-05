@@ -119,3 +119,9 @@ filesystem work, not physical connection losses; no-payload evidence is at the
 domain return boundary. Route protections were inspected; their unit execution
 is Main-owned. Broader runtime evidence is separately identified in
 [KAUL-216](KAUL-216.md). No live, release or protected-merge approval is granted.
+
+Main's post-integration check confirmed the same accepted test blob at 2721891.
+Exact-source CI run 33956697235 passed 628 unit, 222 PostgreSQL and all 44 browser
+tests, along with static/build/migration/scanner and operational checks. Only
+the unchanged dependency audit failed. This is Main-owned post-integration
+validation, separate from the independent reviewer's executed 24-test evidence.
