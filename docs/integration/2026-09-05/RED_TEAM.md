@@ -44,3 +44,14 @@ Coverage:
 - e2e/documents.spec.ts
 
 Limits: the reviewer did not run database, browser, build or filesystem-writing tests. The fresh 215 PostgreSQL passes and static/build results are lead-owned evidence. Audit transport ambiguity is supported by source review but not a new direct fault-injection regression. Ownership checks do not protect against a hostile same-user process racing path replacement. Whole-candidate browser and final independent review remain open.
+## KAUL-212 scanner connection timer
+
+Worker commit c8aeb0b, integrated as 5b05c2d. Independent Astra verified exactly two files at baseline 2d3c0a81f73bfd77255f2e54fa2acd23ad4534b5 and accepted the narrow fix with no findings. The finally block clears only the ordinary connection-race timer. Connection error/timeout destruction, socket inactivity timeout, signature freshness and strict clean/infected parsing remain unchanged.
+
+Worker evidence: all eight combined scanner tests passed, including three new deterministic timer/socket cases and five existing loopback cases; focused lint, typecheck, formatting and diff checks passed. Reviewer inspected these cases and ran diff check but did not execute the suites. Real ClamAV/combined CI remains pending. This fix does not explain the observed upload 503.
+
+Reviewed SHA-256: scanner source C0FEAD6624DC509B1A9AD73663DBEACC794C7DDE944C0AC7BBCCB94FDEA61FFD; connection regression 88DB9F3E1E084D3BB9C08EDF6C6C8B96BF4979C2ED709E681A183B2FD18E6044.
+
+## Diagnostic integration resolution
+
+Commit a360a7d incorporates diagnostic commit de079f5 into the candidate. The two import conflicts in e2e/documents.spec.ts were resolved by retaining createDocumentTestStorage and adding the required diagnostic helpers, mkdir and resolve. Ambient-root recursive cleanup was not restored. Main Astra inspected the merged lifecycle and ran focused ESLint, Prettier and diff checks successfully. Final combined independent review will include this resolution.

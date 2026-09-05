@@ -19,12 +19,12 @@ Accepted reconciliation: 5 September 2026. This board tracks Phase 2 execution.
 - KAUL-204 INTEGRATED — owned test storage accepted by independent Astra and lead; unit evidence passed. Combined browser evidence remains pending.
 - KAUL-205 IN PROGRESS — Sol: diagnostic-only reproduction from exact PR #44 baseline in kaul-205-upload-diagnostics. Capture only allowlisted upload status/code, not arbitrary payloads/secrets. Diagnose before changing runtime.
 - KAUL-206 IN PROGRESS — Astra: durable execution board and evidence correction; historical reports remain dated snapshots.
-- KAUL-207 IN PROGRESS — Luna: isolated Windows tooling/harness investigation, preserving assertions and global Git settings.
+- KAUL-207 REVIEW / DEFERRED — Luna measured Windows fixture overhead; incomplete timeout proposal rejected for integration and preserved in its isolated worktree. No assertion or global timeout weakening in candidate; see findings below.
 - KAUL-208 BLOCKED — combined candidate freeze, validation and fresh separate Astra Red-Team depend on scoped work.
 - KAUL-209 BLOCKED — supported upstream audit remediation. WAIT FOR UPSTREAM; no suppression/override/downgrade/prerelease. Development continues.
 - KAUL-210 INTEGRATED — Terra a08ff2d, Astra-reviewed and integrated as 2d3c0a8: stored historical signer title/role with truthful Swedish fallback; focused unit and static checks passed.
 - KAUL-211 REVIEW / REVISION — Terra 3f8d847; Astra requested lifecycle and browser regression coverage before acceptance. No integration yet.
-- KAUL-212 IN PROGRESS — Sol owns isolated scanner connection-timer cleanup with deterministic regressions; no claim of KAUL-205 causality.
+- KAUL-212 INTEGRATED — c8aeb0b accepted by Main Astra and independent Astra; integrated as 5b05c2d. Eight scanner tests passed; final real-scanner CI pending, no claim of KAUL-205 causality.
 - KAUL-213 BACKLOG — preservation disposition only; no cleanup until stable integration and explicit per-target gates.
 - KAUL-214 BACKLOG — owner-attended operations, outside this development phase.
 
@@ -59,3 +59,16 @@ No engine restart, shared-service stop, database deletion or homelab access was 
 Fresh Astra Red-Team accepted the four-file KAUL-205 diagnostic-only diff for publication: strict public-code/status output, exact artifact glob, original assertions retained. Seventeen adversarial in-memory sanitizer checks passed independently. A nonblocking diagnostic filesystem-error robustness finding was sent to Sol for correction before publication. This acceptance does not establish the upload failure cause or approve the final combined candidate.
 
 KAUL-205 diagnostic publication: de079f5180167d987896866c5d54a0de11dff582, Draft PR #45, run 33949791534. P3 review correction accepted. Actual GitHub investigation continues. See [independent review evidence](RED_TEAM.md).
+
+
+KAUL-205 measured checkpoint: run 33949791534 failed with 43/44 browsers; all three initial upload attempts returned 503 / DOCUMENT_SERVICE_UNAVAILABLE. The next bounded diagnostic distinguishes storage from scanning. See [CI upload investigation](CI_UPLOAD_INVESTIGATION.md).
+
+Fresh Phase 2 audit: exit 1, same four High package entries (Prisma/config aggregates, deepmerge-ts, mysql2) and the known mysql2 Moderate advisory. No bypass or dependency change. KAUL-209 remains WAIT FOR UPSTREAM.
+
+## KAUL-207 Windows evidence and disposition
+
+Luna's bounded investigation measured detached Git fixtures at 5.7 and 9.4 seconds against a five-second default. Fake-only operator cases completed in 13.1–27.45 seconds; several exceeded existing five/fifteen-second limits. A diagnostic thirty-second allowance also failed, so broad timeout changes are not accepted as a complete fix. The unfinished two-file proposal remains uncommitted and outside the candidate. No running worker test sessions remain. Logs and fixtures stay preserved in that worktree.
+
+Both worker inspection and Main Astra source inspection confirm that operator tests prepend their fixture bin directory containing docker/restic/id stubs; the script resolves docker through that path. No real Docker invocation or service mutation was reported by the worker. The Windows delay is not established as the cause of Docker Desktop's separate failure.
+
+The existing reviewed path-containment/LF fixes remain in the candidate. Full Windows harness reliability remains an explicit evidence gap; Linux GitHub harness execution passes on the original diagnostic baseline. No test skip or global allowance was added to conceal the Windows failure.
