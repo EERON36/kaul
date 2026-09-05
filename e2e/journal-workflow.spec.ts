@@ -1024,37 +1024,35 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
-  let signingRequest:
-    { url: string; body: string; headers: Record<string, string> } | undefined;
-  page.on("request", (request) => {
-    if (
+  // A Server Action form can submit as a native navigation before hydration,
+  // or as a Next Action fetch afterwards. Capture the actual signing POST in
+  // either case so the duplicate-request assertions always exercise a replay.
+  const reviewUrl = page.url();
+  const signingRequestPromise = page.waitForRequest(
+    (request) =>
+      request.url() === reviewUrl &&
       request.method() === "POST" &&
-      request.headers()["next-action"] !== undefined &&
-      request.postData()
-    ) {
-      signingRequest = {
-        url: request.url(),
-        body: request.postData() ?? "",
-        headers: Object.fromEntries(
-          [
-            "accept",
-            "content-type",
-            "next-action",
-            "next-router-state-tree",
-            "rsc",
-          ]
-            .map((name) => [name, request.headers()[name]] as const)
-            .filter(
-              (entry): entry is readonly [string, string] =>
-                entry[1] !== undefined,
-            ),
-        ),
-      };
-    }
-  });
+      (request.isNavigationRequest() ||
+        request.headers()["next-action"] !== undefined) &&
+      request.postData() !== null,
+  );
   await page.getByRole("button", { name: "Signera anteckning" }).click();
+  const capturedRequest = await signingRequestPromise;
   await expect(page.getByText("Anteckningen har signerats.")).toBeVisible();
-  expect(signingRequest).toBeDefined();
+  const signedBeforeReplay = await prisma.journalEntry.findUniqueOrThrow({
+    where: { id: draft.id },
+  });
+  const signingRequest = {
+    url: capturedRequest.url(),
+    body: capturedRequest.postData()!,
+    headers: Object.fromEntries(
+      ["accept", "content-type", "next-action", "next-router-state-tree", "rsc"]
+        .map((name) => [name, capturedRequest.headers()[name]] as const)
+        .filter(
+          (entry): entry is readonly [string, string] => entry[1] !== undefined,
+        ),
+    ),
+  };
   const repeatedResponse = await page.evaluate(async (request) => {
     const response = await fetch(request.url, {
       method: "POST",
@@ -1062,9 +1060,13 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
       body: request.body,
       credentials: "same-origin",
     });
-    return { ok: response.ok, text: await response.text() };
-  }, signingRequest!);
-  expect(repeatedResponse.ok).toBe(true);
+    return { status: response.status, text: await response.text() };
+  }, signingRequest);
+  // A native replay renders the review page, where the signed draft no longer
+  // exists. Both transports must still return the actual safe signing conflict.
+  expect(repeatedResponse.status).toBe(
+    capturedRequest.isNavigationRequest() ? 404 : 200,
+  );
   expect(repeatedResponse.text).toContain(
     "Anteckningen kunde inte signeras eftersom den har ändrats eller redan signerats.",
   );
@@ -1073,6 +1075,9 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
       where: { clientId: client.id, status: "SIGNED" },
     }),
   ).resolves.toBe(1);
+  await expect(
+    prisma.journalEntry.findUniqueOrThrow({ where: { id: draft.id } }),
+  ).resolves.toEqual(signedBeforeReplay);
   await expectNoHorizontalOverflow(page);
 });
 
