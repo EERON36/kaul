@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 
+import { useNavigationGuard } from "@/components/navigation-guard";
 import { CLIENT_CATEGORY_LABELS } from "@/modules/clients/client-category";
 
 import { updateClientAction, type ClientActionState } from "../actions";
@@ -20,6 +21,82 @@ type EditableClient = Readonly<{
   responsibleSocialWorkerEmail?: string | null;
 }>;
 
+type ClientEditFormValues = Readonly<{
+  firstName: string;
+  lastName: string;
+  personIdentifier: string;
+  category: string;
+  personalIdentityNumber: string;
+  placingUnit: string;
+  legalBasis: string;
+  responsibleSocialWorkerName: string;
+  responsibleSocialWorkerPhone: string;
+  responsibleSocialWorkerEmail: string;
+}>;
+
+const clientEditFormFieldNames = [
+  "firstName",
+  "lastName",
+  "personIdentifier",
+  "category",
+  "personalIdentityNumber",
+  "placingUnit",
+  "legalBasis",
+  "responsibleSocialWorkerName",
+  "responsibleSocialWorkerPhone",
+  "responsibleSocialWorkerEmail",
+] as const;
+
+function getInitialClientEditFormValues(
+  client: EditableClient,
+): ClientEditFormValues {
+  return {
+    firstName: client.firstName,
+    lastName: client.lastName,
+    personIdentifier: client.personIdentifier,
+    category: client.category,
+    personalIdentityNumber: client.personalIdentityNumber ?? "",
+    placingUnit: client.placingUnit ?? "",
+    legalBasis: client.legalBasis ?? "",
+    responsibleSocialWorkerName: client.responsibleSocialWorkerName ?? "",
+    responsibleSocialWorkerPhone: client.responsibleSocialWorkerPhone ?? "",
+    responsibleSocialWorkerEmail: client.responsibleSocialWorkerEmail ?? "",
+  };
+}
+
+function readClientEditFormValues(form: HTMLFormElement): ClientEditFormValues {
+  const formData = new FormData(form);
+  return {
+    firstName: String(formData.get("firstName") ?? ""),
+    lastName: String(formData.get("lastName") ?? ""),
+    personIdentifier: String(formData.get("personIdentifier") ?? ""),
+    category: String(formData.get("category") ?? ""),
+    personalIdentityNumber: String(
+      formData.get("personalIdentityNumber") ?? "",
+    ),
+    placingUnit: String(formData.get("placingUnit") ?? ""),
+    legalBasis: String(formData.get("legalBasis") ?? ""),
+    responsibleSocialWorkerName: String(
+      formData.get("responsibleSocialWorkerName") ?? "",
+    ),
+    responsibleSocialWorkerPhone: String(
+      formData.get("responsibleSocialWorkerPhone") ?? "",
+    ),
+    responsibleSocialWorkerEmail: String(
+      formData.get("responsibleSocialWorkerEmail") ?? "",
+    ),
+  };
+}
+
+export function areClientEditFormValuesEqual(
+  left: ClientEditFormValues,
+  right: ClientEditFormValues,
+) {
+  return clientEditFormFieldNames.every((fieldName) =>
+    Object.is(left[fieldName], right[fieldName]),
+  );
+}
+
 export function ClientEdit({
   client,
   operationId,
@@ -37,12 +114,68 @@ export function ClientEdit({
     updateClientAction,
     initialState,
   );
+  const setNavigationBlocked = useNavigationGuard();
+  const editTriggerRef = useRef<HTMLButtonElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const initialValuesRef = useRef(getInitialClientEditFormValues(client));
+  const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    if (!editing) editTriggerRef.current?.focus();
+  }, [editing]);
+
+  useEffect(() => {
+    if (state.status !== "SUCCESS" || !formRef.current) return;
+    initialValuesRef.current = readClientEditFormValues(formRef.current);
+    dirtyRef.current = false;
+    setNavigationBlocked(false);
+  }, [setNavigationBlocked, state.status]);
+
+  useEffect(() => {
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, []);
+
+  useEffect(
+    () => () => {
+      setNavigationBlocked(false);
+    },
+    [setNavigationBlocked],
+  );
+
+  function handleFormChange(form: HTMLFormElement) {
+    const dirty = !areClientEditFormValuesEqual(
+      initialValuesRef.current,
+      readClientEditFormValues(form),
+    );
+    dirtyRef.current = dirty;
+    setNavigationBlocked(dirty);
+  }
+
+  function cancelEditing() {
+    if (
+      dirtyRef.current &&
+      !window.confirm(
+        "Vill du avbryta redigeringen? Dina osparade ändringar försvinner.",
+      )
+    ) {
+      return;
+    }
+    dirtyRef.current = false;
+    setNavigationBlocked(false);
+    setEditing(false);
+  }
 
   if (!editing) {
     return (
       <button
         className="secondary-button client-edit-trigger"
         onClick={() => setEditing(true)}
+        ref={editTriggerRef}
         type="button"
       >
         Redigera klient
@@ -53,7 +186,12 @@ export function ClientEdit({
   return (
     <section aria-labelledby="edit-client-heading" className="client-section">
       <h2 id="edit-client-heading">Redigera klient</h2>
-      <form action={action}>
+      <form
+        action={action}
+        aria-busy={pending}
+        onChange={(event) => handleFormChange(event.currentTarget)}
+        ref={formRef}
+      >
         <input name="operationId" type="hidden" value={state.operationId} />
         <input name="clientId" type="hidden" value={client.id} />
         <div className="form-field">
@@ -193,7 +331,7 @@ export function ClientEdit({
           <button
             className="secondary-button"
             disabled={pending}
-            onClick={() => setEditing(false)}
+            onClick={cancelEditing}
             type="button"
           >
             Avbryt
