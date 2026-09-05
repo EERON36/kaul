@@ -14,6 +14,7 @@ import { MonthlyReportSectionsPresentation } from "../report-sections-presentati
 import {
   formatMonthlyReportDate,
   formatMonthlyReportMonth,
+  getMonthlyReportSignerSnapshot,
 } from "../report-presentation";
 
 export const dynamic = "force-dynamic";
@@ -87,6 +88,15 @@ export default async function MonthlyReportDetailPage({
               <dt>Signerad av</dt>
               <dd>{report.signerName ?? "Uppgift saknas"}</dd>
             </div>
+            {getMonthlyReportSignerSnapshot(
+              report.signerProfessionalTitle,
+              report.signerRole,
+            ).map(({ label, value }) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
           </dl>
           <section
             aria-labelledby="monthly-report-content-heading"

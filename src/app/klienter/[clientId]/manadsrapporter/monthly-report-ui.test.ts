@@ -39,7 +39,10 @@ import {
 } from "./actions";
 import { MonthlyReportDraftForm } from "./monthly-report-draft-form-client";
 import { MonthlyReportSectionsPresentation } from "./report-sections-presentation";
-import { formatMonthlyReportMonth } from "./report-presentation";
+import {
+  formatMonthlyReportMonth,
+  getMonthlyReportSignerSnapshot,
+} from "./report-presentation";
 import { NavigationGuardProvider } from "@/components/navigation-guard";
 import { ClientWorkspaceHeader } from "../client-workspace";
 
@@ -233,6 +236,19 @@ describe("Monthly report UI and action boundary", () => {
     expect(html).toContain("Hälsa");
     expect(html).toContain("ADL/självständighet");
     expect(html).toContain("Ingen uppgift angiven.");
+  });
+
+  it("uses the stored signer title and role with a truthful missing-data fallback", () => {
+    expect(
+      getMonthlyReportSignerSnapshot("Fiktiv behandlare", "STAFF_MEMBER"),
+    ).toEqual([
+      { label: "Titel vid signering", value: "Fiktiv behandlare" },
+      { label: "Roll vid signering", value: "Medarbetare" },
+    ]);
+    expect(getMonthlyReportSignerSnapshot(null, null)).toEqual([
+      { label: "Titel vid signering", value: "Uppgift saknas" },
+      { label: "Roll vid signering", value: "Uppgift saknas" },
+    ]);
   });
 
   it("adds the monthly report workspace navigation item", () => {

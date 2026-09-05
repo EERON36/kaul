@@ -17,3 +17,24 @@ export function formatMonthlyReportDate(date: Date): string {
     timeZone: "Europe/Stockholm",
   }).format(date);
 }
+
+export function getMonthlyReportSignerSnapshot(
+  professionalTitle: string | null,
+  role: "ADMINISTRATOR" | "STAFF_MEMBER" | null,
+) {
+  return [
+    {
+      label: "Titel vid signering",
+      value: professionalTitle?.trim() || "Uppgift saknas",
+    },
+    {
+      label: "Roll vid signering",
+      value:
+        role === "ADMINISTRATOR"
+          ? "Administratör"
+          : role === "STAFF_MEMBER"
+            ? "Medarbetare"
+            : "Uppgift saknas",
+    },
+  ] as const;
+}
