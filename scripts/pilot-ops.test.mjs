@@ -96,6 +96,12 @@ const testTemporaryRoot = join(
 const temporaryDirectories = [];
 const operationLockPaths = [];
 const testSnapshotId = "c".repeat(64);
+const testObjectsSnapshotId = "d".repeat(64);
+const testManifestSnapshotId = "e".repeat(64);
+const testDocumentKey = "a".repeat(64);
+const testDocumentContent = "fictional document";
+const testDocumentDigest =
+  "e90d057911cc2dde31e6077c8693f8c16ad1f60f50a5cdc99367a4e2eacc19df";
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -181,6 +187,7 @@ function validPilotValues(overrides = {}) {
     BETTER_AUTH_URL: "https://pilot.example.test",
     BETTER_AUTH_SECRET: generatedSecret(),
     KAUL_PERSONNUMMER_KEYRING_HOST_FILE: "/tmp/overridden-by-fixture",
+    DOCUMENT_STORAGE_HOST_PATH: "/tmp/overridden-by-fixture",
     POSTGRES_ADMIN_USER: "kaul_pilot_admin",
     POSTGRES_ADMIN_PASSWORD: generatedSecret(),
     KAUL_DB_USER: "kaul_pilot_app",
@@ -241,6 +248,10 @@ function dockerStubLines() {
     "      fi",
     "    done ;;",
     "esac",
+    'if [ "${1:-}" = image ] && [ "${2:-}" = inspect ]; then',
+    "  printf '%s\\n' \"${KAUL_TEST_APPLICATION_GIT_SHA:-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}\"",
+    "  exit 0",
+    "fi",
     'if [ "${1:-}" = inspect ]; then',
     '  case "$*" in',
     '    *".Config.Image"*) printf \'%s\\n\' "ghcr.io/example/kaul@sha256:${KAUL_TEST_CURRENT_DIGEST}" ; exit 0 ;;',
@@ -256,11 +267,20 @@ function dockerStubLines() {
     "    exit 0 ;;",
     '  *" config --quiet "*) exit 0 ;;',
     '  *" ps --all --quiet kaul-restore-check "*) [ "${KAUL_TEST_RESTORE_CONTAINER_EXISTS:-0}" = 1 ] && printf \'%s\\n\' restore-test-container; exit 0 ;;',
+    '  *" ps --all --quiet kaul "*) [ "${KAUL_TEST_CURRENT_CONTAINER_EXISTS:-0}" = 1 ] && printf \'%s\\n\' kaul-current-container; exit 0 ;;',
+    '  *" ps --status running --quiet kaul caddy "*) [ "${KAUL_TEST_PUBLIC_SERVICES_RUNNING:-0}" = 1 ] && printf \'%s\\n\' caddy-running; exit 0 ;;',
     "  *\" ps -q kaul-restore-check \"*) printf '%s\\n' restore-test-container ; exit 0 ;;",
     "  *\" ps -q kaul \"*) printf '%s\\n' kaul-test-container ; exit 0 ;;",
     '  *" stop caddy "*) [ "${KAUL_TEST_FAIL_CADDY_STOP:-0}" != 1 ] ; exit $? ;;',
     '  *" stop kaul "*) [ "${KAUL_TEST_FAIL_KAUL_STOP:-0}" != 1 ] ; exit $? ;;',
     '  *"SELECT 1 FROM pg_database"*) [ "${KAUL_TEST_DATABASE_EXISTS:-0}" = 1 ] && printf \'1\\n\'; exit 0 ;;',
+    '  *"KAUL_DOCUMENTS_SCHEMA_CHECK"*)',
+    "    printf '%s\\n' \"${KAUL_TEST_DOCUMENTS_SCHEMA_STATE:-absent}\"",
+    "    exit 0 ;;",
+    '  *"KAUL_DOCUMENT_BACKUP_METADATA"*)',
+    '    if [ "${KAUL_TEST_DOCUMENT_METADATA_DRIFT:-0}" = 1 ]; then size=17; else size=18; fi',
+    '    printf \'{"migrationNames":["20260903120000_add_client_documents","20260903121000_protect_client_document_lifecycle"],"objects":[{"storageKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sizeBytes":%s,"sha256":"e90d057911cc2dde31e6077c8693f8c16ad1f60f50a5cdc99367a4e2eacc19df"}]}\n\' "$size"',
+    "    exit 0 ;;",
     '  *"KAUL_PRISTINE_DATABASE_CHECK"*)',
     '    [ "${KAUL_TEST_FAIL_PRISTINE_CHECK:-0}" != 1 ] || exit 1',
     "    printf '%s\\n' \"${KAUL_TEST_DATABASE_STATE:-populated}\"",
@@ -297,26 +317,82 @@ function resticStubLines() {
     'case "${1:-}" in',
     "  version) printf '%s\\n' 'restic 0.19.1 compiled with go1.25.0 on linux/amd64'; exit 0 ;;",
     "  backup)",
+    '    case " $* " in',
+    '      *" kaul-pilot-document-objects "*)',
+    '        printf \'%s\\n\' \'{"message_type":"summary","total_bytes_processed":18,"snapshot_id":"' +
+      testObjectsSnapshotId +
+      "\"}'",
+    "        exit 0 ;;",
+    '      *" kaul-pilot-document-set-manifest "*)',
+    '        cat > "$KAUL_TEST_MANIFEST_STORE"',
+    '        printf \'%s\\n\' \'{"message_type":"summary","total_bytes_processed":1,"snapshot_id":"' +
+      testManifestSnapshotId +
+      "\"}'",
+    "        exit 0 ;;",
+    "    esac",
     '    while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done',
     '    [ "${1:-}" = -- ] || exit 2',
     "    shift",
     '    "$@" >/dev/null || exit 1',
-    `    printf '%s\\n' '{"message_type":"summary","total_bytes_processed":27,"snapshot_id":"${testSnapshotId}"}'`,
+    '    printf \'%s\\n\' \'{"message_type":"summary","total_bytes_processed":27,"snapshot_id":"' +
+      testSnapshotId +
+      "\"}'",
     "    ;;",
-    `  snapshots) printf '%s\\n' '[{"id":"${testSnapshotId}"}]' ;;`,
-    `  ls) printf '%s\\n' '{"message_type":"snapshot","id":"${testSnapshotId}"}' '{"struct_type":"node","path":"/kaul-pilot.dump","type":"file","size":27}' ;;`,
-    "  dump) printf '%s\\n' 'fictional custom archive' ;;",
+    "  snapshots)",
+    '    [ "${KAUL_TEST_FAIL_RESTIC_SNAPSHOTS:-0}" != 1 ] || exit 1',
+    "    printf '%s\\n' '[{\"id\":\"" + testSnapshotId + "\"}]' ;;",
+    "  ls)",
+    '    case "${3:-}" in',
+    "      " + testObjectsSnapshotId + ")",
+    '        printf \'%s\\n\' \'{"message_type":"snapshot","id":"' +
+      testObjectsSnapshotId +
+      '"}\' \'{"struct_type":"node","path":"/objects","type":"dir"}\' \'{"struct_type":"node","path":"/objects/' +
+      testDocumentKey +
+      '","type":"file","size":18}\' ;;',
+    "      " + testManifestSnapshotId + ")",
+    '        manifest_size=$(wc -c < "$KAUL_TEST_MANIFEST_STORE" | tr -d " ")',
+    '        printf \'%s\\n\' \'{"message_type":"snapshot","id":"' +
+      testManifestSnapshotId +
+      '"}\' "{\\"struct_type\\":\\"node\\",\\"path\\":\\"/kaul-document-backup-set.json\\",\\"type\\":\\"file\\",\\"size\\":$manifest_size}" ;;',
+    "      *)",
+    '        printf \'%s\\n\' \'{"message_type":"snapshot","id":"' +
+      testSnapshotId +
+      '"}\' \'{"struct_type":"node","path":"/kaul-pilot.dump","type":"file","size":27}\' ;;',
+    "    esac ;;",
+    "  dump)",
+    '    if [ "${2:-}" = "' + testManifestSnapshotId + '" ]; then',
+    '      cat "$KAUL_TEST_MANIFEST_STORE"',
+    "    else",
+    "      printf '%s\\n' 'fictional custom archive'",
+    "    fi ;;",
+    "  restore)",
+    "    target=",
+    '    while [ "$#" -gt 0 ]; do',
+    '      if [ "$1" = --target ]; then target=$2; shift 2; else shift; fi',
+    "    done",
+    '    [ -n "$target" ] || exit 2',
+    "    printf '%s' '" +
+      testDocumentContent +
+      "' > \"$target/" +
+      testDocumentKey +
+      '" ;;',
     "  forget|prune) exit 1 ;;",
     "  *) exit 2 ;;",
     "esac",
   ];
 }
-
 function createPilotCommandFixture({ overrides = {}, omittedKey } = {}) {
   const directory = createTemporaryDirectory();
   const stubDirectory = join(directory, "bin");
   const resticPasswordPath = join(directory, "restic-password");
   const personnummerKeyringPath = join(directory, "personnummer-keyring.json");
+  const documentStoragePath = join(directory, "documents");
+  mkdirSync(documentStoragePath);
+  const restoredDocumentsPath = join(directory, "restored-documents");
+  mkdirSync(join(restoredDocumentsPath, "objects"), { recursive: true });
+  mkdirSync(join(restoredDocumentsPath, "quarantine"), { recursive: true });
+  const emptyRestoreStoragePath = join(directory, "empty-restore-documents");
+  mkdirSync(emptyRestoreStoragePath);
   writeFileSync(resticPasswordPath, `${generatedSecret()}\n`, { mode: 0o600 });
   chmodSync(resticPasswordPath, 0o600);
   writeFileSync(
@@ -328,12 +404,22 @@ function createPilotCommandFixture({ overrides = {}, omittedKey } = {}) {
   const values = validPilotValues({
     RESTIC_PASSWORD_FILE: toPosixPath(resticPasswordPath),
     KAUL_PERSONNUMMER_KEYRING_HOST_FILE: toPosixPath(personnummerKeyringPath),
+    DOCUMENT_STORAGE_HOST_PATH: toPosixPath(documentStoragePath),
     ...overrides,
   });
   const environmentPath = writeEnvironmentFile(directory, values, omittedKey);
   mkdirSync(stubDirectory);
   writeExecutable(stubDirectory, "docker", dockerStubLines());
   writeExecutable(stubDirectory, "restic", resticStubLines());
+  writeExecutable(stubDirectory, "node", [
+    "#!/bin/sh",
+    "set -eu",
+    'if [ "${1:-}" = --version ] && [ -n "${KAUL_TEST_NODE_VERSION:-}" ]; then',
+    "  printf '%s\\n' \"$KAUL_TEST_NODE_VERSION\"",
+    "  exit 0",
+    "fi",
+    `exec "${toPosixPath(process.execPath)}" "$@"`,
+  ]);
   writeExecutable(stubDirectory, "id", [
     "#!/bin/sh",
     "set -eu",
@@ -352,6 +438,9 @@ function createPilotCommandFixture({ overrides = {}, omittedKey } = {}) {
     directory,
     environmentPath,
     stubDirectory,
+    documentStoragePath,
+    restoredDocumentsPath,
+    emptyRestoreStoragePath,
     values,
   };
 }
@@ -363,6 +452,8 @@ function preparePilotInvocation(
   acquireOperationLock = false,
   database = "kaul_restore_test",
   snapshot = testSnapshotId,
+  manifestSnapshot = testManifestSnapshotId,
+  storageRoot = fixture.restoredDocumentsPath,
 ) {
   const commandLog = join(
     fixture.directory,
@@ -387,8 +478,18 @@ function preparePilotInvocation(
   if (["validate-backup", "restore"].includes(command)) {
     operatorArguments.push("--snapshot", snapshot);
   }
-  if (["restore", "start-restore-check"].includes(command)) {
+  if (
+    ["restore", "restore-documents-set", "start-restore-check"].includes(
+      command,
+    )
+  ) {
     operatorArguments.push("--database", database);
+  }
+  if (["validate-documents-set", "restore-documents-set"].includes(command)) {
+    operatorArguments.push("--manifest-snapshot", manifestSnapshot);
+  }
+  if (["restore-documents-set", "start-restore-check"].includes(command)) {
+    operatorArguments.push("--storage-root", toPosixPath(storageRoot));
   }
 
   const shellArguments = [
@@ -406,6 +507,9 @@ function preparePilotInvocation(
       KAUL_TEST_COMMAND_LOG: toPosixPath(commandLog),
       KAUL_TEST_INTERPOLATION_LOG: toPosixPath(interpolationLog),
       KAUL_TEST_CURRENT_DIGEST: "b".repeat(64),
+      KAUL_TEST_MANIFEST_STORE: toPosixPath(
+        join(fixture.directory, "document-set-manifest.json"),
+      ),
       ...stub,
     }),
     shellArguments,
@@ -422,6 +526,8 @@ function executePilotCommand(
     acquireOperationLock = false,
     database,
     snapshot,
+    manifestSnapshot,
+    storageRoot,
   } = {},
 ) {
   const commandFixture =
@@ -433,6 +539,8 @@ function executePilotCommand(
     acquireOperationLock,
     database,
     snapshot,
+    manifestSnapshot,
+    storageRoot,
   );
 
   const result = spawnSync(posixShellPath(), invocation.shellArguments, {
@@ -850,8 +958,8 @@ describe("Pilot operator safety controls", () => {
     expect(script).toContain(
       "Another Pilot operator workflow is already running",
     );
-    expect(script).toMatch(
-      /backup\|restore\|start-restore-check\|stop-restore-check\|migrate\|migrate-pristine\|convert-personnummer\|update\|start-postgres\|bootstrap-admin\|start-stack\|prepare-scanner\|verify-documents\) return 0/,
+    expect(script).toContain(
+      "quiesce|backup|restore|backup-documents-set|validate-documents-set|restore-documents-set|start-restore-check|stop-restore-check|migrate|migrate-pristine|convert-personnummer|update|start-postgres|bootstrap-admin|start-stack|prepare-scanner|verify-documents) return 0",
     );
   });
 
@@ -1890,6 +1998,284 @@ describe("Pilot Restic backup and restore behavior", () => {
   }, 60_000);
 });
 
+describe("Pilot Documents backup-set behavior", () => {
+  it("authenticates Restic before quiescing either public service", () => {
+    const failed = executePilotCommand("quiesce", {
+      stub: { KAUL_TEST_FAIL_RESTIC_SNAPSHOTS: "1" },
+    });
+
+    expect(failed.status).not.toBe(0);
+    expect(outputOf(failed)).toContain(
+      "Restic authentication must succeed before a Documents backup outage",
+    );
+    expect(commandPosition(failed.commandLog, "stop caddy")).toBe(-1);
+    expect(
+      failed.commandLog.some((command) => command.endsWith(" stop kaul")),
+    ).toBe(false);
+
+    const succeeded = executePilotCommand("quiesce");
+    expect(succeeded.status, outputOf(succeeded)).toBe(0);
+    expect(
+      commandPosition(succeeded.commandLog, "restic snapshots"),
+    ).toBeLessThan(commandPosition(succeeded.commandLog, "stop caddy"));
+    expect(commandPosition(succeeded.commandLog, "stop caddy")).toBeLessThan(
+      commandPosition(succeeded.commandLog, "stop kaul"),
+    );
+  }, 60_000);
+
+  it("rejects the wrong Node major before authentication or outage", () => {
+    const result = executePilotCommand("quiesce", {
+      stub: { KAUL_TEST_NODE_VERSION: "v22.20.0" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain(
+      "Documents backup operations require Node.js 24",
+    );
+    expect(commandPosition(result.commandLog, "restic snapshots")).toBe(-1);
+    expect(commandPosition(result.commandLog, "stop caddy")).toBe(-1);
+  }, 30_000);
+
+  it("rejects an active public service before creating any snapshot", () => {
+    const result = executePilotCommand("backup-documents-set", {
+      stub: { KAUL_TEST_PUBLIC_SERVICES_RUNNING: "1" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain(
+      "Kaul and Caddy must both be stopped before a Documents backup set",
+    );
+    expect(
+      result.commandLog.filter((command) =>
+        command.startsWith("restic backup"),
+      ),
+    ).toHaveLength(0);
+  }, 30_000);
+  it("keeps legacy database-only backup only before the Documents schema exists", () => {
+    const legacy = executePilotCommand("backup", {
+      stub: { KAUL_TEST_DOCUMENTS_SCHEMA_STATE: "absent" },
+    });
+    expect(legacy.status, outputOf(legacy)).toBe(0);
+    expect(legacy.stdout).toContain(
+      `Backup snapshot created and validated: ${testSnapshotId}`,
+    );
+    expect(
+      commandPosition(legacy.commandLog, "kaul-pilot-document-objects"),
+    ).toBe(-1);
+
+    const activatedFixture = createPilotCommandFixture();
+    mkdirSync(join(activatedFixture.documentStoragePath, "objects"));
+    const activated = executePilotCommand("backup", {
+      fixture: activatedFixture,
+      stub: { KAUL_TEST_DOCUMENTS_SCHEMA_STATE: "present" },
+    });
+    expect(activated.status).not.toBe(0);
+    expect(outputOf(activated)).toContain(
+      "Immutable Documents storage does not exactly match PostgreSQL metadata",
+    );
+    expect(commandPosition(activated.commandLog, "pg_dump")).toBe(-1);
+  }, 60_000);
+
+  it("captures three exact snapshots with the selected post-change image provenance", () => {
+    const fixture = createPilotCommandFixture();
+    mkdirSync(join(fixture.documentStoragePath, "objects"));
+    writeFileSync(
+      join(fixture.documentStoragePath, "objects", testDocumentKey),
+      testDocumentContent,
+    );
+
+    const result = executePilotCommand("backup-documents-set", {
+      fixture,
+      stub: {
+        KAUL_TEST_APPLICATION_GIT_SHA: "a".repeat(40),
+        KAUL_TEST_CURRENT_CONTAINER_EXISTS: "1",
+      },
+    });
+
+    expect(result.status, outputOf(result)).toBe(0);
+    expect(result.stdout).toContain(
+      `Documents backup set created and validated: ${testManifestSnapshotId}`,
+    );
+    expect(result.stdout).toContain("Kaul and Caddy remain stopped");
+    expect(
+      result.commandLog.filter((command) =>
+        command.startsWith("restic backup"),
+      ),
+    ).toHaveLength(3);
+    expect(result.commandLog.join("\n")).toContain(
+      `image inspect --format {{index .Config.Labels "org.opencontainers.image.revision"}} ghcr.io/example/kaul@sha256:${"a".repeat(64)}`,
+    );
+    const storedManifest = JSON.parse(
+      readFileSync(
+        join(fixture.directory, "document-set-manifest.json"),
+        "utf8",
+      ),
+    );
+    expect(storedManifest).toMatchObject({
+      applicationGitSha: "a".repeat(40),
+      objectsSnapshotId: testObjectsSnapshotId,
+      postgresqlSnapshotId: testSnapshotId,
+    });
+  }, 60_000);
+
+  it("binds a pre-migration backup to the current pre-change verification image", () => {
+    const fixture = createPilotCommandFixture();
+    mkdirSync(join(fixture.documentStoragePath, "objects"));
+    writeFileSync(
+      join(fixture.documentStoragePath, "objects", testDocumentKey),
+      testDocumentContent,
+    );
+
+    const result = executePilotCommand("migrate", {
+      fixture,
+      stub: {
+        KAUL_TEST_APPLICATION_GIT_SHA: "c".repeat(40),
+        KAUL_TEST_CURRENT_CONTAINER_EXISTS: "1",
+        KAUL_TEST_DOCUMENTS_SCHEMA_STATE: "present",
+      },
+    });
+
+    expect(result.status, outputOf(result)).toBe(0);
+    expect(result.commandLog.join("\n")).toContain(
+      `inspect --format {{.Config.Image}} kaul-current-container`,
+    );
+    expect(result.commandLog.join("\n")).toContain(
+      `image inspect --format {{index .Config.Labels "org.opencontainers.image.revision"}} ghcr.io/example/kaul@sha256:${"b".repeat(64)}`,
+    );
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(fixture.directory, "document-set-manifest.json"),
+          "utf8",
+        ),
+      ).applicationGitSha,
+    ).toBe("c".repeat(40));
+    expect(commandPosition(result.commandLog, "restic backup")).toBeLessThan(
+      commandPosition(result.commandLog, "npm run db:deploy"),
+    );
+  }, 60_000);
+  it("rejects an invalid verification-image revision before any snapshot is created", () => {
+    const fixture = createPilotCommandFixture();
+    mkdirSync(join(fixture.documentStoragePath, "objects"));
+    writeFileSync(
+      join(fixture.documentStoragePath, "objects", testDocumentKey),
+      testDocumentContent,
+    );
+    const result = executePilotCommand("backup-documents-set", {
+      fixture,
+      stub: { KAUL_TEST_APPLICATION_GIT_SHA: "not-a-revision" },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(outputOf(result)).toContain("no valid source revision label");
+    expect(
+      result.commandLog.filter((command) =>
+        command.startsWith("restic backup"),
+      ),
+    ).toHaveLength(0);
+  }, 60_000);
+
+  it.each([
+    ["active root", (fixture) => fixture.documentStoragePath],
+    [
+      "child of active root",
+      (fixture) => {
+        const path = join(fixture.documentStoragePath, "restore-child");
+        mkdirSync(path);
+        return path;
+      },
+    ],
+    ["ancestor of active root", (fixture) => fixture.directory],
+    ["nonempty root", (fixture) => fixture.restoredDocumentsPath],
+  ])(
+    "rejects a %s before creating a restored database",
+    (_, selectRoot) => {
+      const fixture = createPilotCommandFixture();
+      const result = executePilotCommand("restore-documents-set", {
+        fixture,
+        storageRoot: selectRoot(fixture),
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(commandPosition(result.commandLog, "createdb")).toBe(-1);
+      expect(commandPosition(result.commandLog, "restic dump")).toBe(-1);
+    },
+    60_000,
+  );
+
+  it("preserves the failed restored database and root when metadata drifts", () => {
+    const fixture = createPilotCommandFixture();
+    mkdirSync(join(fixture.documentStoragePath, "objects"));
+    writeFileSync(
+      join(fixture.documentStoragePath, "objects", testDocumentKey),
+      testDocumentContent,
+    );
+    const captured = executePilotCommand("backup-documents-set", { fixture });
+    expect(captured.status, outputOf(captured)).toBe(0);
+
+    const restored = executePilotCommand("restore-documents-set", {
+      fixture,
+      database: "kaul_restore_metadata_drift_ci",
+      storageRoot: fixture.emptyRestoreStoragePath,
+      stub: { KAUL_TEST_DOCUMENT_METADATA_DRIFT: "1" },
+    });
+
+    expect(restored.status).not.toBe(0);
+    expect(outputOf(restored)).toContain(
+      "Restored PostgreSQL Documents metadata did not match the strict manifest",
+    );
+    expect(commandPosition(restored.commandLog, "createdb")).toBeGreaterThan(
+      -1,
+    );
+    expect(commandPosition(restored.commandLog, "dropdb")).toBe(-1);
+    expect(commandPosition(restored.commandLog, "kaul-restore-check")).toBe(-1);
+    expect(
+      existsSync(
+        join(fixture.emptyRestoreStoragePath, "objects", testDocumentKey),
+      ),
+    ).toBe(true);
+    expect(
+      existsSync(join(fixture.emptyRestoreStoragePath, "quarantine")),
+    ).toBe(true);
+  }, 60_000);
+  it("restores exact IDs into a new database and isolated object root", () => {
+    const fixture = createPilotCommandFixture();
+    mkdirSync(join(fixture.documentStoragePath, "objects"));
+    writeFileSync(
+      join(fixture.documentStoragePath, "objects", testDocumentKey),
+      testDocumentContent,
+    );
+    const captured = executePilotCommand("backup-documents-set", { fixture });
+    expect(captured.status, outputOf(captured)).toBe(0);
+
+    const restored = executePilotCommand("restore-documents-set", {
+      fixture,
+      database: "kaul_restore_documents_ci",
+      storageRoot: fixture.emptyRestoreStoragePath,
+    });
+
+    expect(restored.status, outputOf(restored)).toBe(0);
+    expect(commandPosition(restored.commandLog, "createdb")).toBeGreaterThan(
+      -1,
+    );
+    expect(restored.commandLog.join("\n")).toContain(
+      `restic restore ${testObjectsSnapshotId}:/objects`,
+    );
+    expect(
+      readFileSync(
+        join(fixture.emptyRestoreStoragePath, "objects", testDocumentKey),
+        "utf8",
+      ),
+    ).toBe(testDocumentContent);
+
+    expect(
+      existsSync(join(fixture.emptyRestoreStoragePath, "quarantine")),
+    ).toBe(true);
+    expect(outputOf(restored)).toContain(
+      "The active Pilot database and Documents root were not changed",
+    );
+  }, 60_000);
+});
 describe("Pilot update behavior", () => {
   it("stops a partially created application when first startup fails", () => {
     const result = executePilotCommand("start-stack", {

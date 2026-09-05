@@ -9,9 +9,15 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  createDocumentBackupManifest,
   DocumentBackupSetError,
   parseDocumentBackupManifest,
+  parseDocumentBackupMetadata,
+  serializeDocumentBackupManifest,
+  verifyDocumentBackupMetadata,
   verifyDocumentBackupSet,
+  verifyResticManifestCatalog,
+  verifyResticObjectsCatalog,
 } from "./document-backup-set-core.mjs";
 
 const roots = [];
@@ -148,6 +154,18 @@ describe("Document backup-set verifier", () => {
     },
   );
 
+  it.each([
+    ["applicationGitSha", "b".repeat(40)],
+    ["postgresqlSnapshotId", "c".repeat(64)],
+    ["objectsSnapshotId", "d".repeat(64)],
+  ])(
+    "rejects a non-string %s even when it coerces to valid hex",
+    (field, value) => {
+      expect(() =>
+        parseDocumentBackupManifest({ ...manifest(), [field]: [value] }),
+      ).toThrow(DocumentBackupSetError);
+    },
+  );
   it("rejects incomplete or non-canonical manifests", () => {
     expect(() => parseDocumentBackupManifest({})).toThrow(
       DocumentBackupSetError,
@@ -180,5 +198,183 @@ describe("Document backup-set verifier", () => {
     await expect(
       verifyDocumentBackupSet(manifest([expected]), root),
     ).rejects.toBeInstanceOf(DocumentBackupSetError);
+  });
+});
+
+describe("Document backup-set construction and Restic catalog", () => {
+  const expectedObject = {
+    storageKey: key,
+    sizeBytes: content.length,
+    sha256: createHash("sha256").update(content).digest("hex"),
+  };
+  const metadata = {
+    migrationNames: [
+      "20260903120000_add_client_documents",
+      "20260903121000_protect_client_document_lifecycle",
+    ],
+    objects: [expectedObject],
+  };
+
+  it("constructs one canonical manifest from trusted metadata and exact IDs", () => {
+    const value = createDocumentBackupManifest({
+      applicationGitSha: "b".repeat(40),
+      createdAt: "2026-09-05T10:00:00.000Z",
+      metadata,
+      postgresqlSnapshotId: "c".repeat(64),
+      objectsSnapshotId: "d".repeat(64),
+    });
+
+    expect(JSON.parse(serializeDocumentBackupManifest(value))).toEqual(value);
+    expect(verifyDocumentBackupMetadata(value, metadata)).toEqual({
+      objectCount: 1,
+    });
+  });
+
+  it("rejects unsorted metadata and restored database metadata drift", () => {
+    expect(() =>
+      parseDocumentBackupMetadata({
+        ...metadata,
+        migrationNames: [...metadata.migrationNames].reverse(),
+      }),
+    ).toThrow(DocumentBackupSetError);
+    expect(() =>
+      verifyDocumentBackupMetadata(manifest([expectedObject]), {
+        ...metadata,
+        objects: [
+          { ...expectedObject, sizeBytes: expectedObject.sizeBytes + 1 },
+        ],
+      }),
+    ).toThrow(DocumentBackupSetError);
+  });
+
+  it("accepts only the exact Restic /objects subtree and snapshot ID", () => {
+    const snapshotId = "d".repeat(64);
+    const catalog = [
+      JSON.stringify({ message_type: "snapshot", id: snapshotId }),
+      JSON.stringify({
+        struct_type: "node",
+        path: "/objects",
+        type: "dir",
+      }),
+      JSON.stringify({
+        struct_type: "node",
+        path: `/objects/${key}`,
+        type: "file",
+        size: content.length,
+      }),
+    ].join("\n");
+
+    expect(verifyResticObjectsCatalog(metadata, snapshotId, catalog)).toEqual({
+      objectCount: 1,
+      snapshotId,
+    });
+    for (const invalidCatalog of [
+      catalog.replace(snapshotId, "e".repeat(64)),
+      `${catalog}\n${JSON.stringify({
+        struct_type: "node",
+        path: "/quarantine",
+        type: "dir",
+      })}`,
+      catalog.replace('"type":"file"', '"type":"symlink"'),
+      catalog.replace(`/objects/${key}`, `/objects/${"f".repeat(64)}`),
+    ]) {
+      expect(() =>
+        verifyResticObjectsCatalog(metadata, snapshotId, invalidCatalog),
+      ).toThrow(DocumentBackupSetError);
+    }
+  });
+
+  it("runs create, get, metadata, and catalog checks through the CLI", async () => {
+    const root = await fixture();
+    const metadataPath = join(root, "metadata.json");
+    const manifestPath = join(root, "manifest.json");
+    await writeFile(metadataPath, JSON.stringify(metadata));
+    const created = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "create",
+        metadataPath,
+        "b".repeat(40),
+        "c".repeat(64),
+        "d".repeat(64),
+        "2026-09-05T10:00:00.000Z",
+      ],
+      { windowsHide: true },
+    );
+    await writeFile(manifestPath, created.stdout);
+
+    const selected = await execFileAsync(
+      process.execPath,
+      [cliPath, "get", manifestPath, "objectsSnapshotId"],
+      { windowsHide: true },
+    );
+    expect(selected.stdout).toBe(`${"d".repeat(64)}\n`);
+
+    await expect(
+      execFileAsync(
+        process.execPath,
+        [cliPath, "verify-metadata", manifestPath, metadataPath],
+        { windowsHide: true },
+      ),
+    ).resolves.toMatchObject({ stdout: "", stderr: "" });
+
+    const catalog = [
+      JSON.stringify({ message_type: "snapshot", id: "d".repeat(64) }),
+      JSON.stringify({
+        struct_type: "node",
+        path: "/objects",
+        type: "dir",
+      }),
+      JSON.stringify({
+        struct_type: "node",
+        path: `/objects/${key}`,
+        type: "file",
+        size: content.length,
+      }),
+      "",
+    ].join("\n");
+    const catalogPath = join(root, "catalog.jsonl");
+    await writeFile(catalogPath, catalog);
+    const catalogResult = await execFileAsync(
+      process.execPath,
+      [cliPath, "verify-catalog", metadataPath, "d".repeat(64), catalogPath],
+      { windowsHide: true },
+    );
+    expect(catalogResult).toMatchObject({ stdout: "", stderr: "" });
+  });
+});
+describe("Document backup-set manifest snapshot catalog", () => {
+  it("requires exactly one nonempty manifest file at the canonical path", () => {
+    const snapshotId = "e".repeat(64);
+    const catalog = [
+      JSON.stringify({ message_type: "snapshot", id: snapshotId }),
+      JSON.stringify({
+        struct_type: "node",
+        path: "/kaul-document-backup-set.json",
+        type: "file",
+        size: 100,
+      }),
+    ].join("\n");
+
+    expect(verifyResticManifestCatalog(snapshotId, catalog)).toEqual({
+      snapshotId,
+    });
+    expect(() =>
+      verifyResticManifestCatalog(
+        snapshotId,
+        catalog +
+          "\n" +
+          JSON.stringify({
+            struct_type: "node",
+            path: "/unexpected",
+            type: "file",
+            size: 1,
+          }),
+      ),
+    ).toThrow(DocumentBackupSetError);
+    expect(() => verifyResticManifestCatalog([snapshotId], catalog)).toThrow(
+      DocumentBackupSetError,
+    );
   });
 });

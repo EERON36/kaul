@@ -14,13 +14,17 @@ PILOT_NPM_PROXY_IP_VALUE=
 ENV_FILE=
 SNAPSHOT=
 RESTORE_DATABASE=
+MANIFEST_SNAPSHOT=
+RESTORE_STORAGE_ROOT=
 RESTIC_REPOSITORY_VALUE=
 RESTIC_PASSWORD_FILE_VALUE=
 RESTIC_EXPECTED_VERSION_VALUE=
 RESTIC_STREAM_DIRECTORY=
 RESTIC_STREAM_FIFO=
 RESTIC_DUMP_PID=
+DOCUMENT_SET_TEMP_DIRECTORY=
 BACKUP_FILENAME=kaul-pilot.dump
+DOCUMENT_SET_MANIFEST_FILENAME=kaul-document-backup-set.json
 PINNED_RESTIC_VERSION=0.19.1
 MINIMUM_DATABASE_PASSWORD_LENGTH=32
 PINNED_APPLICATION_UID=1000
@@ -60,7 +64,7 @@ die() {
   exit 1
 }
 
-cleanup_temporary_resources() {
+cleanup_restic_stream_resources() {
   if [ -n "$RESTIC_DUMP_PID" ]; then
     kill "$RESTIC_DUMP_PID" 2>/dev/null || true
     wait "$RESTIC_DUMP_PID" 2>/dev/null || true
@@ -76,6 +80,14 @@ cleanup_temporary_resources() {
   fi
 }
 
+cleanup_temporary_resources() {
+  cleanup_restic_stream_resources
+  if [ -n "$DOCUMENT_SET_TEMP_DIRECTORY" ]; then
+    rm -rf -- "$DOCUMENT_SET_TEMP_DIRECTORY"
+    DOCUMENT_SET_TEMP_DIRECTORY=
+  fi
+}
+
 trap cleanup_temporary_resources EXIT
 
 note() {
@@ -87,10 +99,14 @@ usage() {
 Usage:
   scripts/pilot-ops.sh host-preflight --env-file PATH
   scripts/pilot-ops.sh preflight --env-file PATH
+  scripts/pilot-ops.sh quiesce --env-file PATH
   scripts/pilot-ops.sh backup --env-file PATH
   scripts/pilot-ops.sh validate-backup --env-file PATH --snapshot 64_HEX_CHARACTERS
   scripts/pilot-ops.sh restore --env-file PATH --snapshot 64_HEX_CHARACTERS --database kaul_restore_NAME
-  scripts/pilot-ops.sh start-restore-check --env-file PATH --database kaul_restore_NAME
+  scripts/pilot-ops.sh backup-documents-set --env-file PATH
+  scripts/pilot-ops.sh validate-documents-set --env-file PATH --manifest-snapshot 64_HEX_CHARACTERS
+  scripts/pilot-ops.sh restore-documents-set --env-file PATH --manifest-snapshot 64_HEX_CHARACTERS --database kaul_restore_NAME --storage-root EMPTY_ABSOLUTE_PATH
+  scripts/pilot-ops.sh start-restore-check --env-file PATH --database kaul_restore_NAME --storage-root RESTORED_ABSOLUTE_PATH
   scripts/pilot-ops.sh stop-restore-check --env-file PATH
   scripts/pilot-ops.sh migrate --env-file PATH
   scripts/pilot-ops.sh migrate-pristine --env-file PATH
@@ -128,6 +144,16 @@ parse_options() {
       --database)
         require_option_value "$1" "${2:-}"
         RESTORE_DATABASE=$2
+        shift 2
+        ;;
+      --manifest-snapshot)
+        require_option_value "$1" "${2:-}"
+        MANIFEST_SNAPSHOT=$2
+        shift 2
+        ;;
+      --storage-root)
+        require_option_value "$1" "${2:-}"
+        RESTORE_STORAGE_ROOT=$2
         shift 2
         ;;
       *) die "Unknown option: $1" ;;
@@ -174,10 +200,17 @@ run_sanitized_compose() {
         defined($override_value) && length($override_value)
           or die "ERROR: Missing trusted Compose database override.\n";
         $ENV{DATABASE_URL} = $override_value;
+      } elsif ($override_mode eq q{database-url-and-storage-root}) {
+        my ($database_url, $storage_root) = split /\n/, $override_value, 2;
+        defined($database_url) && length($database_url)
+          or die "ERROR: Missing trusted Compose database override.\n";
+        defined($storage_root) && $storage_root =~ m{\A/}
+          or die "ERROR: Missing trusted Compose storage-root override.\n";
+        $ENV{DATABASE_URL} = $database_url;
+        $ENV{DOCUMENT_STORAGE_HOST_PATH} = $storage_root;
       } elsif ($override_mode ne q{none}) {
         die "ERROR: Invalid trusted Compose override mode.\n";
       }
-
       exec @command;
       die "ERROR: Could not start Docker Compose.\n";
     ' "$COMPOSE_INTERPOLATION_KEYS" docker compose \
@@ -199,6 +232,13 @@ compose_with_database_url() {
   run_sanitized_compose database-url "$database_url_override" "$@"
 }
 
+compose_with_database_and_storage_root() {
+  database_url_override=$1
+  storage_root_override=$2
+  shift 2
+  override_value=$(printf '%s\n%s\n' "$database_url_override" "$storage_root_override")
+  run_sanitized_compose database-url-and-storage-root "$override_value" "$@"
+}
 validate_compose_project_name() {
   value=$1
   [ -n "$value" ] || die "COMPOSE_PROJECT_NAME must not be empty."
@@ -280,7 +320,7 @@ load_compose_project() {
 
 command_requires_operation_lock() {
   case "$1" in
-    backup|restore|start-restore-check|stop-restore-check|migrate|migrate-pristine|convert-personnummer|update|start-postgres|bootstrap-admin|start-stack|prepare-scanner|verify-documents) return 0 ;;
+    quiesce|backup|restore|backup-documents-set|validate-documents-set|restore-documents-set|start-restore-check|stop-restore-check|migrate|migrate-pristine|convert-personnummer|update|start-postgres|bootstrap-admin|start-stack|prepare-scanner|verify-documents) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -798,7 +838,7 @@ stream_snapshot_to_postgres() {
     restic_status=$?
   fi
   RESTIC_DUMP_PID=
-  cleanup_temporary_resources
+  cleanup_restic_stream_resources
 
   [ "$restic_status" -eq 0 ] || return "$restic_status"
   [ "$postgres_status" -eq 0 ] || return "$postgres_status"
@@ -839,7 +879,7 @@ restore_database_url() {
   printf '%s\n' "${source_url%/*}/$database"
 }
 
-create_backup() {
+create_database_snapshot() {
   backup_json=$(run_restic backup \
     --json \
     --quiet \
@@ -877,6 +917,463 @@ create_backup() {
   note "Backup snapshot created and validated: $CREATED_SNAPSHOT"
 }
 
+create_backup() {
+  provenance_mode=${1:-current}
+  backup_mode=$(documents_backup_mode)
+  case "$backup_mode" in
+    database) create_database_snapshot ;;
+    combined) create_documents_set_backup "$provenance_mode" ;;
+    *) die "Could not select a safe Pilot backup mode." ;;
+  esac
+}
+extract_created_snapshot_id() {
+  backup_json=$1
+  snapshot_ids=$(printf '%s\n' "$backup_json" |
+    grep -Eo '"snapshot_id":"[0-9a-f]{64}"' |
+    sed 's/^"snapshot_id":"//; s/"$//')
+  [ "$(printf '%s\n' "$snapshot_ids" | grep -c .)" -eq 1 ] ||
+    die "Restic backup succeeded without one unambiguous snapshot ID."
+  printf '%s\n' "$snapshot_ids"
+}
+
+prepare_document_set_temporary_directory() {
+  [ -z "$DOCUMENT_SET_TEMP_DIRECTORY" ] ||
+    die "Document backup-set temporary state was initialized twice."
+  umask 077
+  DOCUMENT_SET_TEMP_DIRECTORY=$(mktemp -d)
+}
+
+document_storage_root() {
+  configured_root=$(environment_value DOCUMENT_STORAGE_HOST_PATH)
+  case "$configured_root" in
+    /*) ;;
+    *) die "DOCUMENT_STORAGE_HOST_PATH must be an absolute host path." ;;
+  esac
+  [ -d "$configured_root" ] && [ ! -L "$configured_root" ] ||
+    die "DOCUMENT_STORAGE_HOST_PATH must be a regular directory and not a symlink."
+  resolved_root=$(realpath "$configured_root") ||
+    die "DOCUMENT_STORAGE_HOST_PATH could not be resolved."
+  [ -r "$resolved_root" ] && [ -w "$resolved_root" ] && [ -x "$resolved_root" ] ||
+    die "DOCUMENT_STORAGE_HOST_PATH must be accessible to the Pilot operator."
+  printf '%s\n' "$resolved_root"
+}
+
+quiesce_public_services() {
+  validate_documents_backup_prerequisites
+  compose stop caddy ||
+    die "Caddy could not be stopped. Kaul was not changed."
+  compose stop kaul ||
+    die "Kaul could not be stopped. Caddy remains stopped."
+  assert_public_services_stopped
+  note "Kaul and Caddy are confirmed stopped."
+}
+assert_public_services_stopped() {
+  running=$(compose ps --status running --quiet kaul caddy) ||
+    die "Could not confirm that Kaul and Caddy are stopped."
+  [ -z "$running" ] ||
+    die "Kaul and Caddy must both be stopped before a Documents backup set is captured."
+}
+
+capture_document_backup_metadata() {
+  destination=$1
+  application_user=$(environment_value KAUL_DB_USER)
+  application_database=$(environment_value KAUL_DB_NAME)
+  if ! compose exec -T postgres psql \
+    --username="$application_user" \
+    --dbname="$application_database" \
+    --tuples-only \
+    --no-align \
+    --set=ON_ERROR_STOP=1 \
+    --variable=KAUL_DOCUMENT_BACKUP_METADATA=1 \
+    > "$destination" <<'SQL'
+SELECT json_build_object(
+  'migrationNames',
+  COALESCE(
+    (
+      SELECT json_agg(migration_name ORDER BY migration_name)
+      FROM "_prisma_migrations"
+      WHERE finished_at IS NOT NULL
+        AND rolled_back_at IS NULL
+    ),
+    '[]'::json
+  ),
+  'objects',
+  COALESCE(
+    (
+      SELECT json_agg(
+        json_build_object(
+          'storageKey', "storageKey",
+          'sizeBytes', "sizeBytes",
+          'sha256', trim("sha256")
+        )
+        ORDER BY "storageKey"
+      )
+      FROM "documentVersion"
+    ),
+    '[]'::json
+  )
+);
+SQL
+  then
+    die "Could not read immutable Documents metadata from PostgreSQL."
+  fi
+}
+
+capture_restored_document_backup_metadata() {
+  database=$1
+  destination=$2
+  application_user=$(environment_value KAUL_DB_USER)
+  if ! compose exec -T postgres psql \
+    --username="$application_user" \
+    --dbname="$database" \
+    --tuples-only \
+    --no-align \
+    --set=ON_ERROR_STOP=1 \
+    --variable=KAUL_DOCUMENT_BACKUP_METADATA=1 \
+    > "$destination" <<'SQL'
+SELECT json_build_object(
+  'migrationNames',
+  COALESCE(
+    (
+      SELECT json_agg(migration_name ORDER BY migration_name)
+      FROM "_prisma_migrations"
+      WHERE finished_at IS NOT NULL
+        AND rolled_back_at IS NULL
+    ),
+    '[]'::json
+  ),
+  'objects',
+  COALESCE(
+    (
+      SELECT json_agg(
+        json_build_object(
+          'storageKey', "storageKey",
+          'sizeBytes', "sizeBytes",
+          'sha256', trim("sha256")
+        )
+        ORDER BY "storageKey"
+      )
+      FROM "documentVersion"
+    ),
+    '[]'::json
+  )
+);
+SQL
+  then
+    die "Could not read immutable Documents metadata from the restored PostgreSQL database."
+  fi
+}
+selected_application_git_sha() {
+  provenance_mode=$1
+  case "$provenance_mode" in
+    current)
+      current_container=$(compose ps --all --quiet kaul) ||
+        die "Could not inspect the existing Kaul container for backup provenance."
+      if [ -n "$current_container" ]; then
+        verification_image=$(docker inspect --format '{{.Config.Image}}' "$current_container") ||
+          die "Could not read the existing Kaul container image."
+      else
+        verification_image=$(environment_value KAUL_IMAGE)
+      fi
+      ;;
+    selected) verification_image=$(environment_value KAUL_IMAGE) ;;
+    *) die "Invalid internal backup provenance mode." ;;
+  esac
+  printf '%s\n' "$verification_image" |
+    grep -Eq '^ghcr.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$' ||
+    die "The backup verification Kaul image must be pinned by an immutable digest."
+
+  application_git_sha=$(docker image inspect \
+    --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+    "$verification_image") ||
+    die "The backup verification Kaul image is not available for revision verification."
+  printf '%s\n' "$application_git_sha" |
+    grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$' ||
+    die "The backup verification Kaul image has no valid source revision label."
+  printf '%s\n' "$application_git_sha"
+}
+
+validate_documents_backup_prerequisites() {
+  require_host_command date
+  require_host_command find
+  require_host_command node
+  node_version=$(node --version 2>/dev/null) ||
+    die "Node.js could not report its version before the Documents backup outage."
+  printf '%s\n' "$node_version" | grep -Eq '^v24\.[0-9]+\.[0-9]+$' ||
+    die "Documents backup operations require Node.js 24."
+  run_restic snapshots --json --latest 1 >/dev/null ||
+    die "Restic authentication must succeed before a Documents backup outage."
+}
+validate_objects_catalog() {
+  metadata_or_manifest=$1
+  snapshot=$2
+  validate_snapshot_id "$snapshot"
+  catalog_path="$DOCUMENT_SET_TEMP_DIRECTORY/objects-catalog-$snapshot.jsonl"
+  run_restic ls --json "$snapshot" > "$catalog_path" ||
+    die "Restic could not list the exact Documents object snapshot."
+  node \
+    "$SCRIPT_DIR/document-backup-set.mjs" \
+    verify-catalog "$metadata_or_manifest" "$snapshot" "$catalog_path" ||
+    die "The exact Restic snapshot is not the manifest-bound /objects subtree."
+}
+
+validate_manifest_catalog() {
+  snapshot=$1
+  validate_snapshot_id "$snapshot"
+  catalog_path="$DOCUMENT_SET_TEMP_DIRECTORY/manifest-catalog-$snapshot.jsonl"
+  run_restic ls --json "$snapshot" > "$catalog_path" ||
+    die "Restic could not list the exact Documents manifest snapshot."
+  node \
+    "$SCRIPT_DIR/document-backup-set.mjs" \
+    verify-manifest-catalog "$snapshot" "$catalog_path" ||
+    die "The exact Restic snapshot does not contain only the Documents-set manifest."
+}
+
+load_document_backup_manifest() {
+  snapshot=$1
+  validate_manifest_catalog "$snapshot"
+  DOCUMENT_SET_MANIFEST_PATH="$DOCUMENT_SET_TEMP_DIRECTORY/$DOCUMENT_SET_MANIFEST_FILENAME"
+  run_restic dump "$snapshot" "/$DOCUMENT_SET_MANIFEST_FILENAME" > "$DOCUMENT_SET_MANIFEST_PATH" ||
+    die "Restic could not read the exact Documents-set manifest."
+  DOCUMENT_SET_POSTGRESQL_SNAPSHOT=$(node \
+    "$SCRIPT_DIR/document-backup-set.mjs" \
+    get "$DOCUMENT_SET_MANIFEST_PATH" postgresqlSnapshotId) ||
+    die "The Documents-set manifest is invalid."
+  DOCUMENT_SET_OBJECTS_SNAPSHOT=$(node \
+    "$SCRIPT_DIR/document-backup-set.mjs" \
+    get "$DOCUMENT_SET_MANIFEST_PATH" objectsSnapshotId) ||
+    die "The Documents-set manifest is invalid."
+  validate_snapshot_id "$DOCUMENT_SET_POSTGRESQL_SNAPSHOT"
+  validate_snapshot_id "$DOCUMENT_SET_OBJECTS_SNAPSHOT"
+}
+
+restore_and_verify_document_objects() {
+  manifest_path=$1
+  objects_snapshot=$2
+  restored_root=$3
+  mkdir "$restored_root/objects" ||
+    die "Could not create the isolated restored objects directory."
+  run_restic restore "$objects_snapshot:/objects" \
+    --target "$restored_root/objects" \
+    --overwrite never ||
+    die "Restic could not restore the exact Documents object snapshot."
+  node "$SCRIPT_DIR/document-backup-set.mjs" verify "$manifest_path" "$restored_root" ||
+    die "Restored Documents objects did not match the strict manifest."
+  mkdir "$restored_root/quarantine" ||
+    die "Could not create the empty restored quarantine directory."
+  [ -z "$(find "$restored_root/quarantine" -mindepth 1 -print -quit)" ] ||
+    die "Restored quarantine must remain empty."
+}
+
+validate_documents_set() {
+  require_host_command node
+  [ -n "$MANIFEST_SNAPSHOT" ] || die "--manifest-snapshot is required."
+  prepare_document_set_temporary_directory
+  load_document_backup_manifest "$MANIFEST_SNAPSHOT"
+  validate_snapshot "$DOCUMENT_SET_POSTGRESQL_SNAPSHOT"
+  validate_objects_catalog \
+    "$DOCUMENT_SET_MANIFEST_PATH" \
+    "$DOCUMENT_SET_OBJECTS_SNAPSHOT"
+  validation_root="$DOCUMENT_SET_TEMP_DIRECTORY/validated-restore"
+  mkdir "$validation_root"
+  restore_and_verify_document_objects \
+    "$DOCUMENT_SET_MANIFEST_PATH" \
+    "$DOCUMENT_SET_OBJECTS_SNAPSHOT" \
+    "$validation_root"
+  note "Documents backup set validated from exact manifest snapshot: $MANIFEST_SNAPSHOT"
+}
+
+create_documents_set_backup() {
+  provenance_mode=$1
+  validate_documents_backup_prerequisites
+  assert_public_services_stopped
+  storage_root=$(document_storage_root)
+  umask 077
+  if [ ! -e "$storage_root/objects" ]; then
+    mkdir "$storage_root/objects" ||
+      die "Could not initialize the immutable Documents object directory."
+  fi
+  [ -d "$storage_root/objects" ] && [ ! -L "$storage_root/objects" ] ||
+    die "The immutable Documents object path must be a directory and not a symlink."
+
+  prepare_document_set_temporary_directory
+  metadata_path="$DOCUMENT_SET_TEMP_DIRECTORY/document-metadata.json"
+  capture_document_backup_metadata "$metadata_path"
+  application_git_sha=$(selected_application_git_sha "$provenance_mode")
+  provisional_manifest="$DOCUMENT_SET_TEMP_DIRECTORY/provisional-manifest.json"
+  created_at=$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')
+  node "$SCRIPT_DIR/document-backup-set.mjs" create \
+    "$metadata_path" \
+    "$application_git_sha" \
+    "0000000000000000000000000000000000000000000000000000000000000000" \
+    "1111111111111111111111111111111111111111111111111111111111111111" \
+    "$created_at" \
+    > "$provisional_manifest" ||
+    die "PostgreSQL Documents metadata is not a valid backup-set source."
+  node "$SCRIPT_DIR/document-backup-set.mjs" verify \
+    "$provisional_manifest" "$storage_root" ||
+    die "Immutable Documents storage does not exactly match PostgreSQL metadata."
+
+  create_database_snapshot
+  postgresql_snapshot=$CREATED_SNAPSHOT
+
+  objects_backup_json=$(
+    cd "$storage_root" &&
+      run_restic backup \
+        --json \
+        --quiet \
+        --host "$PILOT_COMPOSE_PROJECT" \
+        --tag kaul-pilot-document-objects \
+        --tag "compose-project-$PILOT_COMPOSE_PROJECT" \
+        objects
+  ) || die "Documents object backup failed; Restic did not publish a successful snapshot."
+  objects_snapshot=$(extract_created_snapshot_id "$objects_backup_json")
+  validate_objects_catalog "$metadata_path" "$objects_snapshot"
+
+  manifest_path="$DOCUMENT_SET_TEMP_DIRECTORY/$DOCUMENT_SET_MANIFEST_FILENAME"
+  node "$SCRIPT_DIR/document-backup-set.mjs" create \
+    "$metadata_path" \
+    "$application_git_sha" \
+    "$postgresql_snapshot" \
+    "$objects_snapshot" \
+    "$created_at" \
+    > "$manifest_path" ||
+    die "Could not construct the strict Documents-set manifest."
+
+  manifest_backup_json=$(run_restic backup \
+    --json \
+    --quiet \
+    --host "$PILOT_COMPOSE_PROJECT" \
+    --tag kaul-pilot-document-set-manifest \
+    --tag "compose-project-$PILOT_COMPOSE_PROJECT" \
+    --stdin \
+    --stdin-filename "$DOCUMENT_SET_MANIFEST_FILENAME" \
+    < "$manifest_path") ||
+    die "Documents-set manifest backup failed; Restic did not publish a successful snapshot."
+  MANIFEST_SNAPSHOT=$(extract_created_snapshot_id "$manifest_backup_json")
+  validate_manifest_catalog "$MANIFEST_SNAPSHOT"
+
+  validation_root="$DOCUMENT_SET_TEMP_DIRECTORY/capture-validation"
+  mkdir "$validation_root"
+  restore_and_verify_document_objects \
+    "$manifest_path" \
+    "$objects_snapshot" \
+    "$validation_root"
+  note "Documents backup set created and validated: $MANIFEST_SNAPSHOT"
+  note "Kaul and Caddy remain stopped."
+}
+
+resolve_restore_storage_root() {
+  requested_root=$1
+  case "$requested_root" in
+    /*) ;;
+    *) die "--storage-root must be an absolute host path." ;;
+  esac
+  [ -d "$requested_root" ] && [ ! -L "$requested_root" ] ||
+    die "Restore storage root must be a precreated directory and not a symlink."
+  resolved_restore_root=$(realpath "$requested_root") ||
+    die "Restore storage root could not be resolved."
+  active_root=$(document_storage_root)
+  case "$resolved_restore_root/" in
+    "$active_root/"*) die "Restore storage root must be outside the active Documents storage tree." ;;
+  esac
+  case "$active_root/" in
+    "$resolved_restore_root/"*) die "Restore storage root must not contain the active Documents storage tree." ;;
+  esac
+  [ -r "$resolved_restore_root" ] && [ -w "$resolved_restore_root" ] && [ -x "$resolved_restore_root" ] ||
+    die "Restore storage root must be accessible to the Pilot operator."
+  printf '%s\n' "$resolved_restore_root"
+}
+
+validate_empty_restore_storage_root() {
+  resolved_restore_root=$(resolve_restore_storage_root "$1")
+  [ -z "$(find "$resolved_restore_root" -mindepth 1 -print -quit)" ] ||
+    die "Restore storage root must be empty; refusing to overwrite it."
+  printf '%s\n' "$resolved_restore_root"
+}
+
+restore_documents_set() {
+  require_host_command node
+  [ -n "$MANIFEST_SNAPSHOT" ] || die "--manifest-snapshot is required."
+  [ -n "$RESTORE_DATABASE" ] || die "--database is required."
+  [ -n "$RESTORE_STORAGE_ROOT" ] || die "--storage-root is required."
+  validate_restore_database_name "$RESTORE_DATABASE"
+  restore_root=$(validate_empty_restore_storage_root "$RESTORE_STORAGE_ROOT")
+
+  prepare_document_set_temporary_directory
+  load_document_backup_manifest "$MANIFEST_SNAPSHOT"
+  validate_snapshot "$DOCUMENT_SET_POSTGRESQL_SNAPSHOT"
+  validate_objects_catalog \
+    "$DOCUMENT_SET_MANIFEST_PATH" \
+    "$DOCUMENT_SET_OBJECTS_SNAPSHOT"
+
+  exists=$(database_exists "$RESTORE_DATABASE")
+  [ -z "$exists" ] ||
+    die "Restore destination already exists; refusing to overwrite it."
+  compose exec -T postgres sh -ec \
+    'createdb --username="$POSTGRES_USER" --owner="$KAUL_DB_USER" --template=template0 "$1"' \
+    sh "$RESTORE_DATABASE"
+  if ! stream_snapshot_to_postgres \
+    "$DOCUMENT_SET_POSTGRESQL_SNAPSHOT" restore "$RESTORE_DATABASE"; then
+    die "Restore failed. The destination was not dropped; preserve it and the logs for review."
+  fi
+
+  restore_and_verify_document_objects \
+    "$DOCUMENT_SET_MANIFEST_PATH" \
+    "$DOCUMENT_SET_OBJECTS_SNAPSHOT" \
+    "$restore_root"
+  restored_metadata="$DOCUMENT_SET_TEMP_DIRECTORY/restored-document-metadata.json"
+  capture_restored_document_backup_metadata \
+    "$RESTORE_DATABASE" "$restored_metadata"
+  node "$SCRIPT_DIR/document-backup-set.mjs" verify-metadata \
+    "$DOCUMENT_SET_MANIFEST_PATH" "$restored_metadata" ||
+    die "Restored PostgreSQL Documents metadata did not match the strict manifest."
+
+  restore_url=$(restore_database_url "$RESTORE_DATABASE")
+  compose_with_database_and_storage_root \
+    "$restore_url" "$restore_root" \
+    --profile restore-check run --rm --no-deps kaul-restore-check \
+    npm run db:status ||
+    die "Restored database migration status verification failed."
+  note "Documents backup set restored into new database $RESTORE_DATABASE and isolated root $restore_root."
+  note "The active Pilot database and Documents root were not changed."
+}
+documents_backup_mode() {
+  require_host_command find
+  storage_root=$(document_storage_root)
+  application_user=$(environment_value KAUL_DB_USER)
+  application_database=$(environment_value KAUL_DB_NAME)
+  schema_state=$(compose exec -T postgres psql \
+    --username="$application_user" \
+    --dbname="$application_database" \
+    --tuples-only \
+    --no-align \
+    --set=ON_ERROR_STOP=1 \
+    --variable=KAUL_DOCUMENTS_SCHEMA_CHECK=1 <<'SQL'
+SELECT CASE
+  WHEN to_regclass('public."documentVersion"') IS NULL THEN 'absent'
+  ELSE 'present'
+END;
+SQL
+  ) || die "Could not determine the required backup mode."
+
+  objects_state=empty
+  if [ -d "$storage_root/objects" ] &&
+    [ -n "$(find "$storage_root/objects" -mindepth 1 -print -quit)" ]; then
+    objects_state=nonempty
+  fi
+  case "$schema_state:$objects_state" in
+    absent:empty) printf '%s\n' database ;;
+    present:*|*:nonempty) printf '%s\n' combined ;;
+    *) die "Could not determine the required backup mode." ;;
+  esac
+}
+validate_required_backup_prerequisites() {
+  backup_mode=$(documents_backup_mode)
+  if [ "$backup_mode" = combined ]; then
+    validate_documents_backup_prerequisites
+  fi
+}
 run_migrations() {
   note "Applying committed Prisma migrations with the selected release image."
   if ! compose run --rm --no-deps kaul npm run db:deploy; then
@@ -988,18 +1485,33 @@ remove_restore_check_container() {
 
 start_restore_check() {
   [ -n "$RESTORE_DATABASE" ] || die "--database is required."
+  [ -n "$RESTORE_STORAGE_ROOT" ] || die "--storage-root is required."
   validate_restore_database_name "$RESTORE_DATABASE"
+  restore_root=$(resolve_restore_storage_root "$RESTORE_STORAGE_ROOT")
+  [ -d "$restore_root/objects" ] ||
+    die "Restore storage root must contain the verified objects directory."
+  [ -d "$restore_root/quarantine" ] &&
+    [ -z "$(find "$restore_root/quarantine" -mindepth 1 -print -quit)" ] ||
+    die "Restore storage root must contain an empty quarantine directory."
   exists=$(database_exists "$RESTORE_DATABASE")
   [ -n "$exists" ] || die "Restore database does not exist: $RESTORE_DATABASE"
 
   existing_container=$(compose --profile restore-check ps --all --quiet kaul-restore-check)
-  [ -z "$existing_container" ] || die "A private restore check already exists. Stop it before starting another."
+  [ -z "$existing_container" ] ||
+    die "A private restore check already exists. Stop it before starting another."
 
   restore_url=$(restore_database_url "$RESTORE_DATABASE")
-  compose_with_database_url "$restore_url" --profile restore-check config --quiet
-  compose_with_database_url "$restore_url" --profile restore-check run --rm --no-deps kaul-restore-check npm run db:status
+  compose_with_database_and_storage_root \
+    "$restore_url" "$restore_root" \
+    --profile restore-check config --quiet
+  compose_with_database_and_storage_root \
+    "$restore_url" "$restore_root" \
+    --profile restore-check run --rm --no-deps kaul-restore-check \
+    npm run db:status
 
-  if ! compose_with_database_url "$restore_url" --profile restore-check up -d --no-deps kaul-restore-check; then
+  if ! compose_with_database_and_storage_root \
+    "$restore_url" "$restore_root" \
+    --profile restore-check up -d --no-deps kaul-restore-check; then
     remove_restore_check_container || true
     die "Private restore-check startup failed. The live Kaul and Caddy services were not changed."
   fi
@@ -1011,9 +1523,9 @@ start_restore_check() {
   fi
 
   note "Private restore check is healthy against database: $RESTORE_DATABASE"
+  note "It uses isolated restored Documents storage: $restore_root"
   note "It has no public route. Stop it with the protected stop-restore-check command and the same environment file."
 }
-
 stop_restore_check() {
   existing_container=$(compose --profile restore-check ps --all --quiet kaul-restore-check)
   if [ -z "$existing_container" ]; then
@@ -1053,6 +1565,7 @@ start_stack_privately() {
 }
 
 update_application() {
+  validate_required_backup_prerequisites
   current_container=$(compose ps -q kaul 2>/dev/null || true)
   if [ -n "$current_container" ]; then
     current_image=$(docker inspect --format '{{.Config.Image}}' "$current_container")
@@ -1112,9 +1625,13 @@ case "$COMMAND" in
   preflight)
     preflight
     ;;
+  quiesce)
+    preflight
+    quiesce_public_services
+    ;;
   backup)
     preflight
-    create_backup
+    create_backup selected
     ;;
   validate-backup)
     preflight
@@ -1124,6 +1641,18 @@ case "$COMMAND" in
   restore)
     preflight
     restore_backup
+    ;;
+  backup-documents-set)
+    preflight
+    create_documents_set_backup selected
+    ;;
+  validate-documents-set)
+    preflight
+    validate_documents_set
+    ;;
+  restore-documents-set)
+    preflight
+    restore_documents_set
     ;;
   start-restore-check)
     preflight
@@ -1135,7 +1664,11 @@ case "$COMMAND" in
     ;;
   migrate)
     preflight
-    compose stop kaul
+    validate_required_backup_prerequisites
+    compose stop caddy ||
+      die "Caddy could not be stopped. Migration did not proceed."
+    compose stop kaul ||
+      die "Kaul could not be stopped. Caddy remains stopped and migration did not proceed."
     create_backup
     run_migrations
     note "Migration completed and Kaul remains stopped. Start it deliberately after review."
@@ -1151,7 +1684,11 @@ case "$COMMAND" in
     ;;
   convert-personnummer)
     preflight
-    compose stop kaul
+    validate_required_backup_prerequisites
+    compose stop caddy ||
+      die "Caddy could not be stopped. Personnummer conversion did not proceed."
+    compose stop kaul ||
+      die "Kaul could not be stopped. Caddy remains stopped and conversion did not proceed."
     create_backup
     compose run --rm --no-deps kaul npm run personnummer:convert-legacy -- --confirm-stage-b
     note "Personnummer conversion completed and Kaul remains stopped. Review counts and run the private restore check before deliberate startup."

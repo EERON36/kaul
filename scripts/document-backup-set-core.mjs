@@ -7,6 +7,10 @@ const STORAGE_KEY = /^[0-9a-f]{64}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const GIT_SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const MIGRATION = /^20[0-9]{12}_[a-z0-9_]+$/;
+const REQUIRED_MIGRATIONS = [
+  "20260903120000_add_client_documents",
+  "20260903121000_protect_client_document_lifecycle",
+];
 
 export class DocumentBackupSetError extends Error {
   constructor(message = "Document backup-set verification failed.") {
@@ -22,48 +26,44 @@ function requireObject(value) {
   return value;
 }
 
-export function parseDocumentBackupManifest(value) {
-  const manifest = requireObject(value);
-  const keys = Object.keys(manifest).sort();
-  const expectedKeys = [
-    "applicationGitSha",
-    "createdAt",
-    "format",
-    "migrationNames",
-    "objects",
-    "objectsSnapshotId",
-    "postgresqlSnapshotId",
-  ].sort();
-  if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)) {
+function sameKeys(value, expectedKeys) {
+  return (
+    JSON.stringify(Object.keys(value).sort()) ===
+    JSON.stringify([...expectedKeys].sort())
+  );
+}
+
+function isSorted(values) {
+  return values.every(
+    (value, index) => index === 0 || values[index - 1] < value,
+  );
+}
+
+export function parseDocumentBackupMetadata(value) {
+  const metadata = requireObject(value);
+  if (!sameKeys(metadata, ["migrationNames", "objects"])) {
     throw new DocumentBackupSetError();
   }
   if (
-    manifest.format !== "kaul-document-backup-set-v1" ||
-    !GIT_SHA.test(manifest.applicationGitSha) ||
-    !SHA256.test(manifest.postgresqlSnapshotId) ||
-    !SHA256.test(manifest.objectsSnapshotId) ||
-    typeof manifest.createdAt !== "string" ||
-    Number.isNaN(Date.parse(manifest.createdAt)) ||
-    !Array.isArray(manifest.migrationNames) ||
-    manifest.migrationNames.length === 0 ||
-    new Set(manifest.migrationNames).size !== manifest.migrationNames.length ||
-    !manifest.migrationNames.every(
+    !Array.isArray(metadata.migrationNames) ||
+    metadata.migrationNames.length === 0 ||
+    !isSorted(metadata.migrationNames) ||
+    !metadata.migrationNames.every(
       (name) => typeof name === "string" && MIGRATION.test(name),
     ) ||
-    !manifest.migrationNames.includes("20260903120000_add_client_documents") ||
-    !manifest.migrationNames.includes(
-      "20260903121000_protect_client_document_lifecycle",
+    !REQUIRED_MIGRATIONS.every((name) =>
+      metadata.migrationNames.includes(name),
     ) ||
-    !Array.isArray(manifest.objects)
+    !Array.isArray(metadata.objects)
   ) {
     throw new DocumentBackupSetError();
   }
 
   const seen = new Set();
-  const objects = manifest.objects.map((candidate) => {
+  const objects = metadata.objects.map((candidate) => {
     const object = requireObject(candidate);
     if (
-      Object.keys(object).sort().join(",") !== "sha256,sizeBytes,storageKey" ||
+      !sameKeys(object, ["sha256", "sizeBytes", "storageKey"]) ||
       typeof object.storageKey !== "string" ||
       !STORAGE_KEY.test(object.storageKey) ||
       !Number.isSafeInteger(object.sizeBytes) ||
@@ -82,18 +82,190 @@ export function parseDocumentBackupManifest(value) {
       sha256: object.sha256,
     });
   });
+  if (!isSorted(objects.map((object) => object.storageKey))) {
+    throw new DocumentBackupSetError();
+  }
 
   return Object.freeze({
-    format: manifest.format,
-    createdAt: manifest.createdAt,
-    applicationGitSha: manifest.applicationGitSha,
-    migrationNames: Object.freeze([...manifest.migrationNames]),
-    postgresqlSnapshotId: manifest.postgresqlSnapshotId,
-    objectsSnapshotId: manifest.objectsSnapshotId,
+    migrationNames: Object.freeze([...metadata.migrationNames]),
     objects: Object.freeze(objects),
   });
 }
 
+export function parseDocumentBackupManifest(value) {
+  const manifest = requireObject(value);
+  if (
+    !sameKeys(manifest, [
+      "applicationGitSha",
+      "createdAt",
+      "format",
+      "migrationNames",
+      "objects",
+      "objectsSnapshotId",
+      "postgresqlSnapshotId",
+    ]) ||
+    manifest.format !== "kaul-document-backup-set-v1" ||
+    typeof manifest.applicationGitSha !== "string" ||
+    !GIT_SHA.test(manifest.applicationGitSha) ||
+    typeof manifest.postgresqlSnapshotId !== "string" ||
+    !SHA256.test(manifest.postgresqlSnapshotId) ||
+    typeof manifest.objectsSnapshotId !== "string" ||
+    !SHA256.test(manifest.objectsSnapshotId) ||
+    manifest.postgresqlSnapshotId === manifest.objectsSnapshotId ||
+    typeof manifest.createdAt !== "string" ||
+    Number.isNaN(Date.parse(manifest.createdAt))
+  ) {
+    throw new DocumentBackupSetError();
+  }
+  const metadata = parseDocumentBackupMetadata({
+    migrationNames: manifest.migrationNames,
+    objects: manifest.objects,
+  });
+  return Object.freeze({
+    format: manifest.format,
+    createdAt: manifest.createdAt,
+    applicationGitSha: manifest.applicationGitSha,
+    migrationNames: metadata.migrationNames,
+    postgresqlSnapshotId: manifest.postgresqlSnapshotId,
+    objectsSnapshotId: manifest.objectsSnapshotId,
+    objects: metadata.objects,
+  });
+}
+
+export function createDocumentBackupManifest({
+  applicationGitSha,
+  createdAt,
+  metadata: metadataValue,
+  objectsSnapshotId,
+  postgresqlSnapshotId,
+}) {
+  const metadata = parseDocumentBackupMetadata(metadataValue);
+  return parseDocumentBackupManifest({
+    format: "kaul-document-backup-set-v1",
+    createdAt,
+    applicationGitSha,
+    migrationNames: metadata.migrationNames,
+    postgresqlSnapshotId,
+    objectsSnapshotId,
+    objects: metadata.objects,
+  });
+}
+
+export function serializeDocumentBackupManifest(value) {
+  return `${JSON.stringify(parseDocumentBackupManifest(value))}\n`;
+}
+
+export function verifyDocumentBackupMetadata(manifestValue, metadataValue) {
+  const manifest = parseDocumentBackupManifest(manifestValue);
+  const metadata = parseDocumentBackupMetadata(metadataValue);
+  if (
+    JSON.stringify(manifest.migrationNames) !==
+      JSON.stringify(metadata.migrationNames) ||
+    JSON.stringify(manifest.objects) !== JSON.stringify(metadata.objects)
+  ) {
+    throw new DocumentBackupSetError();
+  }
+  return Object.freeze({ objectCount: manifest.objects.length });
+}
+
+export function verifyResticObjectsCatalog(
+  manifestOrMetadataValue,
+  snapshotId,
+  jsonLines,
+) {
+  if (
+    typeof snapshotId !== "string" ||
+    !SHA256.test(snapshotId) ||
+    typeof jsonLines !== "string"
+  ) {
+    throw new DocumentBackupSetError();
+  }
+  const candidate = requireObject(manifestOrMetadataValue);
+  const metadata =
+    "format" in candidate
+      ? parseDocumentBackupManifest(candidate)
+      : parseDocumentBackupMetadata(candidate);
+  const messages = jsonLines
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return requireObject(JSON.parse(line));
+      } catch {
+        throw new DocumentBackupSetError();
+      }
+    });
+  const snapshots = messages.filter(
+    (message) => message.message_type === "snapshot",
+  );
+  const nodes = messages.filter((message) => message.struct_type === "node");
+  if (
+    messages.length !== snapshots.length + nodes.length ||
+    snapshots.length !== 1 ||
+    snapshots[0].id !== snapshotId ||
+    nodes.length !== metadata.objects.length + 1
+  ) {
+    throw new DocumentBackupSetError();
+  }
+  const root = nodes.find((node) => node.path === "/objects");
+  if (!root || root.type !== "dir") throw new DocumentBackupSetError();
+  const expected = new Map(
+    metadata.objects.map((object) => [
+      `/objects/${object.storageKey}`,
+      object.sizeBytes,
+    ]),
+  );
+  const files = nodes.filter((node) => node !== root);
+  if (
+    files.some(
+      (node) =>
+        node.type !== "file" ||
+        !expected.has(node.path) ||
+        expected.get(node.path) !== node.size,
+    ) ||
+    new Set(files.map((node) => node.path)).size !== expected.size
+  ) {
+    throw new DocumentBackupSetError();
+  }
+  return Object.freeze({ objectCount: metadata.objects.length, snapshotId });
+}
+
+export function verifyResticManifestCatalog(snapshotId, jsonLines) {
+  if (
+    typeof snapshotId !== "string" ||
+    !SHA256.test(snapshotId) ||
+    typeof jsonLines !== "string"
+  ) {
+    throw new DocumentBackupSetError();
+  }
+  const messages = jsonLines
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return requireObject(JSON.parse(line));
+      } catch {
+        throw new DocumentBackupSetError();
+      }
+    });
+  const snapshots = messages.filter(
+    (message) => message.message_type === "snapshot",
+  );
+  const nodes = messages.filter((message) => message.struct_type === "node");
+  if (
+    messages.length !== 2 ||
+    snapshots.length !== 1 ||
+    snapshots[0].id !== snapshotId ||
+    nodes.length !== 1 ||
+    nodes[0].path !== "/kaul-document-backup-set.json" ||
+    nodes[0].type !== "file" ||
+    !Number.isSafeInteger(nodes[0].size) ||
+    nodes[0].size < 1
+  ) {
+    throw new DocumentBackupSetError();
+  }
+  return Object.freeze({ snapshotId });
+}
 function isContained(root, candidate) {
   const fromRoot = relative(root, candidate);
   return (
