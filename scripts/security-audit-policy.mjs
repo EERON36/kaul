@@ -2,29 +2,6 @@ const severityNames = ["info", "low", "moderate", "high", "critical"];
 const severities = new Set(severityNames);
 const blockingSeverities = new Set(["high", "critical"]);
 
-// These are reviewed upstream exceptions, not claims that the vulnerabilities
-// are absent or harmless. Remove an exception as soon as a supported Next.js
-// release resolves it. Any package, path, or dependency-tree change requires a
-// fresh review; do not widen an exception merely to keep CI green.
-export const reviewedUpstreamExceptions = Object.freeze({
-  "GHSA-qx2v-qp2m-jg93": {
-    packageName: "postcss",
-    node: "node_modules/next/node_modules/postcss",
-  },
-  "GHSA-6g55-p6wh-862q": {
-    packageName: "postcss",
-    node: "node_modules/next/node_modules/postcss",
-  },
-  "GHSA-r28c-9q8g-f849": {
-    packageName: "postcss",
-    node: "node_modules/next/node_modules/postcss",
-  },
-  "GHSA-f88m-g3jw-g9cj": {
-    packageName: "sharp",
-    node: "node_modules/sharp",
-  },
-});
-
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -36,15 +13,6 @@ function isRecord(value) {
 function isStringArray(value) {
   return (
     Array.isArray(value) && value.every((item) => typeof item === "string")
-  );
-}
-
-function sameMembers(actual, expected) {
-  return (
-    actual.length === expected.length &&
-    [...actual]
-      .sort()
-      .every((value, index) => value === [...expected].sort()[index])
   );
 }
 
@@ -138,53 +106,15 @@ export function parseAuditJson(output) {
   }
 }
 
-function reviewedAdvisoryProblems(finding, expected, report) {
-  const problems = [];
-
-  if (
-    finding.packageName !== expected.packageName ||
-    finding.advisoryPackageName !== expected.packageName ||
-    finding.dependencyName !== expected.packageName
-  ) {
-    problems.push(`expected package ${expected.packageName}`);
-  }
-  if (finding.isDirect) problems.push("expected a transitive dependency");
-  if (!sameMembers(finding.nodes, [expected.node])) {
-    problems.push(`expected node ${expected.node}`);
-  }
-  if (!sameMembers(finding.effects, ["next"])) {
-    problems.push("expected dependent package next");
-  }
-  if (!report.vulnerabilities.next?.via.includes(expected.packageName)) {
-    problems.push(`expected ${expected.packageName} beneath next`);
-  }
-  if (finding.severity === "critical") {
-    problems.push("critical advisories are never allowlisted");
-  }
-  return problems;
-}
-
-function aggregateFailure(finding, report) {
+function aggregateFailure(finding) {
   if (finding.severity === "critical") {
     return `Critical aggregate finding for ${finding.packageName} is never allowed.`;
   }
   if (!blockingSeverities.has(finding.severity)) return undefined;
-
-  const valid =
-    finding.packageName === "next" &&
-    finding.isDirect &&
-    sameMembers(finding.nodes, ["node_modules/next"]) &&
-    finding.effects.length === 0 &&
-    new Set(finding.viaPackages).size === finding.viaPackages.length &&
-    finding.viaPackages.every((name) => ["postcss", "sharp"].includes(name)) &&
-    finding.viaPackages.every((name) =>
-      blockingSeverities.has(report.vulnerabilities[name]?.severity),
-    );
-
-  return valid
-    ? undefined
-    : `Unexpected ${finding.severity} dependency aggregate for ${finding.packageName} ` +
-        `via ${finding.viaPackages.join(", ")}.`;
+  return (
+    `Unexpected ${finding.severity} dependency aggregate for ${finding.packageName} ` +
+    `via ${finding.viaPackages.join(", ")}.`
+  );
 }
 
 function evaluateValidatedReport(report) {
@@ -230,28 +160,11 @@ function evaluateValidatedReport(report) {
       findings.push(finding);
       hasBlockingAdvisory ||= blockingSeverities.has(finding.severity);
 
-      const expected = reviewedUpstreamExceptions[finding.identifier];
-      if (!expected && blockingSeverities.has(finding.severity)) {
+      if (blockingSeverities.has(finding.severity)) {
         failures.push(
           `Unexpected ${finding.severity} advisory ${finding.identifier} for ` +
             `${finding.packageName} at ${finding.nodes.join(", ")}.`,
         );
-        continue;
-      }
-
-      if (expected) {
-        const problems = reviewedAdvisoryProblems(finding, expected, report);
-        if (problems.length > 0) {
-          failures.push(
-            `Reviewed advisory ${finding.identifier} appeared unexpectedly: ` +
-              `${problems.join("; ")}.`,
-          );
-        } else {
-          warnings.push(
-            `Temporarily accepted reviewed upstream advisory ${finding.identifier} ` +
-              `for ${finding.packageName} at ${finding.nodes.join(", ")} via next.`,
-          );
-        }
       }
     }
 
@@ -274,7 +187,7 @@ function evaluateValidatedReport(report) {
         viaPackages,
       };
       findings.push(aggregate);
-      const failure = aggregateFailure(aggregate, report);
+      const failure = aggregateFailure(aggregate);
       if (failure) failures.push(failure);
     }
   }

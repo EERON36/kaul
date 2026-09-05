@@ -1,0 +1,40 @@
+{
+	servers {
+		# Trust only the exact NPM peer. Strict parsing walks X-Forwarded-For
+		# from right to left, ignoring values prepended by an Internet client.
+		trusted_proxies static {$PILOT_NPM_TRUSTED_PROXY_CIDR}
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For
+	}
+}
+
+http://{$PILOT_HOSTNAME}:8080 {
+	@unexpectedPeer not remote_ip {$PILOT_NPM_TRUSTED_PROXY_CIDR}
+	abort @unexpectedPeer
+
+	encode zstd gzip
+
+	log {
+		output stdout
+		format json
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	reverse_proxy kaul:3000 {
+		# NPM terminates public TLS. Kaul still receives the canonical HTTPS
+		# origin and a Caddy-verified client identity for rate limiting.
+		header_up Host {$PILOT_HOSTNAME}
+		header_up X-Real-IP {client_ip}
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Forwarded-Host {$PILOT_HOSTNAME}
+		header_up X-Forwarded-Proto https
+		header_up -Forwarded
+		header_up -CF-Connecting-IP
+		header_up -True-Client-IP
+	}
+}

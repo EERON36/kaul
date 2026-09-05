@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import type { ClientCategory } from "@/modules/clients/client-category";
 import type { ApplicationUser } from "@/modules/authentication/guards";
 import {
   createApplicationShellContext,
@@ -13,12 +14,14 @@ import { MobileNavigation } from "./mobile-navigation";
 type ApplicationShellProps = Readonly<{
   user: ApplicationUser;
   currentPath: "/" | "/klienter" | "/personal";
+  activeClientCategory?: ClientCategory | "ALL";
   children: ReactNode;
 }>;
 
 export function ApplicationShell({
   user,
   currentPath,
+  activeClientCategory,
   children,
 }: ApplicationShellProps) {
   const context = createApplicationShellContext(user);
@@ -35,6 +38,8 @@ export function ApplicationShell({
         <MobileNavigation
           context={context}
           currentPath={currentPath}
+          activeClientCategory={activeClientCategory}
+          key={currentPath}
           navigation={navigation}
         />
       </aside>

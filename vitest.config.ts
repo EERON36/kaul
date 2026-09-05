@@ -18,6 +18,9 @@ export default defineConfig({
       DEPLOYMENT_ENV: "test",
       BETTER_AUTH_SECRET: "fictional-vitest-secret-at-least-32-characters",
       BETTER_AUTH_URL: "http://localhost:3000",
+      KAUL_PERSONNUMMER_KEYRING_FILE: fileURLToPath(
+        new URL("./test-fixtures/personnummer-keyring.json", import.meta.url),
+      ),
     },
     exclude: ["src/**/*.integration.test.ts"],
     include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],

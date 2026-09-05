@@ -430,8 +430,14 @@ test("Client workspace supports Goal and Follow-up lifecycles with terminal and 
       .locator("time"),
   ).toHaveAttribute("datetime", /.+/);
   await expect(page.getByRole("link", { name: "Redigera" })).toHaveCount(0);
-  await page.goto(`/klienter/${activeClient.id}/mal/${firstGoal.id}/redigera`);
-  await expect(page.getByText("This page could not be found")).toBeVisible();
+  const terminalResponse = await page.goto(
+    `/klienter/${activeClient.id}/mal/${firstGoal.id}/redigera`,
+  );
+  expect(terminalResponse?.status()).toBe(404);
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
+  await expect(page.getByText(firstGoal.title, { exact: true })).toHaveCount(0);
 
   const linkedGoal = await prisma.goal.create({
     data: {
@@ -461,13 +467,26 @@ test("Client workspace supports Goal and Follow-up lifecycles with terminal and 
     where: { clientId: activeClient.id, title: "Kontakta fiktivt nätverk" },
   });
 
-  await page.getByRole("link", { name: "Redigera och byt ansvarig" }).click();
+  await page.getByRole("link", { name: "Redigera uppföljning" }).click();
   await page.getByLabel("Rubrik").fill("Kontakta fiktivt nätverk före möte");
+  await page
+    .getByLabel("Beskrivning (valfritt)")
+    .fill("Fiktivt innehåll som sparas före ansvarigbytet.");
+  await expect(
+    page.getByRole("combobox", { name: "Byt ansvarig" }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Spara ändringar" }).click();
   await expect(page.getByText("Uppföljningen har sparats.")).toBeVisible();
-  await page.getByRole("link", { name: "Redigera och byt ansvarig" }).click();
+  await expect(
+    page.getByText("Fiktivt innehåll som sparas före ansvarigbytet."),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Byt ansvarig" }).click();
+  await expect(page.getByLabel("Beskrivning (valfritt)")).toHaveCount(0);
+  await expect(
+    page.getByText(/Det här sparar endast ansvarig medarbetare/),
+  ).toBeVisible();
   await page
-    .getByLabel("Byt ansvarig")
+    .getByRole("combobox", { name: "Byt ansvarig" })
     .selectOption({ label: "Fiktiv Planeringskollega – Fiktiv behandlare" });
   await page.getByRole("button", { name: "Spara ansvarig" }).click();
   await expect(page.getByText("Ansvarig har uppdaterats.")).toBeVisible();
@@ -477,6 +496,24 @@ test("Client workspace supports Goal and Follow-up lifecycles with terminal and 
   await expect(
     page.getByText(/Fiktiv Planeringsägare → Fiktiv Planeringskollega/),
   ).toBeVisible();
+  await expect(
+    prisma.followUp.findUniqueOrThrow({ where: { id: firstFollowUp.id } }),
+  ).resolves.toMatchObject({
+    title: "Kontakta fiktivt nätverk före möte",
+    description: "Fiktivt innehåll som sparas före ansvarigbytet.",
+    responsibleUserId: peer.id,
+  });
+  await expect(
+    prisma.auditEvent.count({
+      where: {
+        result: "SUCCEEDED",
+        operation: {
+          action: "FOLLOW_UP_REASSIGNED",
+          targetId: firstFollowUp.id,
+        },
+      },
+    }),
+  ).resolves.toBe(1);
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Avbryt uppföljning" }).click();
   await expect(page.getByText("Avbruten", { exact: true })).toBeVisible();
@@ -491,7 +528,15 @@ test("Client workspace supports Goal and Follow-up lifecycles with terminal and 
   await page.goto(
     `/klienter/${activeClient.id}/uppfoljningar/${firstFollowUp.id}/redigera`,
   );
-  await expect(page.getByText("This page could not be found")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
+  await page.goto(
+    `/klienter/${activeClient.id}/uppfoljningar/${firstFollowUp.id}/ansvarig`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
 
   await page.goto(`/klienter/${activeClient.id}/uppfoljningar/ny`);
   await page.getByLabel("Rubrik").fill("Slutförbar fiktiv uppföljning");
@@ -523,7 +568,7 @@ test("Client workspace supports Goal and Follow-up lifecycles with terminal and 
   const staleFollowUp = await prisma.followUp.findFirstOrThrow({
     where: { clientId: activeClient.id, title: "Konfliktuppföljning" },
   });
-  await page.getByRole("link", { name: "Redigera och byt ansvarig" }).click();
+  await page.getByRole("link", { name: "Redigera uppföljning" }).click();
   const stalePage = await context.newPage();
   await stalePage.goto(
     `/klienter/${activeClient.id}/uppfoljningar/${staleFollowUp.id}/redigera`,
@@ -546,7 +591,7 @@ test("Goal, Follow-up, responsibility, and Journal controls work from the keyboa
   test.setTimeout(90_000);
   const { activeClient, administrator, owner, peer } = fixtures;
   const today = formatStockholmCalendarDate(new Date());
-  const [pauseGoal, firstJournalGoal, secondJournalGoal] = await Promise.all(
+  const [pauseGoal] = await Promise.all(
     [
       "Tangentbordsmål att pausa",
       "Tangentbordsmål ett",
@@ -610,15 +655,12 @@ test("Goal, Follow-up, responsibility, and Journal controls work from the keyboa
   await expect(page.getByText("Slutförd", { exact: true })).toBeVisible();
 
   await page.goto(
-    `/klienter/${activeClient.id}/uppfoljningar/${reassignFollowUp.id}/redigera`,
+    `/klienter/${activeClient.id}/uppfoljningar/${reassignFollowUp.id}/ansvarig`,
   );
-  await expect(page.locator('label[for="follow-up-responsible"]')).toHaveCount(
-    0,
-  );
-  await expect(page.locator(".readonly-field-metadata dt")).toHaveText(
-    "Ansvarig medarbetare",
-  );
-  const responsibleSelect = page.getByLabel("Byt ansvarig");
+  await expect(page.getByLabel("Beskrivning (valfritt)")).toHaveCount(0);
+  const responsibleSelect = page.getByRole("combobox", {
+    name: "Byt ansvarig",
+  });
   await tabTo(page, responsibleSelect);
   await expectVisibleFocus(responsibleSelect);
   const responsibleOptions = await responsibleSelect
@@ -643,14 +685,15 @@ test("Goal, Follow-up, responsibility, and Journal controls work from the keyboa
 
   await page.goto(`/klienter/${activeClient.id}/anteckningar/utkast`);
   await page
-    .getByRole("textbox", { name: "Anteckning", exact: true })
+    .getByRole("textbox", { name: "Övrigt", exact: true })
     .fill("Fiktivt tangentbordstest av målval.");
-  const firstGoalCheckbox = page.getByRole("checkbox", {
-    name: new RegExp(firstJournalGoal.title),
-  });
-  const secondGoalCheckbox = page.getByRole("checkbox", {
-    name: new RegExp(secondJournalGoal.title),
-  });
+  const keyboardGoalCheckboxes = page
+    .locator(".journal-goal-options label")
+    .filter({ hasText: /Tangentbordsmål (ett|två)/ })
+    .getByRole("checkbox");
+  await expect(keyboardGoalCheckboxes).toHaveCount(2);
+  const firstGoalCheckbox = keyboardGoalCheckboxes.first();
+  const secondGoalCheckbox = keyboardGoalCheckboxes.nth(1);
   await tabTo(page, firstGoalCheckbox);
   await expectVisibleFocus(firstGoalCheckbox);
   await page.keyboard.press("Space");
@@ -719,12 +762,17 @@ test("Goal and Follow-up detail and edit views reflow at 375px and 200% text", a
     {
       path: `/klienter/${activeClient.id}/uppfoljningar/${followUp.id}`,
       heading: longFollowUpTitle,
-      action: "Redigera och byt ansvarig",
+      action: "Redigera uppföljning",
     },
     {
       path: `/klienter/${activeClient.id}/uppfoljningar/${followUp.id}/redigera`,
       heading: "Redigera uppföljning",
       action: "Spara ändringar",
+    },
+    {
+      path: `/klienter/${activeClient.id}/uppfoljningar/${followUp.id}/ansvarig`,
+      heading: "Byt ansvarig",
+      action: "Spara ansvarig",
     },
   ];
 
@@ -736,10 +784,7 @@ test("Goal and Follow-up detail and edit views reflow at 375px and 200% text", a
     ).toBeVisible();
     await expect(
       page.getByRole(
-        destination.action === "Redigera" ||
-          destination.action.startsWith("Redigera och")
-          ? "link"
-          : "button",
+        destination.action.startsWith("Redigera") ? "link" : "button",
         {
           name: destination.action,
         },
@@ -835,9 +880,19 @@ test("Home shows only own authorised Follow-ups and archived/access-loss views f
   await page.goto(
     `/klienter/${activeClient.id}/uppfoljningar/${retainedResponsibility.id}`,
   );
-  await expect(page.getByText("This page could not be found")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
+  await page.goto(
+    `/klienter/${activeClient.id}/uppfoljningar/${retainedResponsibility.id}/ansvarig`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
   await page.goto(`/klienter/${activeClient.id}/mal/${accessLossGoal.id}`);
-  await expect(page.getByText("This page could not be found")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
 
   const administratorContext = await browser.newContext();
   const administratorPage = await newSignedInPage(
@@ -880,13 +935,19 @@ test("Home shows only own authorised Follow-ups and archived/access-loss views f
   );
   await unrelatedPage.goto(`/klienter/${fixtures.archivedClient.id}/mal`);
   await expect(
-    unrelatedPage.getByText("This page could not be found"),
+    unrelatedPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
   await unrelatedPage.goto(
     `/klienter/${activeClient.id}/uppfoljningar/${retainedResponsibility.id}`,
   );
   await expect(
-    unrelatedPage.getByText("This page could not be found"),
+    unrelatedPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
+  await unrelatedPage.goto(
+    `/klienter/${activeClient.id}/uppfoljningar/${retainedResponsibility.id}/ansvarig`,
+  );
+  await expect(
+    unrelatedPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
   await administratorContext.close();
   await unrelatedContext.close();
@@ -921,7 +982,7 @@ test("Journal Goal snapshots remain optional, immutable, keyboard usable, and mo
   await logIn(page, peerEmail, "192.0.2.235");
   await page.goto(`/klienter/${activeClient.id}/anteckningar/utkast`);
   await page
-    .getByRole("textbox", { name: "Anteckning", exact: true })
+    .getByRole("textbox", { name: "Övrigt", exact: true })
     .fill("Fiktiv anteckning utan mål.");
   await page.getByRole("button", { name: "Granska inför signering" }).click();
   await expect(page.getByText("Inga mål är valda.")).toBeVisible();
@@ -933,7 +994,7 @@ test("Journal Goal snapshots remain optional, immutable, keyboard usable, and mo
 
   await page.goto(`/klienter/${activeClient.id}/anteckningar/utkast`);
   await page
-    .getByRole("textbox", { name: "Anteckning", exact: true })
+    .getByRole("textbox", { name: "Övrigt", exact: true })
     .fill("Fiktiv anteckning med två mål.");
   await page.getByRole("checkbox", { name: new RegExp(longGoalTitle) }).check();
   await page

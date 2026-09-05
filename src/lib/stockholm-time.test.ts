@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getFollowUpDueState,
+  getStockholmCalendarMonth,
   parseCalendarDate,
   resolveStockholmDateTime,
 } from "./stockholm-time";
@@ -19,6 +20,15 @@ describe("Stockholm operational time", () => {
     expect(resolveStockholmDateTime("2026-08-12", "08:15")?.toISOString()).toBe(
       "2026-08-12T06:15:00.000Z",
     );
+  });
+
+  it("derives the report month from the Stockholm calendar at a UTC boundary", () => {
+    expect(
+      getStockholmCalendarMonth(new Date("2026-08-31T22:30:00.000Z")),
+    ).toEqual({ year: 2026, month: 9 });
+    expect(
+      getStockholmCalendarMonth(new Date("2026-12-31T23:30:00.000Z")),
+    ).toEqual({ year: 2027, month: 1 });
   });
 
   it("derives date-only, timed, today, and seven-day boundary states", () => {

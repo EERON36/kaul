@@ -10,6 +10,89 @@ permissions:
   contents: read
 
 jobs:
+  firewall-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Rehearse systemd post-start failure handling
+        run: sudo bash scripts/pilot-firewall-systemd-rehearsal.sh
+
+      - name: Rehearse Docker-aware private ingress firewall
+        run: bash scripts/pilot-firewall-rehearsal.sh
+
+  ingress-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Rehearse private and future public Caddy ingress
+        run: bash scripts/pilot-ingress-rehearsal.sh
+
+  backup-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js for encrypted backup verification
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install application dependencies for backup verification
+        run: npm ci
+
+      - name: Install pinned Restic tools
+        run: sudo scripts/install-pinned-restic-ci.sh /usr/local/kaul-backup-tools
+
+      - name: Prepare the pinned Pilot operator identity
+        run: |
+          set -o pipefail
+          operator_name=
+          if operator_entry=$(getent passwd 1000); then
+            operator_name=${operator_entry%%:*}
+          fi
+          if [ -z "$operator_name" ]; then
+            operator_name=kaul-ci-operator
+            sudo useradd --uid 1000 --create-home "$operator_name"
+          fi
+          docker_group=$(stat --format='%G' /var/run/docker.sock)
+          sudo usermod --append --groups "$docker_group" "$operator_name"
+          operator_workspace=$(sudo --user "$operator_name" -- \
+            mktemp --directory --tmpdir kaul-backup-ci-checkout.XXXXXX)
+          tar --exclude='./.git' --exclude='./.next' --create --file=- . | \
+            sudo --user "$operator_name" -- \
+              tar --extract --file=- --directory="$operator_workspace"
+          printf 'KAUL_CI_OPERATOR=%s\n' "$operator_name" >> "$GITHUB_ENV"
+          printf 'KAUL_CI_OPERATOR_WORKSPACE=%s\n' "$operator_workspace" >> "$GITHUB_ENV"
+
+      - name: Rehearse append-only backup and exact restore
+        run: |
+          sudo --user "$KAUL_CI_OPERATOR" -- \
+            env PATH="/usr/local/kaul-backup-tools:$PATH" \
+            GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            bash -c 'cd "$1" && exec scripts/pilot-backup-rehearsal.sh' \
+            bash "$KAUL_CI_OPERATOR_WORKSPACE"
+
+      - name: Rehearse full-schema Documents backup and authorised restore
+        run: |
+          sudo --user "$KAUL_CI_OPERATOR" -- \
+            env PATH="/usr/local/kaul-backup-tools:$PATH" \
+            CI=true GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            GITHUB_SHA="$GITHUB_SHA" \
+            bash -c 'cd "$1" && exec bash scripts/pilot-documents-backup-rehearsal.sh' \
+            bash "$KAUL_CI_OPERATOR_WORKSPACE"
+
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -21,6 +104,11 @@ jobs:
       DEPLOYMENT_ENV: test
       BETTER_AUTH_SECRET: fictional-ci-better-auth-secret-at-least-32-characters
       BETTER_AUTH_URL: http://127.0.0.1:3101
+      KAUL_PERSONNUMMER_KEYRING_FILE: ${{ github.workspace }}/test-fixtures/personnummer-keyring.json
+      DOCUMENT_SCANNER_HOST: 127.0.0.1
+      DOCUMENT_SCANNER_PORT: 3310
+      DOCUMENT_SCANNER_TIMEOUT_MS: 15000
+      DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS: 24
 
     services:
       database:
@@ -36,10 +124,49 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      document-scanner:
+        image: clamav/clamav:1.4.6@sha256:b25d9199257ae7ef45e0cc4c7eaa60ce7e5447796f0090d5ff311d1a30980cc3
+        env:
+          CLAMAV_NO_FRESHCLAMD: "true"
+        ports:
+          - 3310:3310
+        options: >-
+          --health-cmd "clamdcheck.sh"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+          --security-opt no-new-privileges
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+
+      - name: Configure ephemeral Documents storage
+        run: |
+          install -d -m 0700 "$RUNNER_TEMP/kaul-documents-ci"
+          printf 'DOCUMENT_STORAGE_ROOT=%s\n' "$RUNNER_TEMP/kaul-documents-ci" >> "$GITHUB_ENV"
+
+      - name: Refresh document scanner signatures
+        timeout-minutes: 4
+        env:
+          DOCUMENT_SCANNER_CONTAINER_ID: ${{ job.services['document-scanner'].id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$DOCUMENT_SCANNER_CONTAINER_ID" =~ ^[0-9a-f]{64}$ ]]; then
+            printf 'DOCUMENT_SCANNER_REFRESH_FAILED exit=2\n' >&2
+            exit 2
+          fi
+          if timeout --signal=TERM --kill-after=5s 180s \
+            docker exec "$DOCUMENT_SCANNER_CONTAINER_ID" \
+              freshclam --foreground --stdout --user=clamav \
+              >/dev/null 2>&1; then
+            printf 'DOCUMENT_SCANNER_REFRESHED\n'
+          else
+            refresh_status=$?
+            printf 'DOCUMENT_SCANNER_REFRESH_FAILED exit=%d\n' \
+              "$refresh_status" >&2
+            exit "$refresh_status"
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -50,11 +177,56 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify document scanner readiness
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          if timeout --signal=TERM --kill-after=5s 210s \
+            node --conditions=react-server --import tsx \
+              scripts/document-scanner-ci-readiness.ts; then
+            :
+          else
+            readiness_status=$?
+            printf 'DOCUMENT_SCANNER_READINESS_FAILED exit=%d\n' \
+              "$readiness_status" >&2
+            exit "$readiness_status"
+          fi
+
+      - name: Verify Pilot Documents readiness adapter
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          readiness_root="$RUNNER_TEMP/kaul-pilot-documents-readiness"
+          install -d -m 0700 "$readiness_root/objects" "$readiness_root/quarantine"
+          DOCUMENT_STORAGE_ROOT="$readiness_root" \
+            node --conditions=react-server --import tsx scripts/check-pilot-documents.ts
       - name: Generate Prisma Client
         run: npm run prisma:generate
 
+      - name: Rehearse structured-records migration from legacy data
+        env:
+          KAUL_TEST_ID: ci_migration
+          KAUL_TEST_PORT: 3102
+          DATABASE_URL: postgresql://kaul:ci-development-only@127.0.0.1:5432/kaul_test_ci_migration
+          INTEGRATION_DATABASE_URL: postgresql://kaul:ci-development-only@127.0.0.1:5432/kaul_test_ci_migration
+          BETTER_AUTH_URL: http://127.0.0.1:3102
+        run: |
+          npm run test:db:create
+          npm run test:migration:structured-records
+
       - name: Apply database migrations
         run: npm run db:deploy
+
+      - name: Rehearse Personnummer encryption migration and conversion
+        env:
+          KAUL_TEST_ID: ci_personnummer_migration
+          KAUL_TEST_PORT: 3103
+          DATABASE_URL: postgresql://kaul:ci-development-only@127.0.0.1:5432/kaul_test_ci_personnummer_migration
+          INTEGRATION_DATABASE_URL: postgresql://kaul:ci-development-only@127.0.0.1:5432/kaul_test_ci_personnummer_migration
+          BETTER_AUTH_URL: http://127.0.0.1:3103
+        run: |
+          npm run test:db:create
+          npm run test:migration:personnummer-encryption
 
       - name: Check formatting
         run: npm run format:check
@@ -79,6 +251,15 @@ jobs:
 
       - name: Run browser smoke tests
         run: npm run test:e2e
+
+      - name: Upload bounded Documents failure diagnostic
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: documents-upload-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/kaul-205-documents-upload-diagnostic-attempt-*.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Audit dependencies
         run: npm run audit:ci

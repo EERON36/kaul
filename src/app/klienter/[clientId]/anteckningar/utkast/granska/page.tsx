@@ -16,6 +16,7 @@ import {
 } from "../../../client-workspace-data";
 import { SignJournalControl } from "../../journal-mutation-controls-client";
 import { formatJournalDateTime } from "../../journal-presentation";
+import { JournalSectionsPresentation } from "../../journal-sections-presentation";
 
 export const dynamic = "force-dynamic";
 
@@ -92,7 +93,7 @@ export default async function JournalReviewPage({
             className="journal-content-section"
           >
             <h3 id="review-content-heading">Anteckning</h3>
-            <div className="journal-content">{draft.content}</div>
+            <JournalSectionsPresentation {...draft} />
           </section>
           <section
             aria-labelledby="review-goals-heading"

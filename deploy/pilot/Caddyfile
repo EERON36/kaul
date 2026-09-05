@@ -1,0 +1,3 @@
+# Environment substitution happens before Caddy parses this import. Only the
+# fail-closed npm and public values are accepted by pilot-ops.sh.
+import Caddyfile.{$PILOT_INGRESS_MODE}

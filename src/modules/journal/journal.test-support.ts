@@ -25,6 +25,49 @@ import type {
 } from "./journal-input";
 import type { AuditIntentHandle } from "../audit/audit";
 
+type LegacyCreateJournalDraftTestInput = Omit<
+  CreateJournalDraftInput,
+  | "healthContent"
+  | "educationOccupationContent"
+  | "emotionsBehaviorContent"
+  | "socialRelationsContent"
+  | "dailyLivingIndependenceContent"
+  | "otherContent"
+> & { content: string };
+
+type LegacySaveJournalDraftTestInput = Omit<
+  SaveJournalDraftInput,
+  | "healthContent"
+  | "educationOccupationContent"
+  | "emotionsBehaviorContent"
+  | "socialRelationsContent"
+  | "dailyLivingIndependenceContent"
+  | "otherContent"
+> & { content: string };
+
+type LegacyBeginJournalCorrectionTestInput = Omit<
+  BeginJournalCorrectionInput,
+  | "healthContent"
+  | "educationOccupationContent"
+  | "emotionsBehaviorContent"
+  | "socialRelationsContent"
+  | "dailyLivingIndependenceContent"
+  | "otherContent"
+> & { content: string };
+
+function convertLegacyTestContent<T extends { content: string }>(input: T) {
+  const { content, ...common } = input;
+  return {
+    ...common,
+    healthContent: "",
+    educationOccupationContent: "",
+    emotionsBehaviorContent: "",
+    socialRelationsContent: "",
+    dailyLivingIndependenceContent: "",
+    otherContent: content,
+  };
+}
+
 function assertTestEnvironment(): void {
   if (process.env.NODE_ENV !== "test") {
     throw new Error("Journal test support is available only in tests.");
@@ -40,19 +83,25 @@ export function getCurrentJournalDraftForTest(
 }
 
 export function createJournalDraftForTest(
-  input: CreateJournalDraftInput,
+  input: CreateJournalDraftInput | LegacyCreateJournalDraftTestInput,
   actor: ApplicationUser,
 ) {
   assertTestEnvironment();
-  return createJournalDraftInternal(input, actor);
+  return createJournalDraftInternal(
+    "content" in input ? convertLegacyTestContent(input) : input,
+    actor,
+  );
 }
 
 export function saveJournalDraftForTest(
-  input: SaveJournalDraftInput,
+  input: SaveJournalDraftInput | LegacySaveJournalDraftTestInput,
   actor: ApplicationUser,
 ) {
   assertTestEnvironment();
-  return saveJournalDraftInternal(input, actor);
+  return saveJournalDraftInternal(
+    "content" in input ? convertLegacyTestContent(input) : input,
+    actor,
+  );
 }
 
 export function listAvailableJournalGoalsForTest(
@@ -123,9 +172,12 @@ export function getSignedJournalEntryForTest(
 }
 
 export function beginJournalCorrectionForTest(
-  input: BeginJournalCorrectionInput,
+  input: BeginJournalCorrectionInput | LegacyBeginJournalCorrectionTestInput,
   actor: ApplicationUser,
 ) {
   assertTestEnvironment();
-  return beginJournalCorrectionInternal(input, actor);
+  return beginJournalCorrectionInternal(
+    "content" in input ? convertLegacyTestContent(input) : input,
+    actor,
+  );
 }

@@ -10,7 +10,10 @@ reliable historical records.
 
 ## Current status
 
-Implemented now:
+The active unified development candidate and exact validation gates are tracked
+in the [unified integration board](docs/integration/2026-09-05/BOARD.md).
+
+The completed Milestones 0–4 baseline on `main` provides:
 
 - Individual email-and-password authentication, Administrator and Staff Member
   management, and a maximum 12-hour session lifetime.
@@ -30,14 +33,28 @@ Implemented now:
   lifecycle and responsibility history, the current user's authorised **Att
   göra**, and immutable signing-time Goal context in Journal records.
 
-The next project focus is **Pilot Readiness**: a repeatable, isolated pilot
-using fictional or sanitised data, with HTTPS, environment separation,
-operational monitoring, and verified backup and restore procedures. Documents,
-reports, global search, exports, and other deferred features are not pulled
-into the pilot merely by this change; initial user feedback should determine
-which are blocking needs. Production credential-delivery,
-sole-Administrator recovery, legal, operational, and security gates remain
-unresolved. Kaul is not production-ready.
+The separate, unmerged product integration candidate adds the approved tracks:
+
+- Expanded Client information and Stage A Personnummer encryption.
+- Six-section Journal drafts that preserve legacy signed records, and
+  Client-scoped, manually authored **Månadsrapporter** with immutable signing.
+- Client **Dokument** with immutable versions, private storage, malware scanning,
+  and combined database/object backup verification.
+
+These implementations do not mark Milestone 5 complete or approve activation.
+**Homelab Pilot Readiness** remains an open release track, alongside product
+validation. The unified candidate has passing GitHub migration rehearsals and
+all 44 browser tests, including Documents; see the board for exact-source
+evidence. The dependency audit, attended Personnummer conversion and restore
+gates, Documents operating requirements, and stakeholder acceptance remain
+unresolved. **Production / Cloud Launch
+Readiness** is a separate later decision. Global search, exports,
+notifications, and other unapproved features remain deferred. Kaul is not
+Pilot-ready or production-ready.
+
+See the [current project state](docs/PROJECT_STATE.md) for the short operational
+snapshot and open release gates. `docs/MILESTONES.md` remains authoritative for
+milestone scope and completion.
 
 ## Core stack
 
@@ -53,7 +70,10 @@ Zod, Tailwind CSS, Vitest, Playwright, Docker Compose, and GitHub Actions.
 
 ## Start development
 
-1. Copy `.env.example` to `.env`; keep fictional local values only.
+1. Copy `.env.example` to `.env`; keep fictional local values only. Set
+   `KAUL_PERSONNUMMER_KEYRING_FILE` to an absolute path. The committed
+   `test-fixtures/personnummer-keyring.json` is fictional and may be used only
+   for local development and automated tests; never reuse it elsewhere.
 2. Start PostgreSQL:
 
    ```powershell
@@ -94,23 +114,53 @@ npm run build
 npm run audit:ci
 ```
 
-Database integration and browser tests need their documented disposable test
-resources; do not run their setup against the normal local `kaul` database.
-Install the Playwright browser before the first local browser-test run:
+Database integration and browser tests need an explicit disposable test ID,
+port, matching local URLs, and fictional process-local authentication values as
+documented in `AGENTS.md`. Never run their setup against the normal local
+`kaul` database. After setting those values, validate and create the new test
+database before use:
+
+```powershell
+npm run test:db:check
+npm run test:db:create
+npm run test:db:migrate
+npm run test:integration
+```
+
+Install the Playwright browser before the first local browser-test run, then use
+the same guarded lifecycle for the browser suite:
 
 ```powershell
 npx playwright install chromium
-npm run test:integration
 npm run test:e2e
 ```
 
+Documents browser tests exclusively create `kaul-documents-e2e-<KAUL_TEST_ID>`
+under the operating system's temporary directory. The test server uses that
+same directory; `DOCUMENT_STORAGE_ROOT` does not select browser-test storage.
+An existing directory is preserved and blocks the Documents tests: select a
+new test ID and its matching disposable database configuration. Cleanup removes
+only the directory created by the current test after verifying its ownership.
+
+Drop only the current derived test database with `npm run test:db:drop` when
+cleanup is explicitly authorised. The command refuses the normal `kaul`
+database.
+
 Use `npm run db:status` to inspect migration status. Prisma migrations are
 committed to Git and applied shared migrations must not be rewritten.
+
+## Pilot deployment foundation
+
+The repository contains a separate production-like Pilot stack with Caddy,
+Kaul, and PostgreSQL, plus manual release, migration, backup, restore, and
+update tooling. It does not deploy anything or approve real data. Start with
+the [Pilot operator runbook](deploy/pilot/README.md).
 
 ## Authoritative documentation
 
 - [Project scope and milestones](docs/PROJECT_SPEC.md) and
   [current milestone status](docs/MILESTONES.md)
+- [Current operational snapshot and release gates](docs/PROJECT_STATE.md)
 - [Domain model](docs/DOMAIN_MODEL.md) and
   [architecture](docs/ARCHITECTURE.md)
 - [Security requirements](docs/SECURITY.md) and

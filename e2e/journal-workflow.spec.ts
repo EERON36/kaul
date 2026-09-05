@@ -4,6 +4,7 @@ import {
   expect,
   test,
   type BrowserContext,
+  type Dialog,
   type Locator,
   type Page,
 } from "@playwright/test";
@@ -38,17 +39,28 @@ let fixtures: Fixtures;
 async function cleanupOrganisations(organisationIds: readonly string[]) {
   if (organisationIds.length === 0) return;
   await prisma.$transaction(async (transaction) => {
-    await transaction.$executeRawUnsafe(
-      'ALTER TABLE "journalEntry" DISABLE TRIGGER USER',
-    );
+    const protectedTables = ["journalGoalReference", "journalEntry", "goal"];
+    for (const table of protectedTables) {
+      await transaction.$executeRawUnsafe(
+        `ALTER TABLE "${table}" DISABLE TRIGGER USER`,
+      );
+    }
     try {
+      await transaction.journalGoalReference.deleteMany({
+        where: { organisationId: { in: [...organisationIds] } },
+      });
       await transaction.journalEntry.deleteMany({
         where: { organisationId: { in: [...organisationIds] } },
       });
+      await transaction.goal.deleteMany({
+        where: { organisationId: { in: [...organisationIds] } },
+      });
     } finally {
-      await transaction.$executeRawUnsafe(
-        'ALTER TABLE "journalEntry" ENABLE TRIGGER USER',
-      );
+      for (const table of [...protectedTables].reverse()) {
+        await transaction.$executeRawUnsafe(
+          `ALTER TABLE "${table}" ENABLE TRIGGER USER`,
+        );
+      }
     }
     await transaction.assignment.deleteMany({
       where: { organisationId: { in: [...organisationIds] } },
@@ -126,7 +138,17 @@ async function createFixtures() {
     ),
   ]);
   const clients = await Promise.all(
-    ["ARBETE", "PRIVAT", "KONFLIKT", "SKAPARACE", "TANGENTBORD"].map((label) =>
+    [
+      "ARBETE",
+      "PRIVAT",
+      "KONFLIKT",
+      "SKAPARACE",
+      "TANGENTBORD",
+      "NAVIGERING",
+      "HISTORIK",
+      "MOBILNAVIGERING",
+      "SPARFORSENING",
+    ].map((label) =>
       prisma.client.create({
         data: {
           id: randomUUID(),
@@ -162,7 +184,24 @@ async function createFixtures() {
       ],
     });
   }
-  return { organisationId, administrator, author, peer, clients };
+  const pendingSaveGoal = await prisma.goal.create({
+    data: {
+      id: randomUUID(),
+      organisationId,
+      clientId: clients[8].id,
+      title: "Fiktivt mål för sparförsening",
+      startDate: new Date("2026-08-01T00:00:00.000Z"),
+      createdByUserId: author.id,
+    },
+  });
+  return {
+    organisationId,
+    administrator,
+    author,
+    peer,
+    clients,
+    pendingSaveGoal,
+  };
 }
 
 async function logIn(page: Page, email: string, ipAddress: string) {
@@ -213,6 +252,16 @@ async function openNewDraft(page: Page, clientId: string) {
   ).toBeVisible();
 }
 
+async function expectJournalInputHydrated(content: Locator) {
+  await expect
+    .poll(() =>
+      content.evaluate((element) =>
+        Object.prototype.hasOwnProperty.call(element, "value"),
+      ),
+    )
+    .toBe(true);
+}
+
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
@@ -249,9 +298,11 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   await expect(
     page.getByRole("navigation", { name: "Klientarbetsyta" }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Anteckningar" }).click();
-  await expect(page.getByRole("link", { name: "Ny anteckning" })).toBeVisible();
-  await page.getByRole("link", { name: "Ny anteckning" }).click();
+  const overviewJournalAction = page.getByRole("link", {
+    name: "Ny anteckning",
+  });
+  await expect(overviewJournalAction).toBeVisible();
+  await overviewJournalAction.click();
   await expect(page.getByLabel("Typ av anteckning")).toBeVisible();
 
   const typeOptions = await page
@@ -271,24 +322,29 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   await page.getByLabel("Typ av anteckning").selectOption("PHONE_CALL");
   await page.getByLabel("Datum för händelsen").fill("2026-08-12");
   await page.getByLabel("Tid för händelsen").fill("08:15");
-  await page.getByLabel("Anteckning", { exact: true }).fill(originalContent);
+  await page.getByLabel("Övrigt", { exact: true }).fill(originalContent);
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
 
-  await page.goto(`/klienter/${client.id}/anteckningar`);
-  await expect(page.getByRole("link", { name: "Öppna utkast" })).toBeVisible();
-  await page.getByRole("link", { name: "Öppna utkast" }).click();
+  await page.goto(`/klienter/${client.id}`);
+  await page.getByRole("link", { name: "Ny anteckning" }).click();
   await expect(page.getByLabel("Typ av anteckning")).toHaveValue("PHONE_CALL");
   await expect(page.getByLabel("Datum för händelsen")).toHaveValue(
     "2026-08-12",
   );
   await expect(page.getByLabel("Tid för händelsen")).toHaveValue("08:15");
-  await expect(page.getByLabel("Anteckning", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Övrigt", { exact: true })).toHaveValue(
     originalContent,
   );
   await page.getByRole("button", { name: "Granska inför signering" }).click();
 
-  await expect(page.getByRole("heading", { name: "Anteckning" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: "Anteckning",
+      exact: true,
+    }),
+  ).toBeVisible();
   await expect(page.getByText("Telefonsamtal", { exact: true })).toBeVisible();
   await expect(page.getByText(originalContent)).toBeVisible();
   await expect(
@@ -333,7 +389,7 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   await page.getByLabel("Typ av anteckning").selectOption("OTHER");
   await page.getByLabel("Datum för händelsen").fill("2026-08-13");
   await page.getByLabel("Tid för händelsen").fill("10:45");
-  await page.getByLabel("Anteckning", { exact: true }).fill(correctionContent);
+  await page.getByLabel("Övrigt", { exact: true }).fill(correctionContent);
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
   await page.getByRole("button", { name: "Granska inför signering" }).click();
@@ -361,7 +417,7 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   await page.getByLabel("Datum för händelsen").fill("2026-08-13");
   await page.getByLabel("Tid för händelsen").fill("12:00");
   await page
-    .getByLabel("Anteckning", { exact: true })
+    .getByLabel("Övrigt", { exact: true })
     .fill("Ett separat fiktivt utkast som ska kastas.");
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
@@ -379,6 +435,370 @@ test("Staff completes draft, signing, history, detail, and flat correction", asy
   await expect(page.getByText("Utkastet har kastats.")).toBeVisible();
 });
 
+test("Unsaved Journal work protects internal navigation without trapping a saved form", async ({
+  page,
+}) => {
+  const client = fixtures.clients[5];
+  const content = page.getByLabel("Övrigt", { exact: true });
+  const warning =
+    "Du har osparade ändringar i anteckningen. Vill du lämna sidan? Ändringarna försvinner om du inte sparar dem.";
+
+  await logIn(page, authorEmail, "192.0.2.229");
+  await openNewDraft(page, client.id);
+
+  const unexpectedDialogs: string[] = [];
+  const collectUnexpectedDialog = async (dialog: Dialog) => {
+    unexpectedDialogs.push(dialog.message());
+    await dialog.accept();
+  };
+  page.on("dialog", collectUnexpectedDialog);
+  await content.fill("Tillfällig ändring som återställs.");
+  await content.fill("");
+  await page.getByRole("link", { name: "Översikt", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}`,
+  );
+  expect(unexpectedDialogs).toEqual([]);
+  page.off("dialog", collectUnexpectedDialog);
+
+  await openNewDraft(page, client.id);
+  const unsavedContent =
+    "Betydande fiktiv anteckning som inte får försvinna utan varning.";
+  await content.fill(unsavedContent);
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe(warning);
+    await dialog.dismiss();
+  });
+  await page.getByRole("link", { name: "Mål", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}/anteckningar/utkast`,
+  );
+  await expect(content).toHaveValue(unsavedContent);
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe(warning);
+    await dialog.accept();
+  });
+  await page.getByRole("link", { name: "Hem", exact: true }).click();
+  await expect(page).toHaveURL(`${testEnvironment.origin}/`);
+
+  await openNewDraft(page, client.id);
+  await content.fill("Fiktiv anteckning som sparas före navigering.");
+  await page.getByRole("button", { name: "Spara utkast" }).click();
+  await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
+
+  const postSaveDialogs: string[] = [];
+  const collectPostSaveDialog = async (dialog: Dialog) => {
+    postSaveDialogs.push(dialog.message());
+    await dialog.accept();
+  };
+  page.on("dialog", collectPostSaveDialog);
+  await page.getByRole("link", { name: "Uppföljningar", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}/uppfoljningar`,
+  );
+  expect(postSaveDialogs).toEqual([]);
+  page.off("dialog", collectPostSaveDialog);
+});
+
+test("A delayed Journal save blocks newer edits until its response establishes a clean baseline", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const client = fixtures.clients[8];
+  const contentA = "Fiktivt innehåll A som ska sparas.";
+  const contentB = "Fiktivt innehåll B som skrivs efter sparningen.";
+
+  await logIn(page, authorEmail, "192.0.2.232");
+  await openNewDraft(page, client.id);
+
+  const editorForm = page.locator("form").filter({
+    has: page.getByLabel("Typ av anteckning"),
+  });
+  const entryType = page.getByLabel("Typ av anteckning");
+  const eventDate = page.getByLabel("Datum för händelsen");
+  const eventTime = page.getByLabel("Tid för händelsen");
+  const content = page.getByLabel("Övrigt", { exact: true });
+  const goal = page.getByRole("checkbox", {
+    name: new RegExp(fixtures.pendingSaveGoal.title),
+  });
+  const save = editorForm.locator('button[name="submitIntent"][value="save"]');
+  const review = editorForm.locator(
+    'button[name="submitIntent"][value="review"]',
+  );
+  const discard = page.getByRole("button", { name: "Kasta utkast" });
+
+  await entryType.selectOption("CONVERSATION");
+  await eventDate.fill("2026-08-20");
+  await eventTime.fill("22:01");
+  await content.fill(contentA);
+  await goal.check();
+
+  let releaseSaveResponse: (() => void) | undefined;
+  const saveResponseGate = new Promise<void>((resolve) => {
+    releaseSaveResponse = resolve;
+  });
+  let heldSaveResponses = 0;
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    if (
+      request.method() !== "POST" ||
+      request.headers()["next-action"] === undefined
+    ) {
+      await route.continue();
+      return;
+    }
+
+    const response = await route.fetch();
+    heldSaveResponses += 1;
+    await saveResponseGate;
+    await route.fulfill({ response });
+  });
+
+  try {
+    await save.click();
+    await expect.poll(() => heldSaveResponses).toBe(1);
+
+    await expect(editorForm).toHaveAttribute("aria-busy", "true");
+    await expect(
+      page.getByRole("status").filter({
+        hasText:
+          "Utkastet sparas. Vänta tills det är klart innan du fortsätter redigera.",
+      }),
+    ).toBeVisible();
+    await expect(entryType).toBeDisabled();
+    await expect(eventDate).toBeDisabled();
+    await expect(eventTime).toBeDisabled();
+    await expect(content).toBeDisabled();
+    await expect(goal).toBeDisabled();
+    await expect(save).toBeDisabled();
+    await expect(review).toBeDisabled();
+    await expect(discard).toBeDisabled();
+
+    let contentEditWasBlocked = false;
+    try {
+      await content.fill(contentB, { timeout: 500 });
+    } catch {
+      contentEditWasBlocked = true;
+    }
+    expect(contentEditWasBlocked).toBe(true);
+
+    let goalEditWasBlocked = false;
+    try {
+      await goal.uncheck({ timeout: 500 });
+    } catch {
+      goalEditWasBlocked = true;
+    }
+    expect(goalEditWasBlocked).toBe(true);
+    await expect(content).toHaveValue(contentA);
+    await expect(goal).toBeChecked();
+  } finally {
+    releaseSaveResponse?.();
+  }
+
+  await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
+  await page.unroute("**/*");
+  await expect(editorForm).toHaveAttribute("aria-busy", "false");
+  await expect(entryType).toBeEnabled();
+  await expect(eventDate).toBeEnabled();
+  await expect(eventTime).toBeEnabled();
+  await expect(content).toBeEnabled();
+  await expect(goal).toBeEnabled();
+  await expect(save).toBeEnabled();
+  await expect(review).toBeEnabled();
+  await expect(discard).toBeEnabled();
+
+  const postSaveDialogs: string[] = [];
+  const collectPostSaveDialog = async (dialog: Dialog) => {
+    postSaveDialogs.push(dialog.message());
+    await dialog.accept();
+  };
+  page.on("dialog", collectPostSaveDialog);
+  await page.getByRole("link", { name: "Mål", exact: true }).click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}/mal`,
+  );
+  expect(postSaveDialogs).toEqual([]);
+  page.off("dialog", collectPostSaveDialog);
+
+  await page.goto(`/klienter/${client.id}/anteckningar`);
+  await page.getByRole("link", { name: "Öppna utkast" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Ny anteckning" }),
+  ).toBeVisible();
+  await expect(content).toHaveValue(contentA);
+  await expect(goal).toBeChecked();
+  await content.fill(contentB);
+  await expect(content).toHaveValue(contentB);
+  await save.click();
+  await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
+});
+
+test("Browser Back and Forward protect unsaved Journal work without trapping clean history", async ({
+  page,
+}) => {
+  const client = fixtures.clients[6];
+  const content = page.getByLabel("Övrigt", { exact: true });
+  const editorUrl = `${testEnvironment.origin}/klienter/${client.id}/anteckningar/utkast`;
+  const journalUrl = `${testEnvironment.origin}/klienter/${client.id}/anteckningar`;
+  const overviewUrl = `${testEnvironment.origin}/klienter/${client.id}`;
+  const warning =
+    "Du har osparade ändringar i anteckningen. Vill du lämna sidan? Ändringarna försvinner om du inte sparar dem.";
+
+  await logIn(page, authorEmail, "192.0.2.230");
+  await page.goto(`/klienter/${client.id}`);
+  await page.getByRole("link", { name: "Anteckningar" }).click();
+  await expect(page).toHaveURL(journalUrl);
+  await page.getByRole("link", { name: "Ny anteckning" }).click();
+  await expect(page).toHaveURL(editorUrl);
+
+  const cleanDialogs: string[] = [];
+  const collectCleanDialog = async (dialog: Dialog) => {
+    cleanDialogs.push(dialog.message());
+    await dialog.accept();
+  };
+  page.on("dialog", collectCleanDialog);
+  await page.evaluate(() => window.history.back());
+  await expect(page).toHaveURL(journalUrl);
+  await page.evaluate(() => window.history.forward());
+  await expect(page).toHaveURL(editorUrl);
+  await expectJournalInputHydrated(content);
+  expect(cleanDialogs).toEqual([]);
+  page.off("dialog", collectCleanDialog);
+
+  const backContent =
+    "Fiktiv osparad anteckning som skyddas vid webbläsarens Bakåt.";
+  let backWarningCount = 0;
+  const handleBackWarning = async (dialog: Dialog) => {
+    backWarningCount += 1;
+    expect(dialog.message()).toBe(warning);
+    if (backWarningCount === 1) await dialog.dismiss();
+    else await dialog.accept();
+  };
+  page.on("dialog", handleBackWarning);
+  await content.evaluate((element, value) => {
+    if (!(element instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected the Journal content textarea.");
+    }
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    if (!setValue) throw new Error("Textarea value setter is unavailable.");
+    setValue.call(element, value);
+    element.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    window.history.back();
+  }, backContent);
+  await expect.poll(() => backWarningCount).toBe(1);
+  await expect(page).toHaveURL(editorUrl);
+  await expect(content).toHaveValue(backContent);
+
+  await page.evaluate(() => window.history.back());
+  await expect(page).toHaveURL(journalUrl);
+  expect(backWarningCount).toBe(2);
+  page.off("dialog", handleBackWarning);
+
+  const forwardDialogs: string[] = [];
+  const collectForwardDialog = async (dialog: Dialog) => {
+    forwardDialogs.push(dialog.message());
+    await dialog.accept();
+  };
+  page.on("dialog", collectForwardDialog);
+  await page.evaluate(() => window.history.forward());
+  await expect(page).toHaveURL(editorUrl);
+  expect(forwardDialogs).toEqual([]);
+  page.off("dialog", collectForwardDialog);
+
+  await content.fill("");
+  await page.getByRole("link", { name: "Översikt", exact: true }).click();
+  await expect(page).toHaveURL(overviewUrl);
+  await page.evaluate(() => window.history.back());
+  await expect(page).toHaveURL(editorUrl);
+  await expectJournalInputHydrated(content);
+
+  const forwardContent =
+    "Fiktiv osparad anteckning som skyddas vid webbläsarens Framåt.";
+  let guardedForwardWarningCount = 0;
+  const handleGuardedForwardWarning = async (dialog: Dialog) => {
+    guardedForwardWarningCount += 1;
+    expect(dialog.message()).toBe(warning);
+    if (guardedForwardWarningCount === 1) await dialog.dismiss();
+    else await dialog.accept();
+  };
+  page.on("dialog", handleGuardedForwardWarning);
+  await content.evaluate((element, value) => {
+    if (!(element instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected the Journal content textarea.");
+    }
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    if (!setValue) throw new Error("Textarea value setter is unavailable.");
+    setValue.call(element, value);
+    element.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    window.history.forward();
+  }, forwardContent);
+  await expect.poll(() => guardedForwardWarningCount).toBe(1);
+  await expect(page).toHaveURL(editorUrl);
+  await expect(content).toHaveValue(forwardContent);
+
+  await page.evaluate(() => window.history.forward());
+  await expect(page).toHaveURL(overviewUrl);
+  expect(guardedForwardWarningCount).toBe(2);
+  page.off("dialog", handleGuardedForwardWarning);
+});
+
+test("Cancelled mobile Journal navigation keeps visible focus and confirmed navigation closes the menu", async ({
+  page,
+}) => {
+  const client = fixtures.clients[7];
+  const unsavedContent =
+    "Fiktiv osparad mobilanteckning som ska finnas kvar efter Avbryt.";
+  const warning =
+    "Du har osparade ändringar i anteckningen. Vill du lämna sidan? Ändringarna försvinner om du inte sparar dem.";
+
+  await logIn(page, authorEmail, "192.0.2.231");
+  await page.setViewportSize({ width: 375, height: 812 });
+  await openNewDraft(page, client.id);
+  const content = page.getByLabel("Övrigt", { exact: true });
+  await content.fill(unsavedContent);
+
+  const menuButton = page.locator(".mobile-menu-button");
+  const homeLink = page.getByRole("link", { name: "Hem", exact: true });
+  await menuButton.click();
+  await expect(menuButton).toHaveAttribute("aria-expanded", "true");
+  await homeLink.focus();
+
+  let warningCount = 0;
+  const handleWarning = async (dialog: Dialog) => {
+    warningCount += 1;
+    expect(dialog.message()).toBe(warning);
+    if (warningCount === 1) await dialog.dismiss();
+    else await dialog.accept();
+  };
+  page.on("dialog", handleWarning);
+  await homeLink.press("Enter");
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}/anteckningar/utkast`,
+  );
+  await expect(content).toHaveValue(unsavedContent);
+  await expect(menuButton).toHaveAttribute("aria-expanded", "true");
+  await expect(homeLink).toBeVisible();
+  await expect(homeLink).toBeFocused();
+  expect(warningCount).toBe(1);
+
+  await homeLink.press("Enter");
+  await expect(page).toHaveURL(`${testEnvironment.origin}/`);
+  await expect(page.locator(".mobile-menu-button")).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  expect(warningCount).toBe(2);
+  page.off("dialog", handleWarning);
+});
+
 test("Draft privacy, signed access, access loss, archive, and mobile reflow stay safe", async ({
   browser,
   page,
@@ -392,7 +812,7 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
   await page.getByLabel("Typ av anteckning").selectOption("MEETING");
   await page.getByLabel("Datum för händelsen").fill("2026-08-11");
   await page.getByLabel("Tid för händelsen").fill("14:30");
-  await page.getByLabel("Anteckning", { exact: true }).fill(privateContent);
+  await page.getByLabel("Övrigt", { exact: true }).fill(privateContent);
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
 
@@ -415,7 +835,7 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
   ).toBeVisible();
   await administratorPage.goto(`/klienter/${client.id}/anteckningar/utkast`);
   await expect(
-    administratorPage.getByLabel("Anteckning", { exact: true }),
+    administratorPage.getByLabel("Övrigt", { exact: true }),
   ).toHaveValue("");
 
   const peerContext = await browser.newContext();
@@ -427,9 +847,7 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
   ).toHaveCount(0);
   await expect(peerPage.getByText("1 utkast", { exact: true })).toHaveCount(0);
   await peerPage.goto(`/klienter/${client.id}/anteckningar/utkast`);
-  await expect(peerPage.getByLabel("Anteckning", { exact: true })).toHaveValue(
-    "",
-  );
+  await expect(peerPage.getByLabel("Övrigt", { exact: true })).toHaveValue("");
 
   const draft = await prisma.journalEntry.findFirstOrThrow({
     where: {
@@ -447,7 +865,7 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
     data: { endedAt: new Date() },
   });
   await page
-    .getByLabel("Anteckning", { exact: true })
+    .getByLabel("Övrigt", { exact: true })
     .fill(`${privateContent} Ändrad.`);
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(
@@ -457,7 +875,11 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
   ).toBeVisible();
   await expect(
     prisma.journalEntry.findUniqueOrThrow({ where: { id: draft.id } }),
-  ).resolves.toMatchObject({ content: privateContent, version: draft.version });
+  ).resolves.toMatchObject({
+    content: "",
+    otherContent: privateContent,
+    version: draft.version,
+  });
 
   const signedClient = fixtures.clients[0];
   const signedOriginal = await prisma.journalEntry.findFirstOrThrow({
@@ -467,16 +889,17 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
       status: "SIGNED",
     },
   });
+  expect(signedOriginal.otherContent).not.toBeNull();
   await administratorPage.goto(
     `/klienter/${signedClient.id}/anteckningar/${signedOriginal.id}`,
   );
   await expect(
-    administratorPage.getByText(signedOriginal.content),
+    administratorPage.getByText(signedOriginal.otherContent!),
   ).toBeVisible();
   await peerPage.goto(
     `/klienter/${signedClient.id}/anteckningar/${signedOriginal.id}`,
   );
-  await expect(peerPage.getByText(signedOriginal.content)).toBeVisible();
+  await expect(peerPage.getByText(signedOriginal.otherContent!)).toBeVisible();
   await prisma.assignment.updateMany({
     where: {
       clientId: signedClient.id,
@@ -493,7 +916,7 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
     `/klienter/${signedClient.id}/anteckningar/${signedOriginal.id}`,
   );
   await expect(
-    peerPage.getByText("This page could not be found"),
+    peerPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
 
   await prisma.assignment.updateMany({
@@ -515,6 +938,10 @@ test("Draft privacy, signed access, access loss, archive, and mobile reflow stay
   ).toHaveCount(0);
   await expect(
     administratorPage.getByRole("link", { name: "Öppna utkast" }),
+  ).toHaveCount(0);
+  await administratorPage.goto(`/klienter/${signedClient.id}`);
+  await expect(
+    administratorPage.getByRole("link", { name: "Ny anteckning" }),
   ).toHaveCount(0);
   await administratorPage.goto(
     `/klienter/${signedClient.id}/anteckningar/${signedOriginal.id}`,
@@ -546,7 +973,7 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
   await page.getByLabel("Datum för händelsen").fill("2026-08-10");
   await page.getByLabel("Tid för händelsen").fill("09:10");
   await page
-    .getByLabel("Anteckning", { exact: true })
+    .getByLabel("Övrigt", { exact: true })
     .fill("Första sparade versionen.");
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(page.getByText("Utkastet har sparats.")).toBeVisible();
@@ -560,10 +987,13 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
   });
   await prisma.journalEntry.update({
     where: { id: draft.id },
-    data: { content: "Nyare sparat innehåll.", version: { increment: 1 } },
+    data: {
+      otherContent: "Nyare sparat innehåll.",
+      version: { increment: 1 },
+    },
   });
   await page
-    .getByLabel("Anteckning", { exact: true })
+    .getByLabel("Övrigt", { exact: true })
     .fill("Webbläsarens osparade innehåll.");
   await page.getByRole("button", { name: "Spara utkast" }).click();
   await expect(
@@ -571,50 +1001,58 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
       "Utkastet har ändrats i en annan session. Dina ändringar har inte sparats. Ladda om utkastet och granska det sparade innehållet.",
     ),
   ).toBeVisible();
-  await expect(page.getByLabel("Anteckning", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Övrigt", { exact: true })).toHaveValue(
     "Webbläsarens osparade innehåll.",
   );
   await expect(
     prisma.journalEntry.findUniqueOrThrow({ where: { id: draft.id } }),
-  ).resolves.toMatchObject({ content: "Nyare sparat innehåll." });
+  ).resolves.toMatchObject({
+    content: "",
+    otherContent: "Nyare sparat innehåll.",
+  });
   await page.getByRole("link", { name: "Ladda om utkastet" }).click();
-  await expect(page.getByLabel("Anteckning", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Övrigt", { exact: true })).toHaveValue(
     "Nyare sparat innehåll.",
   );
   await page.getByRole("button", { name: "Granska inför signering" }).click();
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: "Anteckning",
+      exact: true,
+    }),
+  ).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
-  let signingRequest:
-    { url: string; body: string; headers: Record<string, string> } | undefined;
-  page.on("request", (request) => {
-    if (
+  // A Server Action form can submit as a native navigation before hydration,
+  // or as a Next Action fetch afterwards. Capture the actual signing POST in
+  // either case so the duplicate-request assertions always exercise a replay.
+  const reviewUrl = page.url();
+  const signingRequestPromise = page.waitForRequest(
+    (request) =>
+      request.url() === reviewUrl &&
       request.method() === "POST" &&
-      request.headers()["next-action"] !== undefined &&
-      request.postData()
-    ) {
-      signingRequest = {
-        url: request.url(),
-        body: request.postData() ?? "",
-        headers: Object.fromEntries(
-          [
-            "accept",
-            "content-type",
-            "next-action",
-            "next-router-state-tree",
-            "rsc",
-          ]
-            .map((name) => [name, request.headers()[name]] as const)
-            .filter(
-              (entry): entry is readonly [string, string] =>
-                entry[1] !== undefined,
-            ),
-        ),
-      };
-    }
-  });
+      (request.isNavigationRequest() ||
+        request.headers()["next-action"] !== undefined) &&
+      request.postData() !== null,
+  );
   await page.getByRole("button", { name: "Signera anteckning" }).click();
+  const capturedRequest = await signingRequestPromise;
   await expect(page.getByText("Anteckningen har signerats.")).toBeVisible();
-  expect(signingRequest).toBeDefined();
+  const signedBeforeReplay = await prisma.journalEntry.findUniqueOrThrow({
+    where: { id: draft.id },
+  });
+  const signingRequest = {
+    url: capturedRequest.url(),
+    body: capturedRequest.postData()!,
+    headers: Object.fromEntries(
+      ["accept", "content-type", "next-action", "next-router-state-tree", "rsc"]
+        .map((name) => [name, capturedRequest.headers()[name]] as const)
+        .filter(
+          (entry): entry is readonly [string, string] => entry[1] !== undefined,
+        ),
+    ),
+  };
   const repeatedResponse = await page.evaluate(async (request) => {
     const response = await fetch(request.url, {
       method: "POST",
@@ -622,9 +1060,13 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
       body: request.body,
       credentials: "same-origin",
     });
-    return { ok: response.ok, text: await response.text() };
-  }, signingRequest!);
-  expect(repeatedResponse.ok).toBe(true);
+    return { status: response.status, text: await response.text() };
+  }, signingRequest);
+  // A native replay renders the review page, where the signed draft no longer
+  // exists. Both transports must still return the actual safe signing conflict.
+  expect(repeatedResponse.status).toBe(
+    capturedRequest.isNavigationRequest() ? 404 : 200,
+  );
   expect(repeatedResponse.text).toContain(
     "Anteckningen kunde inte signeras eftersom den har ändrats eller redan signerats.",
   );
@@ -633,6 +1075,9 @@ test("Stale save and repeated signing show safe conflicts without overwriting", 
       where: { clientId: client.id, status: "SIGNED" },
     }),
   ).resolves.toBe(1);
+  await expect(
+    prisma.journalEntry.findUniqueOrThrow({ where: { id: draft.id } }),
+  ).resolves.toEqual(signedBeforeReplay);
   await expectNoHorizontalOverflow(page);
 });
 
@@ -664,14 +1109,10 @@ test("Same-actor initial-create race requires reload before newer content can ch
 
     await firstPage.getByLabel("Datum för händelsen").fill("2026-08-14");
     await firstPage.getByLabel("Tid för händelsen").fill("08:30");
-    await firstPage
-      .getByLabel("Anteckning", { exact: true })
-      .fill(durableContent);
+    await firstPage.getByLabel("Övrigt", { exact: true }).fill(durableContent);
     await secondPage.getByLabel("Datum för händelsen").fill("2026-08-14");
     await secondPage.getByLabel("Tid för händelsen").fill("09:30");
-    await secondPage
-      .getByLabel("Anteckning", { exact: true })
-      .fill(staleContent);
+    await secondPage.getByLabel("Övrigt", { exact: true }).fill(staleContent);
 
     await firstPage.getByRole("button", { name: "Spara utkast" }).click();
     await expect(firstPage.getByText("Utkastet har sparats.")).toBeVisible();
@@ -689,9 +1130,9 @@ test("Same-actor initial-create race requires reload before newer content can ch
         "Utkastet har ändrats i en annan session. Dina ändringar har inte sparats. Ladda om utkastet och granska det sparade innehållet.",
       ),
     ).toBeVisible();
-    await expect(
-      secondPage.getByLabel("Anteckning", { exact: true }),
-    ).toHaveValue(staleContent);
+    await expect(secondPage.getByLabel("Övrigt", { exact: true })).toHaveValue(
+      staleContent,
+    );
     const secondEditorForm = secondPage.locator("form").filter({
       has: secondPage.getByLabel("Typ av anteckning"),
     });
@@ -713,14 +1154,15 @@ test("Same-actor initial-create race requires reload before newer content can ch
         where: { id: durableDraft.id },
       }),
     ).resolves.toMatchObject({
-      content: durableContent,
+      content: "",
+      otherContent: durableContent,
       version: durableDraft.version,
     });
 
     await secondPage.getByRole("link", { name: "Ladda om utkastet" }).click();
-    await expect(
-      secondPage.getByLabel("Anteckning", { exact: true }),
-    ).toHaveValue(durableContent);
+    await expect(secondPage.getByLabel("Övrigt", { exact: true })).toHaveValue(
+      durableContent,
+    );
     await expect(
       secondEditorForm.locator('input[name="journalEntryId"]'),
     ).toHaveValue(durableDraft.id);
@@ -751,10 +1193,10 @@ test("Keyboard reaches the Journal editor and signing action with visible focus"
   await expect(newEntry).toBeFocused();
   await page.keyboard.press("Enter");
 
-  const entryType = page.getByLabel("Typ av anteckning");
-  await tabTo(page, entryType);
-  await expect(entryType).toBeFocused();
-  const focusStyle = await entryType.evaluate((element) => {
+  const healthContent = page.getByLabel("Hälsa", { exact: true });
+  await tabTo(page, healthContent);
+  await expect(healthContent).toBeFocused();
+  const focusStyle = await healthContent.evaluate((element) => {
     const style = getComputedStyle(element);
     return {
       outlineStyle: style.outlineStyle,
@@ -763,6 +1205,15 @@ test("Keyboard reaches the Journal editor and signing action with visible focus"
   });
   expect(focusStyle.outlineStyle).not.toBe("none");
   expect(Number.parseFloat(focusStyle.outlineWidth)).toBeGreaterThan(0);
+
+  const content = page.getByLabel("Övrigt", { exact: true });
+  await tabTo(page, content, 6);
+  await expect(content).toBeFocused();
+  await content.fill("Fiktiv anteckning för permanent tangentbordstest.");
+
+  const entryType = page.getByLabel("Typ av anteckning");
+  await tabTo(page, entryType, 3);
+  await expect(entryType).toBeFocused();
   await entryType.selectOption("CONVERSATION");
 
   const eventDate = page.getByLabel("Datum för händelsen");
@@ -775,13 +1226,8 @@ test("Keyboard reaches the Journal editor and signing action with visible focus"
   await expect(eventTime).toBeFocused();
   await eventTime.fill("11:20");
 
-  const content = page.getByLabel("Anteckning", { exact: true });
-  await tabTo(page, content, 6);
-  await expect(content).toBeFocused();
-  await content.fill("Fiktiv anteckning för permanent tangentbordstest.");
-
   const save = page.getByRole("button", { name: "Spara utkast" });
-  await tabTo(page, save, 3);
+  await tabTo(page, save);
   await expect(save).toBeFocused();
 
   const review = page.getByRole("button", {
@@ -790,7 +1236,13 @@ test("Keyboard reaches the Journal editor and signing action with visible focus"
   await tabTo(page, review, 3);
   await expect(review).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("heading", { name: "Anteckning" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: "Anteckning",
+      exact: true,
+    }),
+  ).toBeVisible();
 
   const sign = page.getByRole("button", { name: "Signera anteckning" });
   await tabTo(page, sign);

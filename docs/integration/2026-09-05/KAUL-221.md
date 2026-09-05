@@ -1,0 +1,14 @@
+# KAUL-221 - Make the combined candidate activation boundary truthful and fail closed
+
+Status: CLOSED - accepted, integrated and exact-source CI verified. Owner: Main Astra, with Sol operations review. Lead: Main Astra.
+Risk: CRITICAL / SECURITY-SENSITIVE. Priority: P1 activation prerequisites.
+Discovery base: 63ba72a1d5eacc24c3cb619cc570f1d8b72c6f05.
+
+Whole-candidate review at discovery base 63ba72a found that the legacy update command could resume ingress without a working Documents scanner; the scanner had no update egress; and runtime backup/restore orchestration is PostgreSQL-only. Existing board wording incorrectly calls that rehearsal combined backup/restore proof. Personnummer Stage-A migration additionally requires attended conversion before readiness can pass. Existing documentation states these activation requirements but does not provide one complete supported transition.
+
+Scope: correct evidence claims, make unsupported combined activation fail closed before outage, supply the exact owner-attended transition prerequisites and distinguish missing repository orchestration from host evidence. Determine the smallest supported scanner-update topology and combined backup/restore path from current architecture; implement only bounded evidence-backed corrections with focused tests and independent review. Do not invent host/provider/credential decisions or execute live operations. No weakened health, scanner, backup, audit or migration gate.
+
+Acceptance requires that no documented update path can silently reopen ingress with unmet combined prerequisites. Owner-only prerequisites must be explicit and concrete. If an operational choice requires the owner, finish all independent repository work and keep this ticket open with that exact decision; do not claim technical freeze or complete backup evidence.
+The scope was split after evidence review: this ticket supplies scanner egress/readiness and private startup; KAUL-222 owns complete combined backup/restore orchestration. Independent Astra caught an outdated lock contract and first-start failure cleanup; both were corrected and independently rechecked before acceptance. Main passed six readiness/filesystem tests, six initial operator/topology cases and eight further affected operator/cleanup contracts, plus full typecheck and focused static checks. Worker 100a253 integrated as 9f0d9a8; run 33959433118 passed 704 unit, 224 PostgreSQL and 44 browser tests, including the real new Pilot Documents readiness adapter. Only mandatory audit failed.
+
+The actual CLI rejected the existing local test scanner with definitions dated 4 September 2026 06:25:45 UTC, older than 24 hours, despite its healthy container ping. This is executed negative evidence; the scanner was not refreshed or modified. Positive Linux execution of the new CLI passed in its explicit additive CI step. Live egress, continued freshness, restart persistence and alerting remain owner evidence.

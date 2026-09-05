@@ -108,14 +108,30 @@ export async function saveJournalDraftAction(
         expectedVersion,
         entryType: parsedForm.entryType,
         eventOccurredAt: parsedForm.eventOccurredAt,
-        content: parsedForm.values.content,
+        healthContent: parsedForm.values.healthContent ?? "",
+        educationOccupationContent:
+          parsedForm.values.educationOccupationContent ?? "",
+        emotionsBehaviorContent:
+          parsedForm.values.emotionsBehaviorContent ?? "",
+        socialRelationsContent: parsedForm.values.socialRelationsContent ?? "",
+        dailyLivingIndependenceContent:
+          parsedForm.values.dailyLivingIndependenceContent ?? "",
+        otherContent: parsedForm.values.otherContent ?? "",
       });
     } else {
       const result = await createJournalDraft({
         clientId,
         entryType: parsedForm.entryType,
         eventOccurredAt: parsedForm.eventOccurredAt,
-        content: parsedForm.values.content,
+        healthContent: parsedForm.values.healthContent ?? "",
+        educationOccupationContent:
+          parsedForm.values.educationOccupationContent ?? "",
+        emotionsBehaviorContent:
+          parsedForm.values.emotionsBehaviorContent ?? "",
+        socialRelationsContent: parsedForm.values.socialRelationsContent ?? "",
+        dailyLivingIndependenceContent:
+          parsedForm.values.dailyLivingIndependenceContent ?? "",
+        otherContent: parsedForm.values.otherContent ?? "",
       });
       if (!result.created) {
         return {
@@ -255,7 +271,16 @@ export async function beginJournalCorrectionAction(
       originalEntryId: original.id,
       entryType: original.entryType,
       eventOccurredAt: original.eventOccurredAt,
-      content: original.content,
+      healthContent: original.healthContent ?? "",
+      educationOccupationContent: original.educationOccupationContent ?? "",
+      emotionsBehaviorContent: original.emotionsBehaviorContent ?? "",
+      socialRelationsContent: original.socialRelationsContent ?? "",
+      dailyLivingIndependenceContent:
+        original.dailyLivingIndependenceContent ?? "",
+      otherContent:
+        original.contentFormat === "LEGACY_NARRATIVE"
+          ? original.content
+          : (original.otherContent ?? ""),
     });
     trustedClientId = result.draft.clientId;
   } catch (error) {

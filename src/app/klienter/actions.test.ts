@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ZodError } from "zod";
 
 const mocks = vi.hoisted(() => ({
   archiveClient: vi.fn(),
@@ -165,6 +166,12 @@ describe("Client Server Action audit operation lifecycle", () => {
       firstName: "Fiktiv",
       lastName: "Klient",
       personIdentifier: "FIKTIV-01",
+      personalIdentityNumber: "",
+      placingUnit: "",
+      legalBasis: "",
+      responsibleSocialWorkerName: "",
+      responsibleSocialWorkerPhone: "",
+      responsibleSocialWorkerEmail: "",
       category: "ADULT",
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/klienter");
@@ -173,6 +180,41 @@ describe("Client Server Action audit operation lifecycle", () => {
     );
   });
 
+  it("returns the normalized saved values for the editor baseline", async () => {
+    const form = updateForm();
+    form.set("firstName", "  Efter  ");
+    form.set("lastName", "  Sparande  ");
+    form.set("personIdentifier", " e2e-normalized ");
+    form.set("personalIdentityNumber", " 19000101-0202 ");
+    form.set("placingUnit", "  Fiktiv enhet  ");
+    form.set("legalBasis", "  Fiktivt lagrum  ");
+    form.set("responsibleSocialWorkerName", "  Fiktiv handläggare  ");
+    form.set("responsibleSocialWorkerPhone", " 070-000 00 00 ");
+    form.set("responsibleSocialWorkerEmail", " handlaggare@example.test ");
+    form.set("category", " YOUTH ");
+    mocks.updateClient.mockResolvedValueOnce({
+      changed: true,
+      client: { id: clientId },
+    });
+
+    await expect(updateClientAction(initialState, form)).resolves.toMatchObject(
+      {
+        status: "SUCCESS",
+        values: {
+          firstName: "Efter",
+          lastName: "Sparande",
+          personIdentifier: "E2E-NORMALIZED",
+          category: "YOUTH",
+          personalIdentityNumber: "19000101-0202",
+          placingUnit: "Fiktiv enhet",
+          legalBasis: "Fiktivt lagrum",
+          responsibleSocialWorkerName: "Fiktiv handläggare",
+          responsibleSocialWorkerPhone: "070-000 00 00",
+          responsibleSocialWorkerEmail: "handlaggare@example.test",
+        },
+      },
+    );
+  });
   it("does not claim a mutation when unchanged Client values are submitted", async () => {
     mocks.updateClient.mockResolvedValueOnce({
       changed: false,
@@ -205,6 +247,55 @@ describe("Client Server Action audit operation lifecycle", () => {
     expect(mocks.redirect).toHaveBeenCalledWith(
       `/klienter/${trustedClientId}?arkiverad=klar`,
     );
+  });
+});
+
+describe("Client creation handoff", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns only the exact Client ID from the successful authenticated operation", async () => {
+    const trustedClientId = "123e4567-e89b-42d3-a456-426614174010";
+    const form = clientForm();
+    form.set("clientId", "browser-controlled-client-id");
+    mocks.createClient.mockResolvedValueOnce({ id: trustedClientId });
+
+    await expect(createClientAction(initialState, form)).resolves.toEqual({
+      status: "SUCCESS",
+      operationId: "123e4567-e89b-42d3-a456-426614174099",
+      message:
+        "Klienten har skapats. Lägg till en primär tilldelning för att aktivera klienten.",
+      clientId: trustedClientId,
+    });
+    expect(mocks.createClient).toHaveBeenCalledWith({
+      operationId,
+      firstName: "Fiktiv",
+      lastName: "Klient",
+      personIdentifier: "FIKTIV-01",
+      personalIdentityNumber: "",
+      placingUnit: "",
+      legalBasis: "",
+      responsibleSocialWorkerName: "",
+      responsibleSocialWorkerPhone: "",
+      responsibleSocialWorkerEmail: "",
+      category: "ADULT",
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/klienter");
+  });
+
+  it("removes any previous Client link target when validation fails", async () => {
+    mocks.createClient.mockRejectedValueOnce(new ZodError([]));
+
+    const result = await createClientAction(
+      { ...initialState, status: "SUCCESS", clientId },
+      clientForm(),
+    );
+
+    expect(result).toEqual({
+      status: "ERROR",
+      operationId: "123e4567-e89b-42d3-a456-426614174099",
+      message: "Kontrollera uppgifterna och försök igen.",
+    });
+    expect(result).not.toHaveProperty("clientId");
   });
 });
 

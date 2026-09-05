@@ -1,11 +1,20 @@
+import { fileURLToPath } from "node:url";
+
 import { defineConfig, devices } from "@playwright/test";
 
+import { getDocumentTestStorageRoot } from "./src/test/document-test-storage";
 import { getTestEnvironment } from "./src/test/test-environment";
 
 const testEnvironment = getTestEnvironment();
 const betterAuthSecret =
   process.env.BETTER_AUTH_SECRET ??
   "fictional-playwright-secret-at-least-32-characters";
+const personalIdentityNumberKeyringFile =
+  process.env.KAUL_PERSONNUMMER_KEYRING_FILE ??
+  fileURLToPath(
+    new URL("./test-fixtures/personnummer-keyring.json", import.meta.url),
+  );
+const documentStorageRoot = getDocumentTestStorageRoot(testEnvironment.testId);
 
 export default defineConfig({
   testDir: "./e2e",
@@ -40,6 +49,14 @@ export default defineConfig({
       DEPLOYMENT_ENV: "test",
       BETTER_AUTH_SECRET: betterAuthSecret,
       BETTER_AUTH_URL: testEnvironment.origin,
+      KAUL_PERSONNUMMER_KEYRING_FILE: personalIdentityNumberKeyringFile,
+      DOCUMENT_STORAGE_ROOT: documentStorageRoot,
+      DOCUMENT_SCANNER_HOST: process.env.DOCUMENT_SCANNER_HOST ?? "127.0.0.1",
+      DOCUMENT_SCANNER_PORT: process.env.DOCUMENT_SCANNER_PORT ?? "3310",
+      DOCUMENT_SCANNER_TIMEOUT_MS:
+        process.env.DOCUMENT_SCANNER_TIMEOUT_MS ?? "15000",
+      DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS:
+        process.env.DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS ?? "24",
     },
   },
 });

@@ -48,6 +48,9 @@ async function cleanupFixtures(): Promise<void> {
     await prisma.assignment.deleteMany({
       where: { organisationId: { in: organisationIds } },
     });
+    await prisma.clientPersonalIdentityNumber.deleteMany({
+      where: { organisationId: { in: organisationIds } },
+    });
     await prisma.client.deleteMany({
       where: { organisationId: { in: organisationIds } },
     });
@@ -152,18 +155,117 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
+test("Swedish non-disclosing not-found page handles unknown URLs with keyboard navigation", async ({
+  page,
+}) => {
+  await logIn(page, administratorEmail, "192.0.2.180");
+  const response = await page.goto("/sida-saknas");
+
+  expect(response?.status()).toBe(404);
+  await expect(
+    page.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Den kan ha tagits bort eller kan inte visas."),
+  ).toBeVisible();
+  await expect(page.getByText("This page could not be found")).toHaveCount(0);
+
+  const overviewLink = page.getByRole("link", { name: "Gå till Översikt" });
+  await page.keyboard.press("Tab");
+  await expect(overviewLink).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(`${testEnvironment.origin}/`);
+  await expect(page.getByRole("heading", { name: "Översikt" })).toBeVisible();
+});
+
+test("Administrator gets static keyboard-usable first-session guidance while Staff does not", async ({
+  browser,
+  page,
+}) => {
+  await logIn(page, administratorEmail, "192.0.2.240");
+  const orientation = page.getByRole("region", { name: "Kom igång" });
+  await expect(orientation).toBeVisible();
+  await expect(orientation.getByRole("listitem")).toHaveCount(3);
+  await expect(
+    orientation.getByRole("link", { name: "Lägg till personal" }),
+  ).toHaveAttribute("href", "/personal");
+  await expect(
+    orientation.getByRole("link", { name: "Skapa klient" }),
+  ).toHaveAttribute("href", "/klienter");
+  await expect(
+    orientation.getByRole("link", { name: "Lägg till primär tilldelning" }),
+  ).toHaveAttribute("href", "/klienter");
+  await expect(orientation.getByRole("progressbar")).toHaveCount(0);
+  await expect(orientation.getByRole("checkbox")).toHaveCount(0);
+  await expect(orientation.getByRole("button")).toHaveCount(0);
+
+  const personnelLink = orientation.getByRole("link", {
+    name: "Lägg till personal",
+  });
+  await personnelLink.focus();
+  await expect(personnelLink).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(`${testEnvironment.origin}/personal`);
+  await page.goBack();
+
+  const clientLink = page
+    .getByRole("region", { name: "Kom igång" })
+    .getByRole("link", { name: "Skapa klient" });
+  await clientLink.focus();
+  await expect(clientLink).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
+  await page.goBack();
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "200%";
+  });
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
+  await expect(page.getByRole("region", { name: "Kom igång" })).toBeVisible();
+
+  const staffContext = await browser.newContext();
+  const staffPage = await staffContext.newPage();
+  await logIn(staffPage, primaryEmail, "192.0.2.241");
+  await expect(
+    staffPage.getByRole("heading", { name: "Kom igång" }),
+  ).toHaveCount(0);
+  await staffContext.close();
+});
+
 test("Client assignment controls access, revocation, and secondary regain", async ({
   browser,
   page,
 }) => {
   await logIn(page, administratorEmail, "192.0.2.181");
-  await expect(page.getByRole("link", { name: "Klienter" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Personal" })).toBeVisible();
-  await page.getByRole("link", { name: "Klienter" }).click();
+  await expect(page.getByRole("button", { name: "Klienter" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Personal", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Klienter" }).click();
+  await page.getByRole("link", { name: "Vuxna", exact: true }).click();
+  await page.getByLabel("Förnamn").fill("Fiktiv");
+  await page.getByLabel("Efternamn").fill("Klientperson");
+  await page.getByLabel("Personreferens").fill("   ");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
+  await page.getByRole("button", { name: "Skapa klient" }).click();
+  await expect(
+    page.getByText("Kontrollera uppgifterna och försök igen."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", {
+      name: "Öppna klienten och lägg till tilldelning",
+    }),
+  ).toHaveCount(0);
+
   await page.getByLabel("Förnamn").fill("Fiktiv");
   await page.getByLabel("Efternamn").fill("Klientperson");
   await page.getByLabel("Personreferens").fill("e2e-klient-01");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
   await expect(page.getByText("E2E-KLIENT-01")).toBeVisible();
@@ -173,7 +275,33 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
       .locator(".client-list-link", { hasText: "E2E-KLIENT-01" })
       .getByText("Ingen aktiv primär ansvarig"),
   ).toBeVisible();
-  await page.getByRole("link", { name: /Fiktiv Klientperson/ }).click();
+  const client = await prisma.client.findFirstOrThrow({
+    where: { personIdentifier: "E2E-KLIENT-01" },
+  });
+  const creationHandoff = page.getByRole("link", {
+    name: "Öppna klienten och lägg till tilldelning",
+  });
+  await expect(creationHandoff).toHaveAttribute(
+    "href",
+    `/klienter/${client.id}`,
+  );
+  await creationHandoff.focus();
+  await expect(creationHandoff).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter/${client.id}`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Ansvar och åtkomst" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Klienten är inte aktiv. Lägg till en primär tilldelning för att aktivera klientarbetet.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ny anteckning" })).toHaveCount(
+    0,
+  );
 
   await page
     .getByLabel("Medarbetare")
@@ -182,6 +310,7 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await page.getByRole("button", { name: "Lägg till tilldelning" }).click();
   await expect(page.getByText("Tilldelningen har sparats.")).toBeVisible();
   await expect(page.getByText("Aktiv", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ny anteckning" })).toBeVisible();
 
   await page
     .getByLabel("Medarbetare")
@@ -206,9 +335,6 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await expect(administratorClientRow.getByText("Fiktiv Primär")).toBeVisible();
   await administratorClientRow.click();
 
-  const client = await prisma.client.findFirstOrThrow({
-    where: { personIdentifier: "E2E-KLIENT-01" },
-  });
   const primaryContext = await browser.newContext();
   const primaryPage = await primaryContext.newPage();
   await logIn(primaryPage, primaryEmail, "192.0.2.182");
@@ -223,10 +349,10 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await expect(
     primaryPage.getByRole("heading", { name: "Aktuellt ansvar" }),
   ).toBeVisible();
-  await expect(primaryPage.getByRole("link", { name: "Personal" })).toHaveCount(
-    0,
-  );
-  await primaryPage.getByRole("link", { name: "Klienter" }).click();
+  await expect(
+    primaryPage.getByRole("link", { name: "Personal", exact: true }),
+  ).toHaveCount(0);
+  await primaryPage.getByRole("link", { name: "Vuxna", exact: true }).click();
   await expect(primaryPage.getByText("E2E-KLIENT-01")).toBeVisible();
   await primaryPage.goto(`/klienter/${client.id}`);
   await expect(
@@ -238,10 +364,23 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await logIn(unrelatedPage, unrelatedEmail, "192.0.2.183");
   await unrelatedPage.goto("/klienter");
   await expect(unrelatedPage.getByText("E2E-KLIENT-01")).toHaveCount(0);
-  await unrelatedPage.goto(`/klienter/${client.id}`);
+  const inaccessibleResponse = await unrelatedPage.goto(
+    `/klienter/${client.id}`,
+  );
+  expect(inaccessibleResponse?.status()).toBe(404);
   await expect(
-    unrelatedPage.getByText("This page could not be found"),
+    unrelatedPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
+  await expect(unrelatedPage.getByText("Fiktiv Klientperson")).toHaveCount(0);
+  await expect(unrelatedPage.getByText("E2E-KLIENT-01")).toHaveCount(0);
+  const inaccessibleJournalResponse = await unrelatedPage.goto(
+    `/klienter/${client.id}/anteckningar/utkast`,
+  );
+  expect(inaccessibleJournalResponse?.status()).toBe(404);
+  await expect(
+    unrelatedPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
+  await expect(unrelatedPage.getByText("Fiktiv Klientperson")).toHaveCount(0);
 
   const secondaryContext = await browser.newContext();
   const secondaryPage = await secondaryContext.newPage();
@@ -256,19 +395,42 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await page.goto(`/klienter/${client.id}`);
   await page
     .locator("li", { hasText: "Fiktiv Primär" })
-    .getByRole("button", { name: "Avsluta tilldelning" })
+    .getByRole("button", {
+      name: "Avsluta primär tilldelning för Fiktiv Primär",
+    })
     .click();
   await expect(page.getByText("Tilldelningen har avslutats.")).toBeVisible();
   await expect(page.getByText("Ej aktiv", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Ansvar och åtkomst" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "De sekundära tilldelningarna är inte avslutade, men ger inte personalen åtkomst så länge klienten saknar en aktiv primär tilldelning.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.locator(".responsibility-summary").getByText("Fiktiv Sekundär"),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ny anteckning" })).toHaveCount(
+    0,
+  );
   await primaryPage.goto("/");
   await expect(primaryPage.getByText("E2E-KLIENT-01")).toHaveCount(0);
   await primaryPage.goto(`/klienter/${client.id}`);
   await expect(
-    primaryPage.getByText("This page could not be found"),
+    primaryPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
 
   await secondaryPage.goto("/");
   await expect(secondaryPage.getByText("E2E-KLIENT-01")).toHaveCount(0);
+  const inactiveSecondaryResponse = await secondaryPage.goto(
+    `/klienter/${client.id}`,
+  );
+  expect(inactiveSecondaryResponse?.status()).toBe(404);
+  await expect(
+    secondaryPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
+  ).toBeVisible();
 
   await page.goto("/klienter");
   await expect(
@@ -284,6 +446,7 @@ test("Client assignment controls access, revocation, and secondary regain", asyn
   await page.getByLabel("Ansvar", { exact: true }).selectOption("PRIMARY");
   await page.getByRole("button", { name: "Lägg till tilldelning" }).click();
   await expect(page.getByText("Aktiv", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ny anteckning" })).toBeVisible();
   await secondaryPage.goto("/");
   await expect(
     secondaryPage
@@ -460,6 +623,16 @@ test("Staff Home and responsibility context remain clear at a 375px viewport", a
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).resolves.toBe(true);
+  await expect(page.getByRole("link", { name: "Ny anteckning" })).toBeVisible();
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "200%";
+  });
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).resolves.toBe(true);
+  await expect(page.getByRole("link", { name: "Ny anteckning" })).toBeVisible();
 });
 
 test("Client categories remain usable on a narrow viewport", async ({
@@ -468,25 +641,85 @@ test("Client categories remain usable on a narrow viewport", async ({
   await page.setViewportSize({ width: 375, height: 812 });
   await logIn(page, administratorEmail, "192.0.2.185");
   await page.getByRole("button", { name: "Öppna meny" }).click();
-  await page.getByRole("link", { name: "Klienter" }).click();
+  const clientsNavigation = page.getByRole("button", { name: "Klienter" });
+  await expect(clientsNavigation).toHaveAttribute("aria-expanded", "false");
+  await clientsNavigation.focus();
+  await page.keyboard.press("Enter");
+  await expect(clientsNavigation).toHaveAttribute("aria-expanded", "true");
+  await page.getByRole("link", { name: "Vuxna", exact: true }).click();
 
-  await expect(page.getByLabel("Kategori")).toHaveValue("");
+  await expect(page.getByLabel("Kategori", { exact: true })).toHaveValue("");
   await page.getByLabel("Förnamn").fill("Vuxen");
   await page.getByLabel("Efternamn").fill("Klient");
   await page.getByLabel("Personreferens").fill("e2e-mobile-adult-01");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
 
   await page.getByLabel("Förnamn").fill("Ungdom");
   await page.getByLabel("Efternamn").fill("Klient");
   await page.getByLabel("Personreferens").fill("e2e-mobile-youth-01");
-  await page.getByLabel("Kategori").selectOption("YOUTH");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("YOUTH");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
 
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  const mainNavigation = page.getByRole("navigation", {
+    name: "Huvudnavigering",
+  });
+  const adultChoice = mainNavigation.getByRole("link", {
+    name: "Vuxna",
+    exact: true,
+  });
+  const youthChoice = mainNavigation.getByRole("link", {
+    name: "Ungdomar",
+    exact: true,
+  });
+  await expect(adultChoice).toHaveAttribute("aria-current", "page");
+  await expect(youthChoice).not.toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: "Vuxna" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Ungdomar" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ungdomar" })).toHaveCount(0);
+  await expect(page.getByText("E2E-MOBILE-ADULT-01")).toBeVisible();
+  await expect(page.getByText("E2E-MOBILE-YOUTH-01")).toHaveCount(0);
+
+  await adultChoice.focus();
+  await page.keyboard.press("Tab");
+  await expect(youthChoice).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
+  await expect(page.getByRole("button", { name: "Öppna meny" })).toBeVisible();
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  await expect(youthChoice).toHaveAttribute("aria-current", "page");
+  await expect(adultChoice).not.toHaveAttribute("aria-current", "page");
+  await expect(page.getByText("E2E-MOBILE-ADULT-01")).toHaveCount(0);
+  await expect(page.getByText("E2E-MOBILE-YOUTH-01")).toBeVisible();
+  await page.getByRole("button", { name: "Stäng meny" }).click();
+
+  await page.goBack();
+  await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  await expect(adultChoice).toHaveAttribute("aria-current", "page");
+  await expect(youthChoice).not.toHaveAttribute("aria-current", "page");
+  await page.getByRole("button", { name: "Stäng meny" }).click();
+  await page.goForward();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  await expect(youthChoice).toHaveAttribute("aria-current", "page");
+  await expect(adultChoice).not.toHaveAttribute("aria-current", "page");
+  await page.getByRole("button", { name: "Stäng meny" }).click();
+  await page.reload();
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  await expect(clientsNavigation).toHaveAttribute("aria-expanded", "true");
+  await expect(youthChoice).toHaveAttribute("aria-current", "page");
+  await page.getByRole("button", { name: "Stäng meny" }).click();
+
+  const allClientsChoice = page.getByRole("link", { name: "Alla klienter" });
+  await allClientsChoice.click();
+  await expect(allClientsChoice).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("E2E-MOBILE-ADULT-01")).toBeVisible();
   await expect(page.getByText("E2E-MOBILE-YOUTH-01")).toBeVisible();
   await expect(
@@ -501,7 +734,11 @@ test("Client categories remain usable on a narrow viewport", async ({
     page.locator(".client-details dd").filter({ hasText: "Ungdomar" }),
   ).toBeVisible();
   await page.goBack();
-  await expect(page).toHaveURL(`${testEnvironment.origin}/klienter`);
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=alla`,
+  );
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  await adultChoice.click();
   await page.getByRole("link", { name: /Vuxen Klient/ }).click();
   await expect(page).toHaveURL(/\/klienter\/[0-9a-f-]+$/);
   await expect(
@@ -519,23 +756,65 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   await page.getByLabel("Förnamn").fill("Konflikt");
   await page.getByLabel("Efternamn").fill("Klient");
   await page.getByLabel("Personreferens").fill("e2e-edit-conflict");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
 
   await page.getByLabel("Förnamn").fill("Före");
   await page.getByLabel("Efternamn").fill("Redigering");
   await page.getByLabel("Personreferens").fill("e2e-edit-client");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
+  await page.getByLabel("Personnummer", { exact: true }).fill("19000101-0101");
+  await page
+    .getByLabel("Placerande enhet", { exact: true })
+    .fill("Fiktiv placerande enhet");
+  await page.getByLabel("Lagrum", { exact: true }).fill("SoL 4 kap. 1 §");
+  await page
+    .getByLabel("Namn", { exact: true })
+    .fill("Fiktiv socialsekreterare");
+  await page.getByLabel("Telefon", { exact: true }).fill("010-123 45 67");
+  await page
+    .getByLabel("E-post", { exact: true })
+    .fill("socialsekreterare@example.test");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await expect(page.getByText("Klienten har skapats.")).toBeVisible();
   await page.getByRole("link", { name: /Före Redigering/ }).click();
 
-  await page.getByRole("button", { name: "Redigera klient" }).click();
+  await page.getByRole("link", { name: "Redigera klientuppgifter" }).click();
+  await expect(page.getByLabel("Personnummer", { exact: true })).toHaveValue(
+    "19000101-0101",
+  );
+  await expect(
+    page.getByLabel("Placerande enhet", { exact: true }),
+  ).toHaveValue("Fiktiv placerande enhet");
+  await expect(page.getByLabel("Lagrum", { exact: true })).toHaveValue(
+    "SoL 4 kap. 1 §",
+  );
+  await expect(page.getByLabel("Namn", { exact: true })).toHaveValue(
+    "Fiktiv socialsekreterare",
+  );
+  await expect(page.getByLabel("Telefon", { exact: true })).toHaveValue(
+    "010-123 45 67",
+  );
+  await expect(page.getByLabel("E-post", { exact: true })).toHaveValue(
+    "socialsekreterare@example.test",
+  );
   await page.getByLabel("Förnamn").fill("Efter");
   await page.getByLabel("Efternamn").fill("Redigering");
   await page.getByLabel("Personreferens").fill("e2e-edit-updated");
-  await page.getByLabel("Kategori").selectOption("YOUTH");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("YOUTH");
+  await page.getByLabel("Personnummer", { exact: true }).fill("19000101-0202");
+  await page
+    .getByLabel("Placerande enhet", { exact: true })
+    .fill("Uppdaterad placerande enhet");
+  await page.getByLabel("Lagrum", { exact: true }).fill("LVU 1 §");
+  await page
+    .getByLabel("Namn", { exact: true })
+    .fill("Uppdaterad socialsekreterare");
+  await page.getByLabel("Telefon", { exact: true }).fill("010-987 65 43");
+  await page
+    .getByLabel("E-post", { exact: true })
+    .fill("uppdaterad.socialsekreterare@example.test");
   const updateRequestPromise = page.waitForRequest(
     (request) =>
       request.method() === "POST" &&
@@ -560,6 +839,17 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
     page.getByRole("heading", { name: "Efter Redigering" }),
   ).toBeVisible();
   await expect(page.getByText("E2E-EDIT-UPDATED")).toBeVisible();
+  await expect(page.getByText("Uppdaterad placerande enhet")).toBeVisible();
+  await expect(page.getByText("LVU 1 §")).toBeVisible();
+  await expect(page.getByText("Uppdaterad socialsekreterare")).toBeVisible();
+  await expect(page.getByText("010-987 65 43")).toBeVisible();
+  await expect(
+    page.getByText("uppdaterad.socialsekreterare@example.test"),
+  ).toBeVisible();
+  await expect(page.getByText("19000101-0202")).toHaveCount(0);
+  await expect(
+    page.getByText("Registrerat (visas endast vid redigering)"),
+  ).toBeVisible();
   await expect(
     page.locator(".client-details dd").filter({ hasText: "Ungdomar" }),
   ).toBeVisible();
@@ -567,7 +857,31 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   const editedClient = await prisma.client.findFirstOrThrow({
     where: { personIdentifier: "E2E-EDIT-UPDATED" },
   });
-  await page.goto("/klienter");
+  await page.goto("/klienter?kategori=alla");
+  await expect(page.getByText("19000101-0202")).toHaveCount(0);
+  const searchInput = page.getByRole("textbox", {
+    name: "Sök klienter",
+    exact: true,
+  });
+  await searchInput.fill("19000101-0202");
+  await expect(searchInput).toHaveValue("19000101-0202");
+  const searchRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.headers()["next-action"] !== undefined,
+  );
+  await page.getByRole("button", { name: "Sök", exact: true }).click();
+  const searchRequest = await searchRequestPromise;
+  expect(new URL(searchRequest.url()).search).toBe("?kategori=alla");
+  await expect(page.getByRole("button", { name: "Rensa sökning" })).toBeVisible(
+    { timeout: 15_000 },
+  );
+  await expect(page.getByText("19000101-0202")).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: /Efter Redigering/ }),
+  ).toHaveCount(0);
+  await expect(page.getByText("E2E-EDIT-UPDATED")).toHaveCount(0);
+  await page.goto("/klienter?kategori=ungdomar");
   const youthGroup = page.locator(".client-category-group", {
     has: page.getByRole("heading", { name: "Ungdomar" }),
   });
@@ -576,15 +890,20 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   ).toBeVisible();
 
   await page.goto(`/klienter/${editedClient.id}`);
-  await page.getByRole("button", { name: "Redigera klient" }).click();
+  await page.getByRole("link", { name: "Redigera klientuppgifter" }).click();
   await page.getByLabel("Förnamn").fill("Får inte");
   await page.getByLabel("Efternamn").fill("Sparas");
   await page.getByLabel("Personreferens").fill("e2e-edit-conflict");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Spara ändringar" }).click();
   await expect(
     page.getByText("Personreferensen används redan för en annan klient."),
   ).toBeVisible();
+  await expect(page.getByLabel("Förnamn")).toHaveValue("Får inte");
+  await expect(page.getByLabel("Efternamn")).toHaveValue("Sparas");
+  await expect(page.getByLabel("Personreferens")).toHaveValue(
+    "e2e-edit-conflict",
+  );
   await expect(
     page.getByRole("heading", { name: "Efter Redigering" }),
   ).toBeVisible();
@@ -595,6 +914,25 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
     lastName: "Redigering",
     personIdentifier: "E2E-EDIT-UPDATED",
     category: "YOUTH",
+    personalIdentityNumberLegacyPlaintext: null,
+    placingUnit: "Uppdaterad placerande enhet",
+    legalBasis: "LVU 1 §",
+    responsibleSocialWorkerName: "Uppdaterad socialsekreterare",
+    responsibleSocialWorkerPhone: "010-987 65 43",
+    responsibleSocialWorkerEmail: "uppdaterad.socialsekreterare@example.test",
+  });
+  await expect(
+    prisma.clientPersonalIdentityNumber.findUniqueOrThrow({
+      where: {
+        organisationId_clientId: {
+          organisationId: editedClient.organisationId,
+          clientId: editedClient.id,
+        },
+      },
+    }),
+  ).resolves.toMatchObject({
+    encryptionVersion: 1,
+    keyId: "fictional-test-key",
   });
 
   await page
@@ -609,7 +947,7 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   await logIn(staffPage, primaryEmail, "192.0.2.187");
   await staffPage.goto(`/klienter/${editedClient.id}`);
   await expect(
-    staffPage.getByRole("button", { name: "Redigera klient" }),
+    staffPage.getByRole("link", { name: "Redigera klientuppgifter" }),
   ).toHaveCount(0);
 
   const directMutation = await staffPage.evaluate(async (request) => {
@@ -645,21 +983,26 @@ test("Administrator edits a Client while conflicts and Staff mutation remain den
   await staffContext.close();
 });
 
-test("Client editing remains functional at a 375px viewport", async ({
+test("Client editing protects unsaved values at a 375px viewport", async ({
   page,
 }) => {
+  const discardConfirmation =
+    "Vill du avbryta redigeringen? Dina osparade ändringar försvinner.";
   await page.setViewportSize({ width: 375, height: 812 });
   await logIn(page, administratorEmail, "192.0.2.188");
   const client = await prisma.client.findFirstOrThrow({
     where: { personIdentifier: "E2E-EDIT-UPDATED" },
   });
   await page.goto(`/klienter/${client.id}`);
-  await page.getByRole("button", { name: "Redigera klient" }).click();
+  await page.getByRole("link", { name: "Redigera klientuppgifter" }).click();
 
-  await expect(page.getByLabel("Förnamn")).toBeVisible();
+  const firstName = page.getByLabel("Förnamn");
+  const originalFirstName = await firstName.inputValue();
+  const unsavedFirstName = "Osparad ändring";
+  await expect(firstName).toBeVisible();
   await expect(page.getByLabel("Efternamn")).toBeVisible();
   await expect(page.getByLabel("Personreferens")).toBeVisible();
-  await expect(page.getByLabel("Kategori")).toBeVisible();
+  await expect(page.getByLabel("Kategori", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Spara ändringar" }),
   ).toBeVisible();
@@ -670,10 +1013,75 @@ test("Client editing remains functional at a 375px viewport", async ({
     ),
   ).resolves.toBe(true);
 
+  await firstName.fill(unsavedFirstName);
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toBe(discardConfirmation);
+    void dialog.dismiss();
+  });
   await page.getByRole("button", { name: "Avbryt" }).click();
-  await expect(
-    page.getByRole("button", { name: "Redigera klient" }),
-  ).toBeVisible();
+  await expect(firstName).toHaveValue(unsavedFirstName);
+
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toContain(
+      "osparade ändringar i klientuppgifterna",
+    );
+    void dialog.dismiss();
+  });
+  await page.getByRole("link", { name: "Anteckningar" }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/klienter/${client.id}\\?redigera=ja$`),
+  );
+  await expect(firstName).toHaveValue(unsavedFirstName);
+
+  await firstName.fill(originalFirstName);
+  let cleanCancelOpenedDialog = false;
+  const dismissUnexpectedDialog = (dialog: { dismiss(): Promise<void> }) => {
+    cleanCancelOpenedDialog = true;
+    void dialog.dismiss();
+  };
+  page.on("dialog", dismissUnexpectedDialog);
+  await page.getByRole("button", { name: "Avbryt" }).click();
+  page.off("dialog", dismissUnexpectedDialog);
+  expect(cleanCancelOpenedDialog).toBe(false);
+  const editTrigger = page.getByRole("button", { name: "Redigera klient" });
+  await expect(editTrigger).toBeVisible();
+  await expect(editTrigger).toBeFocused();
+
+  await editTrigger.click();
+  await firstName.fill("Godkänd kassering");
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toBe(discardConfirmation);
+    void dialog.accept();
+  });
+  await page.getByRole("button", { name: "Avbryt" }).click();
+  await expect(editTrigger).toBeFocused();
+  await editTrigger.click();
+  await expect(firstName).toHaveValue(originalFirstName);
+
+  const savedFirstName = "Sparad omredigering";
+  await firstName.fill(savedFirstName);
+  await page.getByRole("button", { name: "Spara ändringar" }).click();
+  await expect(page.getByText("Klientuppgifterna har sparats.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Avbryt" }).click();
+  await expect(editTrigger).toBeFocused();
+  await editTrigger.click();
+  await expect(firstName).toHaveValue(savedFirstName);
+
+  const secondSavedFirstName = "Andra sparade ändringen";
+  const saveButton = page.getByRole("button", { name: "Spara ändringar" });
+  await firstName.fill(secondSavedFirstName);
+  const secondUpdateResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.request().headers()["next-action"] !== undefined,
+  );
+  await saveButton.click();
+  expect((await secondUpdateResponsePromise).ok()).toBe(true);
+  await expect(saveButton).toBeEnabled();
+  await page.getByRole("button", { name: "Avbryt" }).click();
+  await editTrigger.click();
+  await expect(firstName).toHaveValue(secondSavedFirstName);
 });
 
 test("Administrator archives only after ending all Assignments while Staff remains denied", async ({
@@ -686,7 +1094,7 @@ test("Administrator archives only after ending all Assignments while Staff remai
   await page.getByLabel("Förnamn").fill("Arkiverbar");
   await page.getByLabel("Efternamn").fill("Klient");
   await page.getByLabel("Personreferens").fill("e2e-archive-client");
-  await page.getByLabel("Kategori").selectOption("ADULT");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("ADULT");
   await page.getByRole("button", { name: "Skapa klient" }).click();
   await page.getByRole("link", { name: /Arkiverbar Klient/ }).click();
 
@@ -723,7 +1131,9 @@ test("Administrator archives only after ending all Assignments while Staff remai
     page.once("dialog", (dialog) => dialog.accept());
     await page
       .locator("li", { hasText: staffName })
-      .getByRole("button", { name: "Avsluta tilldelning" })
+      .getByRole("button", {
+        name: `Avsluta ${staffName === "Fiktiv Primär" ? "primär" : "sekundär"} tilldelning för ${staffName}`,
+      })
       .click();
     await expect(
       page.locator("li", { hasText: staffName }).getByText("Avslutad"),
@@ -776,7 +1186,7 @@ test("Administrator archives only after ending all Assignments while Staff remai
   await expect(page.getByText("Fiktiv Primär")).toBeVisible();
   await expect(page.getByText("Fiktiv Sekundär")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Redigera klient" }),
+    page.getByRole("link", { name: "Redigera klientuppgifter" }),
   ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Lägg till tilldelning" }),
@@ -807,11 +1217,11 @@ test("Administrator archives only after ending all Assignments while Staff remai
   ).toHaveCount(0);
   await staffPage.goto(`/klienter/${client.id}`);
   await expect(
-    staffPage.getByText("This page could not be found"),
+    staffPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
   await staffPage.goto("/klienter/arkiverade");
   await expect(
-    staffPage.getByText("This page could not be found"),
+    staffPage.getByRole("heading", { name: "Sidan kunde inte hittas" }),
   ).toBeVisible();
 
   const directMutation = await staffPage.evaluate(async (request) => {
@@ -840,8 +1250,16 @@ test("Client archive list, confirmation, and detail remain usable at 375px", asy
   await page.getByLabel("Förnamn").fill("Mobilarkiv");
   await page.getByLabel("Efternamn").fill("Klient");
   await page.getByLabel("Personreferens").fill("e2e-mobile-archive");
-  await page.getByLabel("Kategori").selectOption("YOUTH");
+  await page.getByLabel("Kategori", { exact: true }).selectOption("YOUTH");
   await page.getByRole("button", { name: "Skapa klient" }).click();
+  await page.getByRole("button", { name: "Öppna meny" }).click();
+  await page
+    .getByRole("navigation", { name: "Huvudnavigering" })
+    .getByRole("link", { name: "Ungdomar", exact: true })
+    .click();
+  await expect(page).toHaveURL(
+    `${testEnvironment.origin}/klienter?kategori=ungdomar`,
+  );
   await page.getByRole("link", { name: /Mobilarkiv Klient/ }).click();
 
   await expect(

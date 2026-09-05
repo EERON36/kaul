@@ -1,0 +1,7 @@
+[Unit]
+Description=Ten-minute fail-safe rollback for the Kaul Pilot host firewall
+
+[Timer]
+OnActiveSec=10min
+AccuracySec=1s
+Unit=kaul-pilot-firewall-rollback.service

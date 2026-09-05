@@ -90,8 +90,9 @@ speculative infrastructure. Propose the smallest safe alternative.
   verified task and may later be delegated to a maintenance workflow.
 - Cleanup must prove that the pull request is `MERGED`, `main` is synced, the
   worktree has no unpreserved work, and any retained safety stash is no longer
-  needed before removing a worktree or local branch. GitHub deletes merged
-  remote branches automatically.
+  needed before removing a worktree or local branch. GitHub deletes a merged
+  remote branch only when repository settings or the merge action request it;
+  verify the actual remote state.
 - Reconcile overlapping branches onto current `main`, resolve only genuine
   conflicts, and rerun verification proportional to their overlapping surface.
 - Only one owner may create a Prisma migration at a time unless explicitly

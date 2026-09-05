@@ -421,7 +421,8 @@ describe("Journal foundation with PostgreSQL", () => {
       status: JournalEntryStatus.DRAFT,
       version: 2,
       eventOccurredAt: eventTwo,
-      content: "  Fiktiv andra version.\n\nBevarat stycke.  ",
+      content: "",
+      otherContent: "  Fiktiv andra version.\n\nBevarat stycke.  ",
       signedAt: null,
     });
     expect(saved.eventOccurredAt.getTime()).not.toBe(saved.createdAt.getTime());
@@ -452,7 +453,8 @@ describe("Journal foundation with PostgreSQL", () => {
       prisma.journalEntry.findUniqueOrThrow({ where: { id: draft.id } }),
     ).resolves.toMatchObject({
       version: 2,
-      content: "  Fiktiv andra version.\n\nBevarat stycke.  ",
+      content: "",
+      otherContent: "  Fiktiv andra version.\n\nBevarat stycke.  ",
     });
 
     await discardJournalDraftForTest(
@@ -576,7 +578,9 @@ describe("Journal foundation with PostgreSQL", () => {
       targetId: draft.id,
       actorUserId: fixture.author.userId,
     });
-    expect(JSON.stringify(successfulOperation)).not.toContain(saved.content);
+    expect(JSON.stringify(successfulOperation)).not.toContain(
+      "Fiktiv aktuell version för samtidig signering.",
+    );
   });
 
   it("rechecks access during signing and rolls back signing before recording FAILED", async () => {
@@ -701,7 +705,7 @@ describe("Journal foundation with PostgreSQL", () => {
     await expect(
       prisma.journalEntry.update({
         where: { id: signed.id },
-        data: { content: "Lägre nivå får inte ändra signerad text." },
+        data: { otherContent: "Lägre nivå får inte ändra signerad text." },
       }),
     ).rejects.toThrow();
     await expect(
@@ -710,7 +714,8 @@ describe("Journal foundation with PostgreSQL", () => {
     await expect(
       prisma.journalEntry.findUniqueOrThrow({ where: { id: signed.id } }),
     ).resolves.toMatchObject({
-      content: "Fiktiv signerad originalanteckning.",
+      content: "",
+      otherContent: "Fiktiv signerad originalanteckning.",
       status: JournalEntryStatus.SIGNED,
     });
 
@@ -891,6 +896,7 @@ describe("Journal foundation with PostgreSQL", () => {
       entryType: draft.entryType,
       eventOccurredAt: draft.eventOccurredAt,
       content: draft.content,
+      otherContent: draft.otherContent,
       correctionOfId: null,
     });
   });
@@ -1356,6 +1362,98 @@ describe("Journal foundation with PostgreSQL", () => {
         },
       }),
     ).resolves.toBeNull();
+  });
+
+  it("keeps a legacy narrative byte-stable through signing and PostgreSQL immutability", async () => {
+    const fixture = await createFixture();
+    const legacyContent = "Äldre narrativ rad ett.\n\nÄldre narrativ rad två.";
+    const draft = await prisma.journalEntry.create({
+      data: {
+        id: randomUUID(),
+        reference: `JRN-${randomUUID().toUpperCase()}`,
+        organisationId: fixture.organisationId,
+        clientId: fixture.firstClient.id,
+        authorUserId: fixture.author.userId,
+        status: JournalEntryStatus.DRAFT,
+        entryType: "DAILY_NOTE",
+        eventOccurredAt: eventOne,
+        content: legacyContent,
+        version: 1,
+      },
+    });
+
+    const signed = await signJournalDraftForTest(
+      {
+        operationId: generateAuditOperationId(),
+        journalEntryId: draft.id,
+        expectedVersion: 1,
+      },
+      fixture.author,
+    );
+    expect(signed).toMatchObject({
+      contentFormat: "LEGACY_NARRATIVE",
+      content: legacyContent,
+      healthContent: null,
+      otherContent: null,
+      status: "SIGNED",
+    });
+    await expect(
+      prisma.journalEntry.update({
+        where: { id: signed.id },
+        data: { content: "Otillåten historisk omskrivning" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("converts an owned legacy draft only when its author saves structured sections", async () => {
+    const fixture = await createFixture();
+    const legacyContent = "Äldre osignerat utkast.";
+    const draft = await prisma.journalEntry.create({
+      data: {
+        id: randomUUID(),
+        reference: `JRN-${randomUUID().toUpperCase()}`,
+        organisationId: fixture.organisationId,
+        clientId: fixture.firstClient.id,
+        authorUserId: fixture.author.userId,
+        status: JournalEntryStatus.DRAFT,
+        entryType: "DAILY_NOTE",
+        eventOccurredAt: eventOne,
+        content: legacyContent,
+        version: 1,
+      },
+    });
+    await expect(
+      getCurrentJournalDraftForTest(
+        { clientId: fixture.firstClient.id },
+        fixture.author,
+      ),
+    ).resolves.toMatchObject({
+      id: draft.id,
+      contentFormat: "LEGACY_NARRATIVE",
+      content: legacyContent,
+    });
+
+    const saved = await saveJournalDraftForTest(
+      {
+        journalEntryId: draft.id,
+        expectedVersion: 1,
+        entryType: "DAILY_NOTE",
+        eventOccurredAt: eventOne,
+        healthContent: "",
+        educationOccupationContent: "",
+        emotionsBehaviorContent: "",
+        socialRelationsContent: "",
+        dailyLivingIndependenceContent: "",
+        otherContent: legacyContent,
+      },
+      fixture.author,
+    );
+    expect(saved).toMatchObject({
+      contentFormat: "STRUCTURED_V1",
+      content: "",
+      otherContent: legacyContent,
+      version: 2,
+    });
   });
 
   it("installs the reviewed draft, correction, immutability and audit-evidence database mechanisms", async () => {

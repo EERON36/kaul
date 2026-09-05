@@ -1,0 +1,149 @@
+# Kaul Project State
+
+Repository review: 4 September 2026. No live infrastructure was accessed for
+this review. Branch and pull-request positions below are a dated snapshot;
+recheck them before integration or release decisions.
+
+[MILESTONES.md](MILESTONES.md) remains authoritative for scope and completion.
+This page distinguishes implemented candidates from release and activation
+approval. The [23 August snapshot](astra/2026-09-04/PROJECT_STATE_2026-08-23.md)
+is retained as historical evidence, including its exact CI run and earlier
+operational assumptions.
+
+## Active integration execution — 5 September 2026
+
+The owner accepted source-of-truth reconciliation and authorized ticketed
+development. The active unified candidate is
+`codex/unified-candidate-20260905`, starting at Astra
+`27df04ef18d397e1693dad747df803e2604ed748`, a direct descendant of
+PR #44's `82bf2987189a029516b7e6221f600af931827522`.
+See the [execution board](integration/2026-09-05/BOARD.md) and
+[accepted reconciliation](integration/2026-09-05/RECONCILIATION.md).
+The baseline below remains a dated source snapshot.
+
+PR #44 GitHub run `33919394787` passed 570 units and 197 PostgreSQL tests but
+failed Documents upload: 43/44 browser cases passed in both attempts. Its
+audit step was skipped after that failure. Astra's local 601/215/44 results
+do not prove that GitHub failure fixed; diagnostic work is tracked as KAUL-205.
+Fresh dependency audit still fails under the unchanged policy; supported
+upstream remediation remains a release blocker, not a ban on controlled
+development. No live deployment or infrastructure change is authorized by
+this execution phase.
+
+## Unified validation checkpoint — 5 September 2026
+
+Draft [PR #46](https://github.com/EERON36/kaul/pull/46) is the designated
+integration candidate. Exact source dc29c03023cc2d138d3a71702cd4021230ca5361
+passed [GitHub run 33952908177](https://github.com/EERON36/kaul/actions/runs/33952908177):
+628 unit tests, 215 PostgreSQL integration tests, all 44 browser tests,
+formatting/lint/typecheck/build, migration rehearsals and the three operational
+CI rehearsal jobs. The original Documents upload failure was measured as stale
+scanner signatures and resolved by CI-only refresh plus real adapter readiness
+under the unchanged 24-hour rule; the same fix also passes all 44 browsers on
+the original diagnostic baseline. [Exact investigation](integration/2026-09-05/CI_UPLOAD_INVESTIGATION.md).
+
+Overall CI remains FAILURE because the mandatory audit ran and rejected the
+same upstream deepmerge-ts/mysql2 advisories. No audit, dependency, schema or
+migration change was made in this execution phase. These GitHub results do
+not replace manual accessibility, full Windows harness, local Docker recovery,
+live-host, attended key/conversion or production restore evidence. Main and
+Pilot remain unchanged, and no live deployment occurred. Later handoff commits
+are documentation only; the board distinguishes the tested source from the
+current branch tip.
+
+## Repository baseline
+
+- `main` at `a93c863` contains the completed Milestones 0–4 baseline.
+- The remote Pilot release candidate at `a631d8e` remains separate in open
+  Draft [PR #41](https://github.com/EERON36/kaul/pull/41). The local
+  `pilot/release-candidate` worktree is still at `d20e453`, two commits behind.
+- `codex/client-journal-monthly-reports` at `406aa75` is the product track in
+  open Draft [PR #43](https://github.com/EERON36/kaul/pull/43).
+  `codex/client-documents` at `d22fe0b` is the separate Documents implementation.
+  Both are integrated into `codex/product-integration` at `82bf298`, open
+  Draft [PR #44](https://github.com/EERON36/kaul/pull/44), with combined CI
+  configuration corrections. They are not merged into main.
+
+The product integration candidate is the baseline for the September project
+health pass. Any local follow-up commits require their own review and
+validation; the dates and SHAs above do not claim that a deployment occurred.
+
+## Implemented product and boundaries
+
+Kaul remains a portable Next.js modular monolith. Business rules belong to
+server-side domain modules; PostgreSQL and reviewed Prisma migrations own
+persistent state; Better Auth supplies credential/session mechanics behind
+Kaul's Organisation, role, Client, Assignment, lifecycle, and audit boundaries.
+
+Milestones 0–4 provide individual authentication, Staff management, Clients
+and Assignments, immutable audit operations, author-private Journal drafts,
+signed records and flat corrections, Goals, Follow-ups, and authorised
+**Att göra**. The unmerged product candidate additionally implements:
+
+- Expanded Client information and Stage A Personnummer envelope encryption
+  ([ADR 0003](decisions/0003-personnummer-envelope-encryption.md)). Personnummer
+  stays separate from Personreferens and outside ordinary lists, search, URLs,
+  logs, and audit metadata.
+- Six structured Journal sections that retain legacy signed narrative records,
+  and Client-scoped, manually authored Monthly Reports with shared drafts and
+  immutable signed versions and replacements.
+- Client Documents with immutable versions, private storage, fail-closed
+  malware scanning, and manifest-bound database/object backup and restore
+  verification ([ADR 0004](decisions/0004-client-document-storage-and-malware-boundary.md)).
+
+The bounded Documents track was approved on 3 September; it is not live, as
+recorded in MILESTONES.md. These implementations do not mark Milestone 5
+complete. Global search, organisation export, notifications, recurrence, and
+other unapproved features remain deferred.
+
+## Validation and release gates
+
+Source or CI checks count only for the exact code and environment exercised.
+Older M3/M4 and Pilot rehearsal results do not establish acceptance of the
+combined product, encryption, and Documents lineage. This repository review
+neither establishes current live-host state nor grants activation approval.
+
+1. **Dependency security:** `npm run audit:ci` remains red. The 4 September
+   review found the Prisma/config path to `deepmerge-ts@7.1.5`
+   (`GHSA-ggr8-5vv4-36mx`) and mysql2 advisories
+   `GHSA-3f6p-5ww8-9rcr` and `GHSA-rgwj-5xj2-c3m3`. Use supported dependency
+   corrections and the unchanged policy; do not use overrides, downgrades,
+   prereleases, or weakened checks to clear the gate.
+2. **Combined migration and runtime evidence:** validate the exact integrated
+   migrations, authorisation, signed-record integrity, concurrency, browser
+   workflows, keyboard use, and accessible reflow with disposable PostgreSQL
+   and appropriate browser checks. Local tests must use the explicit
+   `KAUL_TEST_ID`/`KAUL_TEST_PORT` guard and new-only `kaul_test_*` databases,
+   never the normal `kaul` database or schema-reset workarounds.
+3. **Activation and operations:** Personnummer still requires attended Stage B
+   conversion, restore proof with retained keys, and separately approved Stage
+   C removal of legacy plaintext. Documents require the private scanner,
+   least-privilege persistent mount, and successful exact-snapshot combined
+   backup/restore rehearsal. Applicable host, network, HTTPS, update/recovery,
+   monitoring, credential-support, incident ownership, and stakeholder gates
+   remain subject to explicit evidence and owner approval.
+
+Milestone 7 **Homelab Pilot Readiness** remains open; the candidate must not be
+presented as Pilot-ready while the dependency policy is red. Any permitted
+controlled testing is distinct from that readiness decision. Milestone 8
+**Production / Cloud Launch Readiness** remains a separate later gate for
+provider, legal/privacy, residency, credentials, account recovery, retention,
+operational ownership, migration/restore, and explicit system-owner approval.
+Kaul is not approved for real sensitive information.
+
+See [SECURITY.md](SECURITY.md), [DEPLOYMENT.md](DEPLOYMENT.md), and the
+[Pilot operator runbook](../deploy/pilot/README.md) for the authoritative
+requirements. This status summary does not replace or relax them.
+
+## Development and preservation
+
+The integration owner reviews delegated diffs and proportionate verification
+before accepting them. Keep main, Pilot, product, and historical work separate
+until their required review, merge, and cleanup gates are satisfied. Preserve
+uncommitted work, ignored evidence, mock-only concepts, and the authentication
+prototype objects retained under `refs/safety/consolidation-20260822/*`.
+
+A patch already present in the product candidate is not proof that a worktree
+is disposable: main remains behind the candidates, and local untracked or
+ignored artifacts may contain separate useful work. No branch, worktree,
+safety reference, or external resource is deleted by this documentation pass.

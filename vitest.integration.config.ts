@@ -25,6 +25,11 @@ export default defineConfig({
         process.env.BETTER_AUTH_SECRET ??
         "fictional-integration-secret-at-least-32-characters",
       BETTER_AUTH_URL: testEnvironment.origin,
+      KAUL_PERSONNUMMER_KEYRING_FILE:
+        process.env.KAUL_PERSONNUMMER_KEYRING_FILE ??
+        fileURLToPath(
+          new URL("./test-fixtures/personnummer-keyring.json", import.meta.url),
+        ),
     },
     fileParallelism: false,
     include: ["src/**/*.integration.test.ts"],
