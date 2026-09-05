@@ -70,7 +70,10 @@ export default async function JournalDraftPage({
             client={result.client}
             currentSection="journal"
           />
-          <section aria-labelledby="draft-heading" className="client-section">
+          <section
+            aria-labelledby="draft-heading"
+            className="client-section journal-draft-section"
+          >
             <p className="eyebrow">Utkast</p>
             <h2 id="draft-heading">
               {draft?.correctionOf

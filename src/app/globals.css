@@ -707,10 +707,16 @@ h2 {
 
 .journal-event-fields {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   margin: 0 0 1.25rem;
   padding: 1rem;
   border: 1px solid var(--border);
+}
+
+.journal-event-fields .form-field,
+.journal-event-fields input {
+  min-width: 0;
 }
 
 .journal-event-fields legend {
@@ -1178,6 +1184,15 @@ h2 {
 }
 
 @media (max-width: 47.999rem) {
+  .journal-draft-section,
+  .journal-event-fields {
+    padding-inline: min(1rem, 2vw);
+  }
+
+  .journal-event-fields input {
+    padding-inline: min(0.75rem, 2vw);
+  }
+
   .authentication-main {
     min-height: calc(100vh - 3rem);
     padding: 1rem;
