@@ -25,7 +25,7 @@ Accepted reconciliation: 5 September 2026. This board tracks Phase 2 execution.
 - KAUL-210 INTEGRATED — Terra a08ff2d, Astra-reviewed and integrated as 2d3c0a8: stored historical signer title/role with truthful Swedish fallback; focused unit and static checks passed.
 - KAUL-211 INTEGRATED — d5d8339 + ab933fe, corrected controlled save/cancel lifecycle accepted by Main Astra and independent Astra. Integrated 68 affected units and typecheck pass; browser evidence pending.
 - KAUL-212 INTEGRATED — c8aeb0b accepted by Main Astra and independent Astra; integrated as 5b05c2d. Eight scanner tests passed; final real-scanner CI pending, no claim of KAUL-205 causality.
-- KAUL-213 BACKLOG — preservation disposition only; no cleanup until stable integration and explicit per-target gates.
+- KAUL-213 CLOSED (classification) — exact preservation/provenance disposition reviewed in PRESERVATION.md. Physical cleanup is deferred to verified per-target gates; no deletion performed.
 - KAUL-214 BACKLOG — owner-attended operations, outside this development phase.
 
 ## Verification resources and boundaries
@@ -79,3 +79,5 @@ Draft PR #46 now designates codex/unified-candidate-20260905. Its first exact-he
 KAUL-207 partial accepted fix: 13fced9 gives only the single real-Git Windows snapshot fixture a measured fifteen-second limit; pure path cases and Linux defaults remain unchanged. All thirteen cases passed in 6.18 seconds, with formatting/lint/diff checks passing. The broader unfinished operator timeout proposal remains rejected and preserved outside the candidate; Windows shell-harness reliability is still an explicit limitation.
 
 Integrated regression checkpoint before Client-edit: 101 focused scanner/diagnostic/owned-storage/Client/report tests passed. After Client-edit integration: 68 affected UI/action tests and strict typecheck passed. These focused results do not replace full candidate CI.
+
+Latest local source checkpoint 734fa0b: full formatting and lint passed (three existing warnings); production build including TypeScript passed. Candidate worktree generated AGENTS addition was backed up byte-for-byte and only that task-generated change restored. No historical worktree was altered.
