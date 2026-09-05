@@ -23,7 +23,7 @@ Accepted reconciliation: 5 September 2026. This board tracks Phase 2 execution.
 - KAUL-208 BLOCKED — combined candidate freeze, validation and fresh separate Astra Red-Team depend on scoped work.
 - KAUL-209 BLOCKED — supported upstream audit remediation. WAIT FOR UPSTREAM; no suppression/override/downgrade/prerelease. Development continues.
 - KAUL-210 INTEGRATED — Terra a08ff2d, Astra-reviewed and integrated as 2d3c0a8: stored historical signer title/role with truthful Swedish fallback; focused unit and static checks passed.
-- KAUL-211 INTEGRATED — d5d8339 + ab933fe, corrected controlled save/cancel lifecycle accepted by Main Astra and independent Astra. Integrated 68 affected units and typecheck pass; browser evidence pending.
+- KAUL-211 CLOSED — d5d8339 + ab933fe accepted by Main Astra and independent Astra; 68 affected local units/typecheck pass, and enhanced real GitHub browser cases pass at 734fa0b/run 33951288543.
 - KAUL-212 INTEGRATED — c8aeb0b accepted by Main Astra and independent Astra; integrated as 5b05c2d. Eight scanner tests passed; final real-scanner CI pending, no claim of KAUL-205 causality.
 - KAUL-213 CLOSED (classification) — exact preservation/provenance disposition reviewed in PRESERVATION.md. Physical cleanup is deferred to verified per-target gates; no deletion performed.
 - KAUL-214 BACKLOG — owner-attended operations, outside this development phase.
@@ -81,3 +81,9 @@ KAUL-207 partial accepted fix: 13fced9 gives only the single real-Git Windows sn
 Integrated regression checkpoint before Client-edit: 101 focused scanner/diagnostic/owned-storage/Client/report tests passed. After Client-edit integration: 68 affected UI/action tests and strict typecheck passed. These focused results do not replace full candidate CI.
 
 Latest local source checkpoint 734fa0b: full formatting and lint passed (three existing warnings); production build including TypeScript passed. Candidate worktree generated AGENTS addition was backed up byte-for-byte and only that task-generated change restored. No historical worktree was altered.
+
+
+CI service probe 33951215750 isolated signature acceptance after successful storage/connection/raw-stream checks; timestamp reason remains pending run 33951865295. Its E2E collector import regression was corrected and independently reviewed on diagnostic-only branch. Active candidate did not import that probe.
+
+
+KAUL-205 root-cause checkpoint: corrected run 33951865295 explicitly classified STALE signatures while storage/raw scan worked and the actual adapter rejected them. Sol is implementing the separately reviewed minimal CI update/readiness gate; paired real upload validation remains mandatory before closure.
