@@ -1101,7 +1101,7 @@ validate_documents_backup_prerequisites() {
     die "Node.js could not report its version before the Documents backup outage."
   printf '%s\n' "$node_version" | grep -Eq '^v24\.[0-9]+\.[0-9]+$' ||
     die "Documents backup operations require Node.js 24."
-  run_restic snapshots --json --latest 1 >/dev/null ||
+  run_restic snapshots --json >/dev/null ||
     die "Restic authentication must succeed before a Documents backup outage."
 }
 validate_objects_catalog() {
