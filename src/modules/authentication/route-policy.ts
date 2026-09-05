@@ -44,6 +44,17 @@ export function isRawSignOutRoute(request: Request): boolean {
   return isPath(new URL(request.url).pathname, "/api/auth/sign-out");
 }
 
+export function isRawUserMutationRoute(request: Request): boolean {
+  const pathname = new URL(request.url).pathname;
+
+  return [
+    "/api/auth/update-user",
+    "/api/auth/revoke-session",
+    "/api/auth/revoke-sessions",
+    "/api/auth/revoke-other-sessions",
+  ].some((path) => isPath(pathname, path));
+}
+
 function safeJsonResponse(body: string, status: number): Response {
   return new Response(body, {
     status,
@@ -93,7 +104,8 @@ export function applyBetterAuthRoutePolicy(
     if (
       isRawAdminRoute(request) ||
       isRawChangePasswordRoute(request) ||
-      isRawSignOutRoute(request)
+      isRawSignOutRoute(request) ||
+      isRawUserMutationRoute(request)
     ) {
       return new Response(null, { status: 404 });
     }

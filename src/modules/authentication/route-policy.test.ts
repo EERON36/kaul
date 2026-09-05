@@ -1,3 +1,5 @@
+import { memoryAdapter, type MemoryDB } from "@better-auth/memory-adapter";
+import { betterAuth } from "better-auth";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -16,7 +18,145 @@ const blockedPaths = [
   "/api/auth/change-password/",
   "/api/auth/sign-out",
   "/api/auth/sign-out/",
+  "/api/auth/update-user",
+  "/api/auth/update-user/",
+  "/api/auth/revoke-session",
+  "/api/auth/revoke-session/",
+  "/api/auth/revoke-sessions",
+  "/api/auth/revoke-sessions/",
+  "/api/auth/revoke-other-sessions",
+  "/api/auth/revoke-other-sessions/",
 ];
+
+const identityStates = [
+  {
+    label: "Staff Member",
+    role: "STAFF_MEMBER",
+    mustChangePassword: false,
+    temporaryCredentialExpiresAt: null,
+  },
+  {
+    label: "Administrator",
+    role: "ADMINISTRATOR",
+    mustChangePassword: false,
+    temporaryCredentialExpiresAt: null,
+  },
+  {
+    label: "forced password change",
+    role: "STAFF_MEMBER",
+    mustChangePassword: true,
+    temporaryCredentialExpiresAt: new Date("2032-01-02T00:00:00.000Z"),
+  },
+  {
+    label: "expired temporary credential",
+    role: "STAFF_MEMBER",
+    mustChangePassword: true,
+    temporaryCredentialExpiresAt: new Date("2020-01-02T00:00:00.000Z"),
+  },
+] as const;
+
+type FixtureUser = {
+  name: string;
+  role: string;
+  mustChangePassword: boolean;
+  temporaryCredentialExpiresAt: Date | null;
+};
+
+type FixtureSession = {
+  id: string;
+  token: string;
+};
+
+async function createAuthenticatedRouteFixture(
+  state: (typeof identityStates)[number],
+) {
+  const database: MemoryDB = {
+    user: [],
+    session: [],
+    account: [],
+    verification: [],
+    rateLimit: [],
+  };
+  const authentication = betterAuth({
+    baseURL: "http://localhost:3000",
+    secret: "fictional-route-policy-secret-at-least-32-characters",
+    database: memoryAdapter(database),
+    logger: { disabled: true },
+    emailAndPassword: {
+      enabled: true,
+      autoSignIn: true,
+      minPasswordLength: 15,
+    },
+    user: {
+      additionalFields: {
+        role: {
+          type: "string",
+          required: true,
+          defaultValue: "STAFF_MEMBER",
+          input: false,
+        },
+        mustChangePassword: {
+          type: "boolean",
+          required: true,
+          defaultValue: false,
+          input: false,
+        },
+        temporaryCredentialExpiresAt: {
+          type: "date",
+          required: false,
+          input: false,
+        },
+      },
+    },
+  });
+  const signUpResponse = await authentication.handler(
+    new Request("http://localhost:3000/api/auth/sign-up/email", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "http://localhost:3000",
+      },
+      body: JSON.stringify({
+        name: "Original Fictional Name",
+        email: `${state.label.replaceAll(" ", "-").toLowerCase()}@example.test`,
+        password: "Fictional route policy password 2032",
+      }),
+    }),
+  );
+  expect(signUpResponse.status).toBe(200);
+
+  const sessionCookie = signUpResponse.headers
+    .getSetCookie()
+    .find((value) => value.includes("session_token="))
+    ?.split(";", 1)[0];
+  expect(sessionCookie).toBeTruthy();
+
+  const user = database.user[0] as FixtureUser | undefined;
+  const currentSession = database.session[0] as FixtureSession | undefined;
+  expect(user).toBeDefined();
+  expect(currentSession).toBeDefined();
+  if (!user || !currentSession || !sessionCookie) {
+    throw new Error("Authenticated route fixture was not created.");
+  }
+
+  user.role = state.role;
+  user.mustChangePassword = state.mustChangePassword;
+  user.temporaryCredentialExpiresAt = state.temporaryCredentialExpiresAt;
+  const otherSessionToken = `fictional-other-session-${state.role}-${state.mustChangePassword}`;
+  database.session.push({
+    ...currentSession,
+    id: `fictional-other-session-id-${state.role}-${state.mustChangePassword}`,
+    token: otherSessionToken,
+  });
+
+  return {
+    database,
+    handler: applyBetterAuthRoutePolicy(authentication.handler),
+    otherSessionToken,
+    sessionCookie,
+    user,
+  };
+}
 
 function createRequest(pathname: string, method = "GET"): Request {
   return new Request(`http://localhost:3000${pathname}`, {
@@ -68,6 +208,58 @@ describe("Better Auth route policy", () => {
     expect(await response.text()).toBe("");
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it.each(identityStates)(
+    "blocks raw identity and Session mutations for $label",
+    async (state) => {
+      const fixture = await createAuthenticatedRouteFixture(state);
+      const sessionCount = fixture.database.session.length;
+      const mutations = [
+        {
+          pathname: "/api/auth/update-user",
+          body: { name: "Mutated Fictional Name" },
+        },
+        { pathname: "/api/auth/revoke-sessions", body: {} },
+        { pathname: "/api/auth/revoke-other-sessions", body: {} },
+        {
+          pathname: "/api/auth/revoke-session",
+          body: { token: fixture.otherSessionToken },
+        },
+      ];
+
+      for (const mutation of mutations) {
+        const response = await fixture.handler(
+          new Request(`http://localhost:3000${mutation.pathname}`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              cookie: fixture.sessionCookie,
+              origin: "http://localhost:3000",
+            },
+            body: JSON.stringify(mutation.body),
+          }),
+        );
+
+        expect(response.status).toBe(404);
+        expect(await response.text()).toBe("");
+        expect(fixture.user.name).toBe("Original Fictional Name");
+        expect(fixture.database.session).toHaveLength(sessionCount);
+      }
+
+      const approvedResponse = await fixture.handler(
+        new Request("http://localhost:3000/api/auth/get-session", {
+          headers: { cookie: fixture.sessionCookie },
+        }),
+      );
+      const approvedSession = (await approvedResponse.json()) as {
+        user?: { name?: string };
+      };
+
+      expect(approvedResponse.status).toBe(200);
+      expect(approvedSession.user?.name).toBe("Original Fictional Name");
+    },
+    15_000,
+  );
 
   it.each([400, 401, 403])(
     "normalises an expected sign-in failure with status %s",
