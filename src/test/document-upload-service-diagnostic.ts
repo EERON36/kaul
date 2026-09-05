@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { once } from "node:events";
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { Readable } from "node:stream";
 
 import { requireApprovedDeclaredType } from "../modules/documents/document-input";
@@ -22,6 +22,7 @@ import {
   parseDocumentEnvironment,
   type DocumentEnvironment,
 } from "../modules/documents/document-environment";
+import { isStrictlyContainedPath } from "./document-upload-ci-directory-diagnostic";
 import { getTestEnvironment } from "./test-environment";
 
 type DiagnosticEnvironmentValues = Record<string, string | undefined>;
@@ -44,27 +45,24 @@ export type DocumentUploadServiceDiagnosticStage =
 export type DocumentUploadServiceDiagnosticFailure =
   DocumentUploadServiceDiagnosticStage | "DIAGNOSTIC_UNAVAILABLE" | null;
 
+export const clamAvSignatureTimestampClassifications = [
+  "VALID_FRESH",
+  "STALE",
+  "FUTURE",
+  "MALFORMED",
+] as const;
+
+export type ClamAvSignatureTimestampClassification =
+  (typeof clamAvSignatureTimestampClassifications)[number];
+
 export type DocumentUploadServiceDiagnosticReport = Readonly<{
   schemaVersion: 1;
   ticket: "KAUL-205";
   probe: "DOCUMENT_UPLOAD_SERVICE";
   completedStages: readonly DocumentUploadServiceDiagnosticStage[];
   failureStage: DocumentUploadServiceDiagnosticFailure;
+  signatureTimestampClassification: ClamAvSignatureTimestampClassification | null;
 }>;
-
-export type DocumentStorageDirectoryState = Readonly<{
-  inspectionAvailable: boolean;
-  rootExists: boolean | null;
-  objectsExists: boolean | null;
-  quarantineExists: boolean | null;
-}>;
-
-const unavailableDirectoryState: DocumentStorageDirectoryState = {
-  inspectionAvailable: false,
-  rootExists: null,
-  objectsExists: null,
-  quarantineExists: null,
-};
 
 class ProbeFailure {
   constructor(readonly stage: DocumentUploadServiceDiagnosticStage) {}
@@ -87,16 +85,6 @@ const months = new Map(
   ].map((month, index) => [month, index]),
 );
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-export function isStrictlyContainedPath(root: string, candidate: string) {
-  const pathFromRoot = relative(resolve(root), resolve(candidate));
-  return (
-    pathFromRoot.length > 0 &&
-    pathFromRoot !== ".." &&
-    !pathFromRoot.startsWith(`..${sep}`) &&
-    !isAbsolute(pathFromRoot)
-  );
-}
 
 function parseVersionResponse(value: string) {
   const match = /^ClamAV\s+([^/]+)\/([^/]+)\/(.+)$/.exec(value);
@@ -141,17 +129,34 @@ function parseClamAvUtcTimestamp(value: string) {
   return result;
 }
 
+export function classifyClamAvSignatureTimestamp(
+  value: string,
+  now: Date,
+  maxSignatureAgeHours: number,
+): ClamAvSignatureTimestampClassification {
+  let signatureDate: Date;
+  try {
+    signatureDate = parseClamAvUtcTimestamp(value);
+  } catch {
+    return "MALFORMED";
+  }
+  const ageMs = now.getTime() - signatureDate.getTime();
+  if (ageMs < -60 * 60 * 1000) return "FUTURE";
+  if (ageMs > maxSignatureAgeHours * 60 * 60 * 1000) return "STALE";
+  return "VALID_FRESH";
+}
+
 export function isFreshClamAvVersionResponse(
   value: string,
   now: Date,
   maxSignatureAgeHours: number,
 ) {
-  const signatureDate = parseClamAvUtcTimestamp(parseVersionResponse(value));
-  const ageMs = now.getTime() - signatureDate.getTime();
   return (
-    !Number.isNaN(signatureDate.getTime()) &&
-    ageMs >= -60 * 60 * 1000 &&
-    ageMs <= maxSignatureAgeHours * 60 * 60 * 1000
+    classifyClamAvSignatureTimestamp(
+      parseVersionResponse(value),
+      now,
+      maxSignatureAgeHours,
+    ) === "VALID_FRESH"
   );
 }
 
@@ -235,6 +240,9 @@ async function versionProbe(
     stage: DocumentUploadServiceDiagnosticStage,
     operation: () => Promise<void>,
   ) => Promise<void>,
+  recordTimestampClassification: (
+    classification: ClamAvSignatureTimestampClassification,
+  ) => void,
 ) {
   let socket: Socket | undefined;
   await complete("SCANNER_CONNECT", async () => {
@@ -255,15 +263,13 @@ async function versionProbe(
       signatureDate = parseVersionResponse(value);
     });
     await complete("SCANNER_SIGNATURE_FRESHNESS", async () => {
-      const value = parseClamAvUtcTimestamp(signatureDate);
-      const ageMs = Date.now() - value.getTime();
-      if (
-        Number.isNaN(value.getTime()) ||
-        ageMs < -60 * 60 * 1000 ||
-        ageMs > options.DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS * 60 * 60 * 1000
-      ) {
-        throw new Error();
-      }
+      const classification = classifyClamAvSignatureTimestamp(
+        signatureDate,
+        new Date(),
+        options.DOCUMENT_SCAN_MAX_SIGNATURE_AGE_HOURS,
+      );
+      recordTimestampClassification(classification);
+      if (classification !== "VALID_FRESH") throw new Error();
     });
   } finally {
     connectedSocket.destroy();
@@ -311,6 +317,8 @@ async function runProbe(
 ): Promise<DocumentUploadServiceDiagnosticReport> {
   const completedStages: DocumentUploadServiceDiagnosticStage[] = [];
   let failureStage: DocumentUploadServiceDiagnosticFailure = null;
+  let signatureTimestampClassification: ClamAvSignatureTimestampClassification | null =
+    null;
   const complete = async (
     stage: DocumentUploadServiceDiagnosticStage,
     operation: () => Promise<void>,
@@ -356,7 +364,9 @@ async function runProbe(
     } catch {}
 
     try {
-      await versionProbe(environment, complete);
+      await versionProbe(environment, complete, (classification) => {
+        signatureTimestampClassification = classification;
+      });
     } catch {}
     try {
       await streamProbe(environment, bytes, complete);
@@ -395,6 +405,7 @@ async function runProbe(
       probe: "DOCUMENT_UPLOAD_SERVICE",
       completedStages,
       failureStage,
+      signatureTimestampClassification,
     };
   } catch (error) {
     return {
@@ -407,6 +418,7 @@ async function runProbe(
         (error instanceof ProbeFailure
           ? error.stage
           : "DIAGNOSTIC_UNAVAILABLE"),
+      signatureTimestampClassification,
     };
   } finally {
     if (quarantineKey) {
@@ -415,69 +427,6 @@ async function runProbe(
     if (promoted && storageKey) {
       await storage.removeUnreferenced(storageKey).catch(() => undefined);
     }
-  }
-}
-async function directoryExistsWithin(
-  runnerTemp: string,
-  candidate: string,
-): Promise<boolean> {
-  if (!isStrictlyContainedPath(runnerTemp, candidate)) throw new Error();
-  try {
-    const value = await lstat(candidate);
-    if (!value.isDirectory() || value.isSymbolicLink()) throw new Error();
-    const resolved = await realpath(candidate);
-    if (!isStrictlyContainedPath(runnerTemp, resolved)) throw new Error();
-    return true;
-  } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
-      return false;
-    }
-    throw error;
-  }
-}
-
-export async function inspectCiDocumentStorageDirectories(
-  values: DiagnosticEnvironmentValues = process.env,
-): Promise<DocumentStorageDirectoryState> {
-  try {
-    if (
-      values.GITHUB_ACTIONS !== "true" ||
-      values.CI !== "true" ||
-      values.DEPLOYMENT_ENV !== "test"
-    ) {
-      throw new Error();
-    }
-    const testEnvironment = getTestEnvironment(values);
-    if (testEnvironment.testId !== "ci") throw new Error();
-    const runnerTemp = values.RUNNER_TEMP;
-    if (!runnerTemp || !isAbsolute(runnerTemp)) throw new Error();
-    const runner = await realpath(runnerTemp);
-    const environment = parseDocumentEnvironment(values);
-    const storageRoot = environment.DOCUMENT_STORAGE_ROOT;
-    if (!isStrictlyContainedPath(runner, storageRoot)) throw new Error();
-
-    const rootExists = await directoryExistsWithin(runner, storageRoot);
-    const objectsExists = await directoryExistsWithin(
-      runner,
-      resolve(storageRoot, "objects"),
-    );
-    const quarantineExists = await directoryExistsWithin(
-      runner,
-      resolve(storageRoot, "quarantine"),
-    );
-    return {
-      inspectionAvailable: true,
-      rootExists,
-      objectsExists,
-      quarantineExists,
-    };
-  } catch {
-    return unavailableDirectoryState;
   }
 }
 
@@ -547,6 +496,7 @@ export async function runDocumentUploadServiceDiagnostic(
         probe: "DOCUMENT_UPLOAD_SERVICE",
         completedStages: [],
         failureStage: "DIAGNOSTIC_UNAVAILABLE",
+        signatureTimestampClassification: null,
       },
     };
   }

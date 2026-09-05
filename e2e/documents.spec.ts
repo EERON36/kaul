@@ -26,7 +26,7 @@ import {
 import {
   inspectCiDocumentStorageDirectories,
   type DocumentStorageDirectoryState,
-} from "../src/test/document-upload-service-diagnostic";
+} from "../src/test/document-upload-ci-directory-diagnostic";
 import { getTestEnvironment } from "../src/test/test-environment";
 
 const testEnvironment = getTestEnvironment();

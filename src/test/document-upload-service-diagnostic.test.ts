@@ -1,16 +1,23 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createServer, type Server, type Socket } from "node:net";
 import { resolve } from "node:path";
+import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
 import {
   inspectCiDocumentStorageDirectories,
-  isFreshClamAvVersionResponse,
   isStrictlyContainedPath,
+} from "./document-upload-ci-directory-diagnostic";
+import {
+  classifyClamAvSignatureTimestamp,
+  isFreshClamAvVersionResponse,
   runDocumentUploadServiceDiagnostic,
 } from "./document-upload-service-diagnostic";
+
+const execFileAsync = promisify(execFile);
 
 describe("KAUL-205 service diagnostic guards", () => {
   it("accepts only strict descendants of the runner temp directory", () => {
@@ -25,6 +32,21 @@ describe("KAUL-205 service diagnostic guards", () => {
     ).toBe(false);
   });
 
+  it("classifies bounded signature timestamp outcomes without retaining the value", () => {
+    const now = new Date("2026-09-05T12:00:00.000Z");
+    expect(
+      classifyClamAvSignatureTimestamp("Fri Sep 4 13:00:00 2026", now, 24),
+    ).toBe("VALID_FRESH");
+    expect(
+      classifyClamAvSignatureTimestamp("Fri Sep 4 11:59:59 2026", now, 24),
+    ).toBe("STALE");
+    expect(
+      classifyClamAvSignatureTimestamp("Sat Sep 5 13:00:01 2026", now, 24),
+    ).toBe("FUTURE");
+    expect(
+      classifyClamAvSignatureTimestamp("untrusted raw timestamp", now, 24),
+    ).toBe("MALFORMED");
+  });
   it("uses the production freshness boundary without retaining version data", () => {
     const now = new Date("2026-09-05T12:00:00.000Z");
     expect(
@@ -71,6 +93,26 @@ function ciEnvironment(
 }
 
 describe("KAUL-205 post-failure storage snapshot", () => {
+  it("loads the pure snapshot helper under default Node conditions", async () => {
+    const moduleUrl = new URL(
+      "./document-upload-ci-directory-diagnostic.ts",
+      import.meta.url,
+    ).href;
+    await expect(
+      execFileAsync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `await import(${JSON.stringify(moduleUrl)})`,
+        ],
+        { timeout: 5_000 },
+      ),
+    ).resolves.toBeDefined();
+  });
+
   it("reports only bounded existence booleans for validated CI temp paths", async () => {
     const runnerTemp = await mkdtemp(resolve(tmpdir(), "kaul-runner-temp-"));
     const storageRoot = resolve(runnerTemp, "documents");
@@ -249,6 +291,7 @@ describe("KAUL-205 service probe", () => {
           "STORAGE_PROMOTE",
         ],
         failureStage: null,
+        signatureTimestampClassification: "VALID_FRESH",
       });
       await expect(readdir(resolve(storageRoot, "objects"))).resolves.toEqual(
         [],
@@ -291,6 +334,7 @@ describe("KAUL-205 service probe", () => {
           "SCANNER_ADAPTER_SCAN",
         ],
         failureStage: "SCANNER_SIGNATURE_FRESHNESS",
+        signatureTimestampClassification: "STALE",
       });
       await expect(readdir(resolve(storageRoot, "objects"))).resolves.toEqual(
         [],
